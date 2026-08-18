@@ -150,6 +150,12 @@ function formatCheckedAt(now: () => number): string {
 export function shouldEnableDesktopAutoUpdate(
   args: ShouldEnableDesktopAutoUpdateArgs,
 ): boolean {
+  // Explicit off wins. A patched / forked packaged build sets
+  // BB_DESKTOP_AUTO_UPDATE=0 so the official GitHub desktop-latest feed
+  // cannot replace it. Official packaged bb omits the env and keeps updating.
+  if (args.env.BB_DESKTOP_AUTO_UPDATE === "0") {
+    return false;
+  }
   return args.isPackaged || args.env.BB_DESKTOP_AUTO_UPDATE === "1";
 }
 

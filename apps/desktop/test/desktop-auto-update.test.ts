@@ -400,4 +400,13 @@ describe("desktop auto-update service", () => {
       }),
     ).toBe(true);
   });
+
+  it("lets a packaged fork disable the official GitHub feed", () => {
+    expect(
+      shouldEnableDesktopAutoUpdate({
+        env: { BB_DESKTOP_AUTO_UPDATE: "0" },
+        isPackaged: true,
+      }),
+    ).toBe(false);
+  });
 });
