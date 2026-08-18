@@ -1,0 +1,105 @@
+From 6a2eb9e50e041c41958fca21e7606d0670cdabb5 Mon Sep 17 00:00:00 2001
+From: Jpk0512 <jlapm9@gmail.com>
+Date: Tue, 18 Aug 2026 00:11:03 -0400
+Subject: [PATCH 2/2] Add fork rebase CI and the patches/ convention.
+
+Replays the patch set onto upstream on a schedule so drift surfaces
+without replacing /Applications/bb.app.
+---
+ .github/workflows/fork-upstream-rebase.yml | 69 ++++++++++++++++++++++
+ patches/README.md                          |  7 +++
+ 2 files changed, 76 insertions(+)
+ create mode 100644 .github/workflows/fork-upstream-rebase.yml
+ create mode 100644 patches/README.md
+
+diff --git a/.github/workflows/fork-upstream-rebase.yml b/.github/workflows/fork-upstream-rebase.yml
+new file mode 100644
+index 000000000..ffedde9a2
+--- /dev/null
++++ b/.github/workflows/fork-upstream-rebase.yml
+@@ -0,0 +1,69 @@
++name: Fork upstream rebase
++
++# NSAI fork only. Replays patches/ onto upstream so drift surfaces without
++# replacing the packaged /Applications/bb.app or its official update feed.
++on:
++  schedule:
++    - cron: "17 11 * * *"
++  workflow_dispatch:
++    inputs:
++      ref:
++        description: "Upstream ref (tag, branch, or upstream/main)"
++        required: false
++        default: "upstream/main"
++  push:
++    branches:
++      - "nsai/**"
++    paths:
++      - "patches/**"
++      - ".github/workflows/fork-upstream-rebase.yml"
++      - "apps/desktop/src/desktop-auto-update.ts"
++      - "apps/desktop/test/desktop-auto-update.test.ts"
++
++concurrency:
++  group: fork-rebase-${{ github.ref }}
++  cancel-in-progress: true
++
++jobs:
++  apply-patches:
++    name: Apply patches onto upstream
++    runs-on: ubuntu-latest
++    timeout-minutes: 20
++    steps:
++      - name: Checkout fork branch
++        uses: actions/checkout@v4
++        with:
++          fetch-depth: 0
++
++      - name: Fetch upstream
++        run: |
++          git remote add upstream https://github.com/get-bb/bb.git || true
++          git fetch upstream --tags --prune
++
++      - name: Stash patches and replay onto upstream
++        env:
++          TARGET: ${{ github.event.inputs.ref || 'upstream/main' }}
++        run: |
++          set -euo pipefail
++          mkdir -p /tmp/bb-fork-patches
++          cp patches/*.patch /tmp/bb-fork-patches/
++          git checkout --detach "$TARGET"
++          git am --3way --committer-date-is-author-date /tmp/bb-fork-patches/*.patch
++
++      - name: Setup pnpm
++        uses: pnpm/action-setup@v4
++        with:
++          version: 9.15.0
++
++      - name: Setup Node
++        uses: actions/setup-node@v4
++        with:
++          node-version: 22
++          cache: pnpm
++
++      - name: Install
++        run: pnpm install --frozen-lockfile
++
++      - name: Verify updater kill-switch
++        run: pnpm exec vitest run --config apps/desktop/vitest.config.ts test/desktop-auto-update.test.ts
++        working-directory: apps/desktop
+diff --git a/patches/README.md b/patches/README.md
+new file mode 100644
+index 000000000..d4b65dff1
+--- /dev/null
++++ b/patches/README.md
+@@ -0,0 +1,7 @@
++# NSAI patch set
++
++One `git format-patch` file per surgical fork diff. Replay onto an upstream
++tag with the scripts in `/Users/john.keeney/bb-plugins/bb-fork/scripts`.
++
++Do not replace `/Applications/bb.app`. Official updates stay on the packaged
++app. These patches are for the isolated source checkout only.
+-- 
+2.50.1 (Apple Git-155)
+

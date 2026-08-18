@@ -1,0 +1,52 @@
+From d9b5e826168c06db26bc752231a30c50b4771c3d Mon Sep 17 00:00:00 2001
+From: Jpk0512 <jlapm9@gmail.com>
+Date: Tue, 18 Aug 2026 00:11:03 -0400
+Subject: [PATCH 1/2] Disable official desktop auto-update when
+ BB_DESKTOP_AUTO_UPDATE=0.
+
+A packaged fork can set the env so the GitHub desktop-latest feed cannot
+overwrite surgical patches. Official packaged bb omits the env and keeps
+updating. Source `pnpm dev` already skips electron-updater.
+---
+ apps/desktop/src/desktop-auto-update.ts       | 6 ++++++
+ apps/desktop/test/desktop-auto-update.test.ts | 9 +++++++++
+ 2 files changed, 15 insertions(+)
+
+diff --git a/apps/desktop/src/desktop-auto-update.ts b/apps/desktop/src/desktop-auto-update.ts
+index bb646fec3..6925390a7 100644
+--- a/apps/desktop/src/desktop-auto-update.ts
++++ b/apps/desktop/src/desktop-auto-update.ts
+@@ -150,6 +150,12 @@ function formatCheckedAt(now: () => number): string {
+ export function shouldEnableDesktopAutoUpdate(
+   args: ShouldEnableDesktopAutoUpdateArgs,
+ ): boolean {
++  // Explicit off wins. A patched / forked packaged build sets
++  // BB_DESKTOP_AUTO_UPDATE=0 so the official GitHub desktop-latest feed
++  // cannot replace it. Official packaged bb omits the env and keeps updating.
++  if (args.env.BB_DESKTOP_AUTO_UPDATE === "0") {
++    return false;
++  }
+   return args.isPackaged || args.env.BB_DESKTOP_AUTO_UPDATE === "1";
+ }
+ 
+diff --git a/apps/desktop/test/desktop-auto-update.test.ts b/apps/desktop/test/desktop-auto-update.test.ts
+index 62edde773..f91d27b41 100644
+--- a/apps/desktop/test/desktop-auto-update.test.ts
++++ b/apps/desktop/test/desktop-auto-update.test.ts
+@@ -400,4 +400,13 @@ describe("desktop auto-update service", () => {
+       }),
+     ).toBe(true);
+   });
++
++  it("lets a packaged fork disable the official GitHub feed", () => {
++    expect(
++      shouldEnableDesktopAutoUpdate({
++        env: { BB_DESKTOP_AUTO_UPDATE: "0" },
++        isPackaged: true,
++      }),
++    ).toBe(false);
++  });
+ });
+-- 
+2.50.1 (Apple Git-155)
+
