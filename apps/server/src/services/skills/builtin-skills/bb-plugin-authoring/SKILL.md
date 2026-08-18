@@ -1661,6 +1661,15 @@ openWorkspaceFile }` — register a leaf
   falls back to it. One registration per provider id per plugin; if two
   plugins claim one provider id the host keeps the first by plugin id and
   warns. Reference: `plugins/provider-codex/app.tsx`.
+- `transcriptPrelude` → plugin rows rendered above the native chat transcript,
+  for context that precedes the thread's own first message — the usual case is
+  a prior provider session this thread continues. Registration:
+  `{ id, component }`; the component receives `{ threadId: string }` and is
+  never mounted on the compose screen, so `threadId` is always present. Every
+  registered prelude mounts above the first native message, so a component with
+  nothing to show must return `null` rather than render an empty shell, and it
+  should default to collapsed: this space belongs to the conversation, not to
+  the plugin. Keep it cheap — it renders on every thread open.
 
 Host components:
 

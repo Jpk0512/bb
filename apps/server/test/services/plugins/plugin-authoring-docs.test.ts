@@ -19,6 +19,7 @@ import {
   type PluginNewThreadPanelProps,
   type PluginPendingInteractionProps,
   type PluginProviderIconRegistration,
+  type PluginTranscriptPreludeProps,
   type PluginSettingDescriptor,
   type PluginSettingsSectionProps,
   type PluginSidebarFooterActionProps,
@@ -167,6 +168,7 @@ type SlotPropsByName = {
   // Registration-object slot: the component receives only className, so the
   // registration type is the documented surface.
   experimental_providerIcon: PluginProviderIconRegistration;
+  transcriptPrelude: PluginTranscriptPreludeProps;
 };
 
 type MissingSlot = Exclude<keyof PluginAppSlots, keyof SlotPropsByName>;
@@ -243,6 +245,7 @@ const FRONTEND_SLOT_PROP_FIELDS = {
   messageDirective: ["attributes", "source", "message", "openWorkspaceFile"],
   messageAction: ["threadId", "message", "selectedText", "openPanel"],
   experimental_providerIcon: ["providerId", "icon"],
+  transcriptPrelude: ["threadId"],
 } as const satisfies {
   [S in keyof SlotPropsByName]: readonly (keyof SlotPropsByName[S])[];
 };
