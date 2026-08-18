@@ -23,7 +23,7 @@ export default defineConfig({
   },
   server: {
     // Allow Tailscale MagicDNS names when Vite is behind Tailscale Serve.
-    allowedHosts: [".ts.net"],
+    allowedHosts: [".ts.net", "bb.local"],
     host: viteDevConfig.appHost,
     port: viteDevConfig.appPort,
     proxy: {
