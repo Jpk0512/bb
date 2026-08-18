@@ -24,6 +24,12 @@ export interface BuildLocalAppOriginsArgs {
    * (e.g. a cloud-hosted deployment). Optional; an empty/invalid string is
    * silently skipped. */
   appUrl?: string;
+  /** Extra origins the frontend may be served from, for a reverse proxy that
+   * fronts this instance under its own name on port 80/443 (a local domain, a
+   * LAN alias). Unlike `appUrl` these only widen the allowlist: they do not
+   * change the app URL advertised to clients, so one instance can keep serving
+   * its request-derived origin while also trusting a fixed proxy name. */
+  additionalOrigins?: readonly string[];
 }
 
 const LOCAL_HOSTS = ["127.0.0.1", "localhost"] as const;
@@ -51,6 +57,13 @@ export function buildLocalAppOrigins(
     } catch {
       // Caller's config may pass an empty / invalid value; skip silently
       // rather than refuse to start.
+    }
+  }
+  for (const additionalOrigin of args.additionalOrigins ?? []) {
+    try {
+      origins.push(new URL(additionalOrigin).origin);
+    } catch {
+      // Same tolerance as appUrl: a malformed entry must not stop startup.
     }
   }
   return origins;

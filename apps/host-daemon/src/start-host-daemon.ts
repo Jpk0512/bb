@@ -263,6 +263,10 @@ export async function startHostDaemon(
           ? undefined
           : hostDaemonConfig?.BB_APP_URL,
       devAppPort: hostDaemonConfig?.BB_DEV_APP_PORT,
+      additionalAppOrigins:
+        hostDaemonConfig?.BB_ADDITIONAL_APP_ORIGINS?.length === 0
+          ? undefined
+          : hostDaemonConfig?.BB_ADDITIONAL_APP_ORIGINS,
       logger,
       releaseLock,
       localApiConfig,

@@ -112,6 +112,7 @@ export interface CreateHostDaemonAppOptions {
   hostName: string;
   instanceId: string;
   appUrl?: string;
+  additionalAppOrigins?: readonly string[];
   devAppPort?: number;
   logger: HostDaemonLogger;
   machineCredential?: string;
@@ -904,6 +905,7 @@ export async function createHostDaemonApp(
         serverPort: Number(new URL(options.serverUrl).port) || 0,
         devAppPort: options.devAppPort,
         appUrl: options.appUrl,
+        additionalAppOrigins: options.additionalAppOrigins,
         getConnected: () => connection.sessionId != null,
       })
     : null;

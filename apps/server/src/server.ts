@@ -244,6 +244,9 @@ function buildAllowedCorsOrigins(deps: AppDeps): Set<string> {
   if (deps.config.devAppPort !== undefined) {
     originArgs.devAppPort = deps.config.devAppPort;
   }
+  if (deps.config.additionalAppOrigins !== undefined) {
+    originArgs.additionalOrigins = deps.config.additionalAppOrigins;
+  }
 
   return new Set<string>(buildLocalAppOrigins(originArgs));
 }

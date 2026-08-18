@@ -5,7 +5,10 @@ import {
 import type { ServerRuntimeConfig } from "./types.js";
 
 export interface BrowserRequestGuardDeps {
-  config: Pick<ServerRuntimeConfig, "serverPort" | "appUrl" | "devAppPort">;
+  config: Pick<
+    ServerRuntimeConfig,
+    "serverPort" | "appUrl" | "devAppPort" | "additionalAppOrigins"
+  >;
 }
 
 export interface BrowserRequestProblem {
@@ -34,6 +37,9 @@ function allowedAppOrigins(deps: BrowserRequestGuardDeps): Set<string> {
   }
   if (deps.config.devAppPort !== undefined) {
     args.devAppPort = deps.config.devAppPort;
+  }
+  if (deps.config.additionalAppOrigins !== undefined) {
+    args.additionalOrigins = deps.config.additionalAppOrigins;
   }
   return new Set(buildLocalAppOrigins(args));
 }

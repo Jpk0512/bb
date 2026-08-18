@@ -66,6 +66,9 @@ export interface StartLocalApiServerOptions {
   /** Optional public app origin (e.g. `https://app.example.com`); allowed
    * origin for CORS when the frontend is served from a non-localhost domain. */
   appUrl?: string;
+  /** Extra allowed origins for a reverse proxy that fronts this instance under
+   * its own name. Widens the allowlist without changing generated links. */
+  additionalAppOrigins?: readonly string[];
   getConnected: () => boolean;
   listWorkspaceOpenTargets?: WorkspaceOpenTargetListHandler;
   openInTarget?: OpenInTargetHandler;
@@ -222,6 +225,11 @@ export async function startLocalApiServer(
     key: "devAppPort",
     target: originArgs,
     value: options.devAppPort,
+  });
+  assignIfDefined({
+    key: "additionalOrigins",
+    target: originArgs,
+    value: options.additionalAppOrigins,
   });
   const allowedCorsOrigins = new Set<string>(buildLocalAppOrigins(originArgs));
   const isAllowedAppOrigin = async (

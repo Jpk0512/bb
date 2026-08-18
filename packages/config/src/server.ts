@@ -9,6 +9,7 @@ import { loadDatabaseConfig, type DatabaseConfig } from "./database.js";
 import { loadDevAppConfig } from "./dev-app.js";
 import { readEnvVarWithDefault, resolveEnvLoader } from "./env.js";
 import {
+  BB_ADDITIONAL_APP_ORIGINS_ENV,
   BB_APP_URL_ENV,
   BB_APP_SURFACE_ENV,
   BB_APP_VERSION_ENV,
@@ -21,6 +22,7 @@ import {
   BB_SERVER_BIND_HOST_ENV,
   BB_TELEMETRY_ENV,
   BB_TRANSCRIPTION_ENV,
+  DEFAULT_BB_ADDITIONAL_APP_ORIGINS,
   DEFAULT_BB_APP_URL,
   DEFAULT_BB_APP_SURFACE,
   DEFAULT_BB_APP_VERSION,
@@ -44,6 +46,7 @@ import { loadServerPortConfig, type ServerPortConfig } from "./server-port.js";
 
 export interface ServerConfig
   extends CommonConfig, DatabaseConfig, ServerPortConfig {
+  BB_ADDITIONAL_APP_ORIGINS: readonly string[];
   BB_APP_URL: string;
   BB_APP_SURFACE: AppSurface;
   BB_APP_VERSION: string;
@@ -99,6 +102,12 @@ export function loadServerConfig(
     ...commonConfig,
     ...databaseConfig,
     ...serverPortConfig,
+    BB_ADDITIONAL_APP_ORIGINS: readEnvVarWithDefault({
+      context: loader.context,
+      defaultValue: DEFAULT_BB_ADDITIONAL_APP_ORIGINS,
+      definition: BB_ADDITIONAL_APP_ORIGINS_ENV,
+      env: loader.env,
+    }),
     BB_APP_URL: readEnvVarWithDefault({
       context: loader.context,
       defaultValue: DEFAULT_BB_APP_URL,

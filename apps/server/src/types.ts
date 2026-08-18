@@ -51,6 +51,8 @@ export interface ServerRuntimeConfig {
   transcriptionModel: string;
   appUrl?: string;
   devAppPort?: number;
+  /** Extra browser origins allowed to call the local APIs (reverse proxies). */
+  additionalAppOrigins?: readonly string[];
 }
 
 export interface AppDeps {

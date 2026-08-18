@@ -15,7 +15,11 @@ import {
   validateTranscriptionModel,
 } from "./inference-model.js";
 import { validateLogLevel } from "./log-level.js";
-import { validateOptionalUrl, validateRequiredUrl } from "./public-url.js";
+import {
+  validateOptionalUrl,
+  validateOriginList,
+  validateRequiredUrl,
+} from "./public-url.js";
 import { BB_LOOPBACK_HOST, parsePortValue } from "./runtime.js";
 
 export type ServerBindHost = "127.0.0.1" | "0.0.0.0";
@@ -125,6 +129,10 @@ function parseOptionalUrlEnvValue(args: EnvVarParseArgs): string {
   return validateOptionalUrl(args.name, args.value);
 }
 
+function parseOriginListEnvValue(args: EnvVarParseArgs): readonly string[] {
+  return validateOriginList(args.name, args.value);
+}
+
 function parseLogLevelValue(args: EnvVarParseArgs): string {
   return validateLogLevel(args.value);
 }
@@ -204,6 +212,13 @@ export const BB_APP_URL_ENV = defineEnvVar<string>({
     "Human-facing app/server base URL used for generated links and allowed browser origins. Does not control which host or port the server binds to.",
   name: "BB_APP_URL",
   parse: parseOptionalUrlEnvValue,
+});
+
+export const BB_ADDITIONAL_APP_ORIGINS_ENV = defineEnvVar<readonly string[]>({
+  description:
+    "Comma-separated extra browser origins allowed to call the local APIs, for a reverse proxy that serves this instance under its own name (e.g. https://bb.local). Widens the allowlist only; unlike BB_APP_URL it does not change generated links.",
+  name: "BB_ADDITIONAL_APP_ORIGINS",
+  parse: parseOriginListEnvValue,
 });
 
 export const BB_EXTERNAL_URL_ENV = defineEnvVar<string>({
@@ -360,6 +375,7 @@ export const BB_HOST_TYPE_ENV = defineEnvVar<HostType | undefined>({
 export const DEFAULT_BB_APP_VERSION = DEFAULTS.appVersion;
 export const DEFAULT_BB_APP_SURFACE = DEFAULT_APP_SURFACE;
 export const DEFAULT_BB_APP_URL = "";
+export const DEFAULT_BB_ADDITIONAL_APP_ORIGINS: readonly string[] = [];
 export const DEFAULT_BB_SERVER_BIND_HOST: ServerBindHost = BB_LOOPBACK_HOST;
 export const DEFAULT_BB_EXTERNAL_URL = "";
 export const DEFAULT_OPENAI_API_KEY = "";

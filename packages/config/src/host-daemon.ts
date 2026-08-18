@@ -10,8 +10,10 @@ import {
   type LoadCommonConfigArgs,
 } from "./common.js";
 import {
+  BB_ADDITIONAL_APP_ORIGINS_ENV,
   BB_APP_URL_ENV,
   BB_DEV_APP_PORT_ENV,
+  DEFAULT_BB_ADDITIONAL_APP_ORIGINS,
   DEFAULT_BB_APP_URL,
 } from "./env-vars.js";
 import { assignIfDefined } from "./objects.js";
@@ -21,6 +23,7 @@ import { validatePortNumber } from "./runtime.js";
 import { loadServerUrlValue } from "./server-url.js";
 
 export interface HostDaemonConnectionConfig {
+  BB_ADDITIONAL_APP_ORIGINS: readonly string[];
   BB_APP_URL: string;
   BB_DEV_APP_PORT?: number;
   BB_HOST_DAEMON_PORT: number;
@@ -67,6 +70,12 @@ export function loadHostDaemonConnectionConfig(
 ): HostDaemonConnectionConfig {
   const loader = resolveEnvLoader(args);
   const config: HostDaemonConnectionConfig = {
+    BB_ADDITIONAL_APP_ORIGINS: readEnvVarWithDefault({
+      context: loader.context,
+      defaultValue: DEFAULT_BB_ADDITIONAL_APP_ORIGINS,
+      definition: BB_ADDITIONAL_APP_ORIGINS_ENV,
+      env: loader.env,
+    }),
     BB_APP_URL: validateOptionalUrl(
       "BB_APP_URL",
       readEnvVarWithDefault({
