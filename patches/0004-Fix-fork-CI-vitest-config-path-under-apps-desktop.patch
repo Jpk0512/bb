@@ -1,0 +1,23 @@
+From 8b0722f7a7dedba2e89d95a03a5aeb134adda2c3 Mon Sep 17 00:00:00 2001
+From: Jpk0512 <jlapm9@gmail.com>
+Date: Tue, 18 Aug 2026 00:15:08 -0400
+Subject: [PATCH] Fix fork CI vitest config path under apps/desktop.
+
+---
+ .github/workflows/fork-upstream-rebase.yml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/.github/workflows/fork-upstream-rebase.yml b/.github/workflows/fork-upstream-rebase.yml
+index 114d61222..fffd92599 100644
+--- a/.github/workflows/fork-upstream-rebase.yml
++++ b/.github/workflows/fork-upstream-rebase.yml
+@@ -67,5 +67,5 @@ jobs:
+         run: pnpm install --frozen-lockfile
+ 
+       - name: Verify updater kill-switch
+-        run: pnpm exec vitest run --config apps/desktop/vitest.config.ts test/desktop-auto-update.test.ts
++        run: pnpm exec vitest run --config vitest.config.ts test/desktop-auto-update.test.ts
+         working-directory: apps/desktop
+-- 
+2.50.1 (Apple Git-155)
+
