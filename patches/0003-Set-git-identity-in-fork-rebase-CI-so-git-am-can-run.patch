@@ -1,0 +1,25 @@
+From f8de474d46202cc9e2c737d5f57eb5cd14fc2193 Mon Sep 17 00:00:00 2001
+From: Jpk0512 <jlapm9@gmail.com>
+Date: Tue, 18 Aug 2026 00:12:59 -0400
+Subject: [PATCH] Set git identity in fork rebase CI so git am can run.
+
+---
+ .github/workflows/fork-upstream-rebase.yml | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/.github/workflows/fork-upstream-rebase.yml b/.github/workflows/fork-upstream-rebase.yml
+index ffedde9a2..114d61222 100644
+--- a/.github/workflows/fork-upstream-rebase.yml
++++ b/.github/workflows/fork-upstream-rebase.yml
+@@ -45,6 +45,8 @@ jobs:
+           TARGET: ${{ github.event.inputs.ref || 'upstream/main' }}
+         run: |
+           set -euo pipefail
++          git config user.email "bb-fork-ci@users.noreply.github.com"
++          git config user.name "bb-fork-ci"
+           mkdir -p /tmp/bb-fork-patches
+           cp patches/*.patch /tmp/bb-fork-patches/
+           git checkout --detach "$TARGET"
+-- 
+2.50.1 (Apple Git-155)
+
