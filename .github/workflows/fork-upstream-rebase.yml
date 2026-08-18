@@ -67,5 +67,5 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Verify updater kill-switch
-        run: pnpm exec vitest run --config apps/desktop/vitest.config.ts test/desktop-auto-update.test.ts
+        run: pnpm exec vitest run --config vitest.config.ts test/desktop-auto-update.test.ts
         working-directory: apps/desktop
