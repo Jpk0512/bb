@@ -14,6 +14,7 @@ import type {
   PluginThreadHeaderActionRegistration,
   PluginThreadListRegistration,
   PluginThreadPanelActionRegistration,
+  PluginTranscriptPreludeRegistration,
 } from "@get-bb/plugin-sdk";
 
 /**
@@ -46,6 +47,8 @@ export interface PluginRegistrationSet {
   messageActions?: readonly PluginMessageActionRegistration[];
   /** Optional for the same reason as `threadLists`: bundles built earlier. */
   providerIcons?: readonly PluginProviderIconRegistration[];
+  /** Optional for bundles built before this slot existed. */
+  transcriptPreludes?: readonly PluginTranscriptPreludeRegistration[];
 }
 
 interface PluginSlotBase {
@@ -87,6 +90,8 @@ export interface PluginMessageActionSlot
   extends PluginMessageActionRegistration, PluginSlotBase {}
 export interface PluginProviderIconSlot
   extends PluginProviderIconRegistration, PluginSlotBase {}
+export interface PluginTranscriptPreludeSlot
+  extends PluginTranscriptPreludeRegistration, PluginSlotBase {}
 
 /** Flattened view across plugins, ordered by plugin id (deterministic). */
 export interface PluginSlotSnapshot {
@@ -104,6 +109,7 @@ export interface PluginSlotSnapshot {
   messageDirectives: readonly PluginMessageDirectiveSlot[];
   messageActions: readonly PluginMessageActionSlot[];
   providerIcons: readonly PluginProviderIconSlot[];
+  transcriptPreludes: readonly PluginTranscriptPreludeSlot[];
 }
 
 export const EMPTY_PLUGIN_SLOT_SNAPSHOT: PluginSlotSnapshot = {
@@ -121,6 +127,7 @@ export const EMPTY_PLUGIN_SLOT_SNAPSHOT: PluginSlotSnapshot = {
   messageDirectives: [],
   messageActions: [],
   providerIcons: [],
+  transcriptPreludes: [],
 };
 
 const registrationsByPluginId = new Map<string, PluginRegistrationSet>();
@@ -145,6 +152,7 @@ function buildSnapshot(): PluginSlotSnapshot {
     messageDirectives: PluginMessageDirectiveSlot[];
     messageActions: PluginMessageActionSlot[];
     providerIcons: PluginProviderIconSlot[];
+    transcriptPreludes: PluginTranscriptPreludeSlot[];
   } = {
     homepageSections: [],
     settingsSections: [],
@@ -160,6 +168,7 @@ function buildSnapshot(): PluginSlotSnapshot {
     messageDirectives: [],
     messageActions: [],
     providerIcons: [],
+    transcriptPreludes: [],
   };
   for (const pluginId of pluginIds) {
     const set = registrationsByPluginId.get(pluginId);
@@ -231,6 +240,9 @@ function buildSnapshot(): PluginSlotSnapshot {
         continue;
       }
       next.providerIcons.push({ ...registration, pluginId, generation });
+    }
+    for (const registration of set.transcriptPreludes ?? []) {
+      next.transcriptPreludes.push({ ...registration, pluginId, generation });
     }
   }
   return next;

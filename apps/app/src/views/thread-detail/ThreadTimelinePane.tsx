@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { ThreadTimelineUnreadDividerPlacement } from "@/components/thread/timeline";
 import type { PromptMentionLinkResolver } from "@/components/promptbox/editor/prompt-mention-link";
+import { PluginTranscriptPreludes } from "@/components/plugin/PluginTranscriptPreludes";
 import { EmbeddedThreadChat } from "@/components/thread/embedded-chat";
 import type {
   HostConnectionNotice,
@@ -40,7 +41,15 @@ export function ThreadTimelinePane({
           loadOlderTimelineRows={surface.onLoadOlderRows}
         />
       }
-      surface={surface}
+      surface={{
+        ...surface,
+        leadingContent: (
+          <>
+            <PluginTranscriptPreludes threadId={surface.threadId} />
+            {surface.leadingContent}
+          </>
+        ),
+      }}
     />
   );
 }

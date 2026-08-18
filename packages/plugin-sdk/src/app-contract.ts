@@ -600,6 +600,30 @@ export interface PluginThreadHeaderActionRegistration {
   component: ComponentType<PluginThreadHeaderActionProps>;
 }
 
+/**
+ * Props passed to a `transcriptPrelude` component, rendered above the native
+ * thread timeline (collapsed plugin content that continues a prior session).
+ */
+export interface PluginTranscriptPreludeProps {
+  /**
+   * The thread whose native timeline this prelude sits above. Never null:
+   * the slot is not rendered on the compose screen.
+   */
+  threadId: string;
+}
+
+/**
+ * Render plugin rows above the native chat transcript (for example a
+ * previous-provider session continued by a switch). The host mounts every
+ * registered prelude above the first native message; a component that has
+ * nothing to show should return null.
+ */
+export interface PluginTranscriptPreludeRegistration {
+  /** Unique within the plugin; letters, digits, `-`, `_`. */
+  id: string;
+  component: ComponentType<PluginTranscriptPreludeProps>;
+}
+
 /** One pane's place in the split layout, as fractions of the split area. */
 export interface PluginSidebarSplitPane {
   paneId: string;
@@ -835,6 +859,11 @@ export interface PluginAppSlots {
    * docs/api_to_audit.md.
    */
   experimental_providerIcon(registration: PluginProviderIconRegistration): void;
+  /**
+   * Render rows above the native thread transcript (see
+   * {@link PluginTranscriptPreludeRegistration}).
+   */
+  transcriptPrelude(registration: PluginTranscriptPreludeRegistration): void;
 }
 
 export interface PluginAppComposer {

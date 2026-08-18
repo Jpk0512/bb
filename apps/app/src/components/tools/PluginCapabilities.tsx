@@ -286,6 +286,12 @@ function pluginAppSurfaceItems(
       "thread-header",
       "Adds an action to thread headers.",
     ),
+    ...namedSlotItems(
+      pluginId,
+      slots.transcriptPreludes,
+      "transcript-prelude",
+      "Adds prior-session rows above the native thread transcript.",
+    ),
     ...slots.composerCustomizations
       .filter((slot) => slot.pluginId === pluginId)
       .flatMap((slot) => [

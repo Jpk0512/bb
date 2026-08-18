@@ -26,6 +26,28 @@ describe("definePluginApp", () => {
   });
 });
 
+describe("collectPluginAppRegistrations — transcriptPrelude", () => {
+  it("collects a prelude slot", () => {
+    const definition = definePluginApp((app) => {
+      app.slots.transcriptPrelude({
+        id: "ledger",
+        component: Component,
+      });
+    });
+    expect(collectPluginAppRegistrations(definition).transcriptPreludes).toEqual(
+      [{ id: "ledger", component: Component }],
+    );
+  });
+
+  it("rejects two preludes with the same id", () => {
+    const definition = definePluginApp((app) => {
+      app.slots.transcriptPrelude({ id: "ledger", component: Component });
+      app.slots.transcriptPrelude({ id: "ledger", component: Component });
+    });
+    expect(() => collectPluginAppRegistrations(definition)).toThrow(/ledger/);
+  });
+});
+
 describe("collectPluginAppRegistrations — experimental_threadHeaderAction", () => {
   it("collects a header action", () => {
     const definition = definePluginApp((app) => {

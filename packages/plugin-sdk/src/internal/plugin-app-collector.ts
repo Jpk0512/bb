@@ -15,6 +15,7 @@ import type {
   PluginThreadHeaderActionRegistration,
   PluginThreadListRegistration,
   PluginThreadPanelActionRegistration,
+  PluginTranscriptPreludeRegistration,
 } from "@get-bb/plugin-sdk";
 import {
   collectComposerCustomization,
@@ -44,6 +45,7 @@ export interface CollectedPluginAppRegistrations {
   messageDirectives: PluginMessageDirectiveRegistration[];
   messageActions: PluginMessageActionRegistration[];
   providerIcons: PluginProviderIconRegistration[];
+  transcriptPreludes: PluginTranscriptPreludeRegistration[];
   contentScripts: PluginContentScriptRegistration[];
 }
 
@@ -73,6 +75,7 @@ export function collectPluginAppRegistrations(
     messageDirectives: [],
     messageActions: [],
     providerIcons: [],
+    transcriptPreludes: [],
     contentScripts: [],
   };
   const seenIds = {
@@ -90,6 +93,7 @@ export function collectPluginAppRegistrations(
     messageDirective: new Set<string>(),
     messageAction: new Set<string>(),
     providerIcon: new Set<string>(),
+    transcriptPrelude: new Set<string>(),
     contentScript: new Set<string>(),
   };
 
@@ -337,6 +341,15 @@ export function collectPluginAppRegistrations(
         collected.providerIcons.push({
           providerId,
           icon: requireComponent(kind, registration.icon),
+        });
+      },
+      transcriptPrelude(registration) {
+        const kind = "slots.transcriptPrelude";
+        const id = requireSlotId(kind, registration?.id);
+        requireUniqueId(kind, seenIds.transcriptPrelude, id);
+        collected.transcriptPreludes.push({
+          id,
+          component: requireComponent(kind, registration.component),
         });
       },
     },
