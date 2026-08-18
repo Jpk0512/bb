@@ -1,0 +1,1243 @@
+From 948a149f1beb42fb67f762d2ea5ee84f7f5475de Mon Sep 17 00:00:00 2001
+From: Jpk0512 <jlapm9@gmail.com>
+Date: Tue, 18 Aug 2026 01:04:47 -0400
+Subject: [PATCH] Add a transcriptPrelude plugin slot above the native chat
+ timeline.
+
+The chat pane mounts registered prelude components as leadingContent so
+Recall can render prior-session Ledger history inside the session window
+after a provider switch. Older plugin bundles omit the slot and stay valid.
+---
+ .../plugin/PluginTranscriptPreludes.tsx       |  32 +++
+ .../components/tools/PluginCapabilities.tsx   |   6 +
+ .../app/src/lib/plugin-app-definition.test.ts |  22 ++
+ apps/app/src/lib/plugin-slots.ts              |  12 ++
+ .../thread-detail/ThreadTimelinePane.test.tsx |  32 +++
+ .../thread-detail/ThreadTimelinePane.tsx      |  11 +-
+ .../bundled-types/bb-plugin-sdk-app.d.ts      |  29 ++-
+ ...gin-sdk-internal-plugin-app-collector.d.ts |   3 +-
+ .../bundled-types/bb-plugin-sdk.d.ts          | 201 ++++++++++--------
+ packages/plugin-sdk/src/app-contract.ts       |  29 +++
+ .../src/internal/plugin-app-collector.ts      |  13 ++
+ 11 files changed, 300 insertions(+), 90 deletions(-)
+ create mode 100644 apps/app/src/components/plugin/PluginTranscriptPreludes.tsx
+
+diff --git a/apps/app/src/components/plugin/PluginTranscriptPreludes.tsx b/apps/app/src/components/plugin/PluginTranscriptPreludes.tsx
+new file mode 100644
+index 000000000..62a376d95
+--- /dev/null
++++ b/apps/app/src/components/plugin/PluginTranscriptPreludes.tsx
+@@ -0,0 +1,32 @@
++import { PluginSlotMount } from "./PluginSlotMount";
++import { usePluginSlots } from "@/lib/plugin-slots";
++
++/**
++ * Plugin `transcriptPrelude` slots: components rendered above the native
++ * thread timeline so a prior session (for example after a provider switch)
++ * can appear inside the chat pane.
++ */
++export function PluginTranscriptPreludes({ threadId }: { threadId: string }) {
++  const { transcriptPreludes } = usePluginSlots();
++  if (transcriptPreludes.length === 0) return null;
++
++  return (
++    <div className="flex flex-col gap-2 px-3 pt-3">
++      {transcriptPreludes.map((slot) => {
++        const Component = slot.component;
++        return (
++          <PluginSlotMount
++            key={`${slot.pluginId}/${slot.id}/${slot.generation}/${threadId}`}
++            pluginId={slot.pluginId}
++            slotKind="transcriptPrelude"
++            slotId={slot.id}
++            instanceId={threadId}
++            crashFallback={null}
++          >
++            <Component threadId={threadId} />
++          </PluginSlotMount>
++        );
++      })}
++    </div>
++  );
++}
+diff --git a/apps/app/src/components/tools/PluginCapabilities.tsx b/apps/app/src/components/tools/PluginCapabilities.tsx
+index 2b0868710..ef7607ef9 100644
+--- a/apps/app/src/components/tools/PluginCapabilities.tsx
++++ b/apps/app/src/components/tools/PluginCapabilities.tsx
+@@ -286,6 +286,12 @@ function pluginAppSurfaceItems(
+       "thread-header",
+       "Adds an action to thread headers.",
+     ),
++    ...namedSlotItems(
++      pluginId,
++      slots.transcriptPreludes,
++      "transcript-prelude",
++      "Adds prior-session rows above the native thread transcript.",
++    ),
+     ...slots.composerCustomizations
+       .filter((slot) => slot.pluginId === pluginId)
+       .flatMap((slot) => [
+diff --git a/apps/app/src/lib/plugin-app-definition.test.ts b/apps/app/src/lib/plugin-app-definition.test.ts
+index 51ca8fca3..603fa86c6 100644
+--- a/apps/app/src/lib/plugin-app-definition.test.ts
++++ b/apps/app/src/lib/plugin-app-definition.test.ts
+@@ -26,6 +26,28 @@ describe("definePluginApp", () => {
+   });
+ });
+ 
++describe("collectPluginAppRegistrations — transcriptPrelude", () => {
++  it("collects a prelude slot", () => {
++    const definition = definePluginApp((app) => {
++      app.slots.transcriptPrelude({
++        id: "ledger",
++        component: Component,
++      });
++    });
++    expect(collectPluginAppRegistrations(definition).transcriptPreludes).toEqual(
++      [{ id: "ledger", component: Component }],
++    );
++  });
++
++  it("rejects two preludes with the same id", () => {
++    const definition = definePluginApp((app) => {
++      app.slots.transcriptPrelude({ id: "ledger", component: Component });
++      app.slots.transcriptPrelude({ id: "ledger", component: Component });
++    });
++    expect(() => collectPluginAppRegistrations(definition)).toThrow(/ledger/);
++  });
++});
++
+ describe("collectPluginAppRegistrations — experimental_threadHeaderAction", () => {
+   it("collects a header action", () => {
+     const definition = definePluginApp((app) => {
+diff --git a/apps/app/src/lib/plugin-slots.ts b/apps/app/src/lib/plugin-slots.ts
+index 3cc062be2..1b3d9acfd 100644
+--- a/apps/app/src/lib/plugin-slots.ts
++++ b/apps/app/src/lib/plugin-slots.ts
+@@ -14,6 +14,7 @@ import type {
+   PluginThreadHeaderActionRegistration,
+   PluginThreadListRegistration,
+   PluginThreadPanelActionRegistration,
++  PluginTranscriptPreludeRegistration,
+ } from "@get-bb/plugin-sdk";
+ 
+ /**
+@@ -46,6 +47,8 @@ export interface PluginRegistrationSet {
+   messageActions?: readonly PluginMessageActionRegistration[];
+   /** Optional for the same reason as `threadLists`: bundles built earlier. */
+   providerIcons?: readonly PluginProviderIconRegistration[];
++  /** Optional for bundles built before this slot existed. */
++  transcriptPreludes?: readonly PluginTranscriptPreludeRegistration[];
+ }
+ 
+ interface PluginSlotBase {
+@@ -87,6 +90,8 @@ export interface PluginMessageActionSlot
+   extends PluginMessageActionRegistration, PluginSlotBase {}
+ export interface PluginProviderIconSlot
+   extends PluginProviderIconRegistration, PluginSlotBase {}
++export interface PluginTranscriptPreludeSlot
++  extends PluginTranscriptPreludeRegistration, PluginSlotBase {}
+ 
+ /** Flattened view across plugins, ordered by plugin id (deterministic). */
+ export interface PluginSlotSnapshot {
+@@ -104,6 +109,7 @@ export interface PluginSlotSnapshot {
+   messageDirectives: readonly PluginMessageDirectiveSlot[];
+   messageActions: readonly PluginMessageActionSlot[];
+   providerIcons: readonly PluginProviderIconSlot[];
++  transcriptPreludes: readonly PluginTranscriptPreludeSlot[];
+ }
+ 
+ export const EMPTY_PLUGIN_SLOT_SNAPSHOT: PluginSlotSnapshot = {
+@@ -121,6 +127,7 @@ export const EMPTY_PLUGIN_SLOT_SNAPSHOT: PluginSlotSnapshot = {
+   messageDirectives: [],
+   messageActions: [],
+   providerIcons: [],
++  transcriptPreludes: [],
+ };
+ 
+ const registrationsByPluginId = new Map<string, PluginRegistrationSet>();
+@@ -145,6 +152,7 @@ function buildSnapshot(): PluginSlotSnapshot {
+     messageDirectives: PluginMessageDirectiveSlot[];
+     messageActions: PluginMessageActionSlot[];
+     providerIcons: PluginProviderIconSlot[];
++    transcriptPreludes: PluginTranscriptPreludeSlot[];
+   } = {
+     homepageSections: [],
+     settingsSections: [],
+@@ -160,6 +168,7 @@ function buildSnapshot(): PluginSlotSnapshot {
+     messageDirectives: [],
+     messageActions: [],
+     providerIcons: [],
++    transcriptPreludes: [],
+   };
+   for (const pluginId of pluginIds) {
+     const set = registrationsByPluginId.get(pluginId);
+@@ -232,6 +241,9 @@ function buildSnapshot(): PluginSlotSnapshot {
+       }
+       next.providerIcons.push({ ...registration, pluginId, generation });
+     }
++    for (const registration of set.transcriptPreludes ?? []) {
++      next.transcriptPreludes.push({ ...registration, pluginId, generation });
++    }
+   }
+   return next;
+ }
+diff --git a/apps/app/src/views/thread-detail/ThreadTimelinePane.test.tsx b/apps/app/src/views/thread-detail/ThreadTimelinePane.test.tsx
+index a3e8e098a..b92e6e085 100644
+--- a/apps/app/src/views/thread-detail/ThreadTimelinePane.test.tsx
++++ b/apps/app/src/views/thread-detail/ThreadTimelinePane.test.tsx
+@@ -7,6 +7,7 @@ import type { ThreadTimelineSurfaceProps } from "@/components/thread/timeline/Th
+ vi.mock("@/components/thread/timeline/ThreadTimelineSurface", () => ({
+   ThreadTimelineSurface: (props: ThreadTimelineSurfaceProps) => (
+     <div data-testid="timeline">
++      {props.leadingContent}
+       {props.onOpenPluginPanel === undefined ? "missing" : "available"}
+     </div>
+   ),
+@@ -20,6 +21,37 @@ const { ThreadTimelinePane } = await import("./ThreadTimelinePane");
+ 
+ afterEach(cleanup);
+ 
++it("forwards plugin transcript preludes as timeline leading content", () => {
++  render(
++    <ThreadTimelinePane
++      activeThinking={null}
++      canSpawnChild={false}
++      footer={null}
++      hasOlderTimelineRows={false}
++      isLoadingOlderTimelineRows={false}
++      isStopping={false}
++      isThreadTimelinePending={false}
++      leadingContent={<span data-testid="host-leading">host</span>}
++      onLoadOlderRows={() => undefined}
++      onOpenPluginPanel={() => true}
++      projectId="proj_1"
++      resolveMentionLink={() => null}
++      showOngoingIndicator={false}
++      stoppingAnchorAt={0}
++      threadId="thr_1"
++      threadRuntimeDisplayStatus="idle"
++      timelineError={false}
++      timelineRows={[]}
++      unreadDividerAutoScroll={false}
++      unreadDividerPlacement={null}
++      workspaceRootPath={undefined}
++    />,
++  );
++
++  expect(screen.getByTestId("timeline").textContent).toContain("available");
++  expect(screen.getByTestId("host-leading").textContent).toBe("host");
++});
++
+ it("forwards the plugin-panel opener to rendered message directives", () => {
+   render(
+     <ThreadTimelinePane
+diff --git a/apps/app/src/views/thread-detail/ThreadTimelinePane.tsx b/apps/app/src/views/thread-detail/ThreadTimelinePane.tsx
+index 7d323f95c..15d0afc21 100644
+--- a/apps/app/src/views/thread-detail/ThreadTimelinePane.tsx
++++ b/apps/app/src/views/thread-detail/ThreadTimelinePane.tsx
+@@ -1,6 +1,7 @@
+ import type { ReactNode } from "react";
+ import type { ThreadTimelineUnreadDividerPlacement } from "@/components/thread/timeline";
+ import type { PromptMentionLinkResolver } from "@/components/promptbox/editor/prompt-mention-link";
++import { PluginTranscriptPreludes } from "@/components/plugin/PluginTranscriptPreludes";
+ import { EmbeddedThreadChat } from "@/components/thread/embedded-chat";
+ import type {
+   HostConnectionNotice,
+@@ -40,7 +41,15 @@ export function ThreadTimelinePane({
+           loadOlderTimelineRows={surface.onLoadOlderRows}
+         />
+       }
+-      surface={surface}
++      surface={{
++        ...surface,
++        leadingContent: (
++          <>
++            <PluginTranscriptPreludes threadId={surface.threadId} />
++            {surface.leadingContent}
++          </>
++        ),
++      }}
+     />
+   );
+ }
+diff --git a/packages/plugin-sdk/bundled-types/bb-plugin-sdk-app.d.ts b/packages/plugin-sdk/bundled-types/bb-plugin-sdk-app.d.ts
+index 111eb98f5..4fea20eb6 100644
+--- a/packages/plugin-sdk/bundled-types/bb-plugin-sdk-app.d.ts
++++ b/packages/plugin-sdk/bundled-types/bb-plugin-sdk-app.d.ts
+@@ -759,6 +759,28 @@ interface PluginThreadHeaderActionRegistration {
+     title: string;
+     component: ComponentType<PluginThreadHeaderActionProps>;
+ }
++/**
++ * Props passed to a `transcriptPrelude` component, rendered above the native
++ * thread timeline (collapsed plugin content that continues a prior session).
++ */
++interface PluginTranscriptPreludeProps {
++    /**
++     * The thread whose native timeline this prelude sits above. Never null:
++     * the slot is not rendered on the compose screen.
++     */
++    threadId: string;
++}
++/**
++ * Render plugin rows above the native chat transcript (for example a
++ * previous-provider session continued by a switch). The host mounts every
++ * registered prelude above the first native message; a component that has
++ * nothing to show should return null.
++ */
++interface PluginTranscriptPreludeRegistration {
++    /** Unique within the plugin; letters, digits, `-`, `_`. */
++    id: string;
++    component: ComponentType<PluginTranscriptPreludeProps>;
++}
+ /** One pane's place in the split layout, as fractions of the split area. */
+ interface PluginSidebarSplitPane {
+     paneId: string;
+@@ -983,6 +1005,11 @@ interface PluginAppSlots {
+      * docs/api_to_audit.md.
+      */
+     experimental_providerIcon(registration: PluginProviderIconRegistration): void;
++    /**
++     * Render rows above the native thread transcript (see
++     * {@link PluginTranscriptPreludeRegistration}).
++     */
++    transcriptPrelude(registration: PluginTranscriptPreludeRegistration): void;
+ }
+ interface PluginAppComposer {
+     customize(registration: ComposerCustomization): void;
+@@ -1567,4 +1594,4 @@ declare const experimental_useSidebarThreadPullRequest: (threadId: string) => Pl
+ declare const experimental_useSidebarThreadSplit: (threadId: string) => PluginSidebarThreadSplit;
+ 
+ export { Markdown, ThreadChat, definePluginApp, experimental_NewThreadComposer, experimental_useSidebarThreadActions, experimental_useSidebarThreadPullRequest, experimental_useSidebarThreadSplit, experimental_useSidebarThreads, useBbContext, useBbNavigate, useComposer, useComposerView, useRealtime, useRealtimeConnectionState, useRpc, useSettings };
+-export type { BbContext, BbNavigate, ComposerCustomization, ComposerPlusMenuItem, ComposerRichTextSpec, ComposerStructuredDraft, ComposerView, JsonValue, MarkdownProps, NewThreadComposerProps, NewThreadRequest, PluginAppBuilder, PluginAppComposer, PluginAppContentScripts, PluginAppDefinition, PluginAppSetup, PluginAppSlots, PluginComposerApi, PluginComposerMention, PluginComposerScope, PluginComposerTextEffect, PluginComposerThreadRowStatus, PluginContentScriptContext, PluginContentScriptDisposer, PluginContentScriptRegistration, PluginFileOpenerProps, PluginFileOpenerRegistration, PluginFileOpenerSource, PluginHomepageSectionProps, PluginHomepageSectionRegistration, PluginMessageActionContext, PluginMessageActionRegistration, PluginMessageActionThreadPanelOptions, PluginMessageDirectiveMessage, PluginMessageDirectiveOpenWorkspaceFile, PluginMessageDirectiveProps, PluginMessageDirectiveRegistration, PluginNavPanelProps, PluginNavPanelRegistration, PluginNewThreadPanelActionContext, PluginNewThreadPanelActionRegistration, PluginNewThreadPanelProps, PluginPendingInteractionProps, PluginPendingInteractionRegistration, PluginPendingInteractionView, PluginProviderIconRegistration, PluginRealtimeConnectionState, PluginRpcCallArgs, PluginRpcClient, PluginRpcContract, PluginRpcError, PluginRpcErrorCode, PluginRpcHandlers, PluginRpcIssuePathSegment, PluginRpcMethodContract, PluginRpcResult, PluginRpcValidationIssue, PluginSdkApp, PluginSettingsSectionProps, PluginSettingsSectionRegistration, PluginSettingsState, PluginSidebarFooterActionContext, PluginSidebarFooterActionProps, PluginSidebarFooterActionRegistration, PluginSidebarProject, PluginSidebarPullRequest, PluginSidebarSplitPane, PluginSidebarThread, PluginSidebarThreadActions, PluginSidebarThreadActivity, PluginSidebarThreadIndicator, PluginSidebarThreadPullRequestState, PluginSidebarThreadSplit, PluginSidebarThreadsState, PluginSidebarWorkspaceKind, PluginThreadHeaderActionProps, PluginThreadHeaderActionRegistration, PluginThreadListProps, PluginThreadListRegistration, PluginThreadPanelActionContext, PluginThreadPanelActionRegistration, PluginThreadPanelProps, StandardSchemaV1, StandardSchemaV1InferInput, StandardSchemaV1InferOutput, StandardSchemaV1Issue, StandardSchemaV1Result, ThreadChatMessageAction, ThreadChatMessageReference, ThreadChatProps };
++export type { BbContext, BbNavigate, ComposerCustomization, ComposerPlusMenuItem, ComposerRichTextSpec, ComposerStructuredDraft, ComposerView, JsonValue, MarkdownProps, NewThreadComposerProps, NewThreadRequest, PluginAppBuilder, PluginAppComposer, PluginAppContentScripts, PluginAppDefinition, PluginAppSetup, PluginAppSlots, PluginComposerApi, PluginComposerMention, PluginComposerScope, PluginComposerTextEffect, PluginComposerThreadRowStatus, PluginContentScriptContext, PluginContentScriptDisposer, PluginContentScriptRegistration, PluginFileOpenerProps, PluginFileOpenerRegistration, PluginFileOpenerSource, PluginHomepageSectionProps, PluginHomepageSectionRegistration, PluginMessageActionContext, PluginMessageActionRegistration, PluginMessageActionThreadPanelOptions, PluginMessageDirectiveMessage, PluginMessageDirectiveOpenWorkspaceFile, PluginMessageDirectiveProps, PluginMessageDirectiveRegistration, PluginNavPanelProps, PluginNavPanelRegistration, PluginNewThreadPanelActionContext, PluginNewThreadPanelActionRegistration, PluginNewThreadPanelProps, PluginPendingInteractionProps, PluginPendingInteractionRegistration, PluginPendingInteractionView, PluginProviderIconRegistration, PluginRealtimeConnectionState, PluginRpcCallArgs, PluginRpcClient, PluginRpcContract, PluginRpcError, PluginRpcErrorCode, PluginRpcHandlers, PluginRpcIssuePathSegment, PluginRpcMethodContract, PluginRpcResult, PluginRpcValidationIssue, PluginSdkApp, PluginSettingsSectionProps, PluginSettingsSectionRegistration, PluginSettingsState, PluginSidebarFooterActionContext, PluginSidebarFooterActionProps, PluginSidebarFooterActionRegistration, PluginSidebarProject, PluginSidebarPullRequest, PluginSidebarSplitPane, PluginSidebarThread, PluginSidebarThreadActions, PluginSidebarThreadActivity, PluginSidebarThreadIndicator, PluginSidebarThreadPullRequestState, PluginSidebarThreadSplit, PluginSidebarThreadsState, PluginSidebarWorkspaceKind, PluginThreadHeaderActionProps, PluginThreadHeaderActionRegistration, PluginThreadListProps, PluginThreadListRegistration, PluginThreadPanelActionContext, PluginThreadPanelActionRegistration, PluginThreadPanelProps, PluginTranscriptPreludeProps, PluginTranscriptPreludeRegistration, StandardSchemaV1, StandardSchemaV1InferInput, StandardSchemaV1InferOutput, StandardSchemaV1Issue, StandardSchemaV1Result, ThreadChatMessageAction, ThreadChatMessageReference, ThreadChatProps };
+diff --git a/packages/plugin-sdk/bundled-types/bb-plugin-sdk-internal-plugin-app-collector.d.ts b/packages/plugin-sdk/bundled-types/bb-plugin-sdk-internal-plugin-app-collector.d.ts
+index 4bfd1a660..0f51f5dc6 100644
+--- a/packages/plugin-sdk/bundled-types/bb-plugin-sdk-internal-plugin-app-collector.d.ts
++++ b/packages/plugin-sdk/bundled-types/bb-plugin-sdk-internal-plugin-app-collector.d.ts
+@@ -5,7 +5,7 @@
+ // Confused by the API, or need a symbol that isn't here? Clone the BB repo
+ // and read the real source: https://github.com/get-bb/bb
+ 
+-import { PluginHomepageSectionRegistration, PluginSettingsSectionRegistration, PluginNavPanelRegistration, PluginThreadPanelActionRegistration, PluginNewThreadPanelActionRegistration, ComposerCustomization, PluginPendingInteractionRegistration, PluginSidebarFooterActionRegistration, PluginThreadListRegistration, PluginThreadHeaderActionRegistration, PluginFileOpenerRegistration, PluginMessageDirectiveRegistration, PluginMessageActionRegistration, PluginProviderIconRegistration, PluginContentScriptRegistration, PluginAppDefinition } from '@get-bb/plugin-sdk';
++import { PluginHomepageSectionRegistration, PluginSettingsSectionRegistration, PluginNavPanelRegistration, PluginThreadPanelActionRegistration, PluginNewThreadPanelActionRegistration, ComposerCustomization, PluginPendingInteractionRegistration, PluginSidebarFooterActionRegistration, PluginThreadListRegistration, PluginThreadHeaderActionRegistration, PluginFileOpenerRegistration, PluginMessageDirectiveRegistration, PluginMessageActionRegistration, PluginProviderIconRegistration, PluginTranscriptPreludeRegistration, PluginContentScriptRegistration, PluginAppDefinition } from '@get-bb/plugin-sdk';
+ 
+ /** Validated registrations produced by one plugin app setup execution. */
+ interface CollectedPluginAppRegistrations {
+@@ -23,6 +23,7 @@ interface CollectedPluginAppRegistrations {
+     messageDirectives: PluginMessageDirectiveRegistration[];
+     messageActions: PluginMessageActionRegistration[];
+     providerIcons: PluginProviderIconRegistration[];
++    transcriptPreludes: PluginTranscriptPreludeRegistration[];
+     contentScripts: PluginContentScriptRegistration[];
+ }
+ /**
+diff --git a/packages/plugin-sdk/bundled-types/bb-plugin-sdk.d.ts b/packages/plugin-sdk/bundled-types/bb-plugin-sdk.d.ts
+index 404288486..45e08a97e 100644
+--- a/packages/plugin-sdk/bundled-types/bb-plugin-sdk.d.ts
++++ b/packages/plugin-sdk/bundled-types/bb-plugin-sdk.d.ts
+@@ -2108,8 +2108,8 @@ type ThreadEventRow = {
+ declare const threadStatusSchema: z$1.ZodEnum<{
+     error: "error";
+     active: "active";
+-    starting: "starting";
+     idle: "idle";
++    starting: "starting";
+     stopping: "stopping";
+ }>;
+ type ThreadStatus = z$1.infer<typeof threadStatusSchema>;
+@@ -2606,8 +2606,8 @@ type SkillFilesResponse = z$1.infer<typeof skillFilesResponseSchema>;
+ declare const projectResponseSchema: z$1.ZodObject<{
+     id: z$1.ZodString;
+     kind: z$1.ZodEnum<{
+-        personal: "personal";
+         standard: "standard";
++        personal: "personal";
+     }>;
+     name: z$1.ZodString;
+     gitRemoteUrl: z$1.ZodNullable<z$1.ZodString>;
+@@ -2628,8 +2628,8 @@ type ProjectResponse = z$1.infer<typeof projectResponseSchema>;
+ declare const projectWithThreadsResponseSchema: z$1.ZodObject<{
+     id: z$1.ZodString;
+     kind: z$1.ZodEnum<{
+-        personal: "personal";
+         standard: "standard";
++        personal: "personal";
+     }>;
+     name: z$1.ZodString;
+     gitRemoteUrl: z$1.ZodNullable<z$1.ZodString>;
+@@ -2726,8 +2726,8 @@ declare const projectWithThreadsResponseSchema: z$1.ZodObject<{
+             ultra: "ultra";
+         }>;
+         permissionMode: z$1.ZodEnum<{
+-            auto: "auto";
+             "accept-edits": "accept-edits";
++            auto: "auto";
+             full: "full";
+         }>;
+     }, z$1.core.$strip>>;
+@@ -2954,8 +2954,8 @@ declare const environmentArchiveThreadsResponseSchema: z$1.ZodObject<{
+ type EnvironmentArchiveThreadsResponse = z$1.infer<typeof environmentArchiveThreadsResponseSchema>;
+ declare const pullRequestMergeMethodSchema: z$1.ZodEnum<{
+     merge: "merge";
+-    squash: "squash";
+     rebase: "rebase";
++    squash: "squash";
+ }>;
+ type PullRequestMergeMethod = z$1.infer<typeof pullRequestMergeMethodSchema>;
+ declare const commitActionResponseSchema: z$1.ZodObject<{
+@@ -2986,8 +2986,8 @@ declare const pullRequestMergeActionResponseSchema: z$1.ZodObject<{
+     action: z$1.ZodLiteral<"pull_request_merge">;
+     method: z$1.ZodEnum<{
+         merge: "merge";
+-        squash: "squash";
+         rebase: "rebase";
++        squash: "squash";
+     }>;
+     message: z$1.ZodString;
+ }, z$1.core.$strip>;
+@@ -3126,8 +3126,8 @@ declare const environmentPullRequestResponseSchema: z$1.ZodDiscriminatedUnion<[z
+         updatedAt: z$1.ZodString;
+         checks: z$1.ZodObject<{
+             state: z$1.ZodEnum<{
+-                unknown: "unknown";
+                 pending: "pending";
++                unknown: "unknown";
+                 passing: "passing";
+                 failing: "failing";
+                 no_checks: "no_checks";
+@@ -3172,8 +3172,8 @@ declare const environmentPullRequestResponseSchema: z$1.ZodDiscriminatedUnion<[z
+             }>>;
+         }, z$1.core.$strict>;
+         attention: z$1.ZodEnum<{
+-            blocked: "blocked";
+             none: "none";
++            blocked: "blocked";
+             merged: "merged";
+             draft: "draft";
+             closed: "closed";
+@@ -3230,8 +3230,8 @@ declare const environmentDiffFilesResponseSchema: z$1.ZodDiscriminatedUnion<[z$1
+         path: z$1.ZodString;
+         previousPath: z$1.ZodNullable<z$1.ZodString>;
+         changeKind: z$1.ZodEnum<{
+-            deleted: "deleted";
+             added: "added";
++            deleted: "deleted";
+             modified: "modified";
+             renamed: "renamed";
+             copied: "copied";
+@@ -3567,9 +3567,9 @@ declare const hostDaemonCommandRegistry: {
+             capabilities: z$1.ZodObject<{
+                 supportsServiceTier: z$1.ZodBoolean;
+                 permissionModes: z$1.ZodArray<z$1.ZodEnum<{
+-                    full: "full";
+-                    "accept-edits": "accept-edits";
+                     auto: "auto";
++                    "accept-edits": "accept-edits";
++                    full: "full";
+                 }>>;
+                 supportsThreadArchive: z$1.ZodBoolean;
+                 supportsThreadRename: z$1.ZodBoolean;
+@@ -3609,16 +3609,16 @@ declare const hostDaemonCommandRegistry: {
+             permissionScope: z$1.ZodLiteral<"workspace">;
+             approvalReviewer: z$1.ZodLiteral<"user">;
+             permissionEscalation: z$1.ZodEnum<{
+-                ask: "ask";
+                 deny: "deny";
++                ask: "ask";
+             }>;
+         }, z$1.core.$strip>, z$1.ZodObject<{
+             permissionMode: z$1.ZodLiteral<"auto">;
+             permissionScope: z$1.ZodLiteral<"workspace">;
+             approvalReviewer: z$1.ZodLiteral<"automatic">;
+             permissionEscalation: z$1.ZodEnum<{
+-                ask: "ask";
+                 deny: "deny";
++                ask: "ask";
+             }>;
+         }, z$1.core.$strip>, z$1.ZodObject<{
+             permissionMode: z$1.ZodLiteral<"full">;
+@@ -3794,9 +3794,9 @@ declare const hostDaemonCommandRegistry: {
+             capabilities: z$1.ZodObject<{
+                 supportsServiceTier: z$1.ZodBoolean;
+                 permissionModes: z$1.ZodArray<z$1.ZodEnum<{
+-                    full: "full";
+-                    "accept-edits": "accept-edits";
+                     auto: "auto";
++                    "accept-edits": "accept-edits";
++                    full: "full";
+                 }>>;
+                 supportsThreadArchive: z$1.ZodBoolean;
+                 supportsThreadRename: z$1.ZodBoolean;
+@@ -3836,16 +3836,16 @@ declare const hostDaemonCommandRegistry: {
+             permissionScope: z$1.ZodLiteral<"workspace">;
+             approvalReviewer: z$1.ZodLiteral<"user">;
+             permissionEscalation: z$1.ZodEnum<{
+-                ask: "ask";
+                 deny: "deny";
++                ask: "ask";
+             }>;
+         }, z$1.core.$strip>, z$1.ZodObject<{
+             permissionMode: z$1.ZodLiteral<"auto">;
+             permissionScope: z$1.ZodLiteral<"workspace">;
+             approvalReviewer: z$1.ZodLiteral<"automatic">;
+             permissionEscalation: z$1.ZodEnum<{
+-                ask: "ask";
+                 deny: "deny";
++                ask: "ask";
+             }>;
+         }, z$1.core.$strip>, z$1.ZodObject<{
+             permissionMode: z$1.ZodLiteral<"full">;
+@@ -3940,8 +3940,8 @@ declare const hostDaemonCommandRegistry: {
+                     }>;
+                     origin: z$1.ZodEnum<{
+                         builtin: "builtin";
+-                        project: "project";
+                         user: "user";
++                        project: "project";
+                     }>;
+                     label: z$1.ZodString;
+                     argumentHint: z$1.ZodNullable<z$1.ZodString>;
+@@ -4021,8 +4021,8 @@ declare const hostDaemonCommandRegistry: {
+                     }>;
+                     origin: z$1.ZodEnum<{
+                         builtin: "builtin";
+-                        project: "project";
+                         user: "user";
++                        project: "project";
+                     }>;
+                     label: z$1.ZodString;
+                     argumentHint: z$1.ZodNullable<z$1.ZodString>;
+@@ -4114,8 +4114,8 @@ declare const hostDaemonCommandRegistry: {
+                     }>;
+                     origin: z$1.ZodEnum<{
+                         builtin: "builtin";
+-                        project: "project";
+                         user: "user";
++                        project: "project";
+                     }>;
+                     label: z$1.ZodString;
+                     argumentHint: z$1.ZodNullable<z$1.ZodString>;
+@@ -4195,8 +4195,8 @@ declare const hostDaemonCommandRegistry: {
+                     }>;
+                     origin: z$1.ZodEnum<{
+                         builtin: "builtin";
+-                        project: "project";
+                         user: "user";
++                        project: "project";
+                     }>;
+                     label: z$1.ZodString;
+                     argumentHint: z$1.ZodNullable<z$1.ZodString>;
+@@ -4259,16 +4259,16 @@ declare const hostDaemonCommandRegistry: {
+             permissionScope: z$1.ZodLiteral<"workspace">;
+             approvalReviewer: z$1.ZodLiteral<"user">;
+             permissionEscalation: z$1.ZodEnum<{
+-                ask: "ask";
+                 deny: "deny";
++                ask: "ask";
+             }>;
+         }, z$1.core.$strip>, z$1.ZodObject<{
+             permissionMode: z$1.ZodLiteral<"auto">;
+             permissionScope: z$1.ZodLiteral<"workspace">;
+             approvalReviewer: z$1.ZodLiteral<"automatic">;
+             permissionEscalation: z$1.ZodEnum<{
+-                ask: "ask";
+                 deny: "deny";
++                ask: "ask";
+             }>;
+         }, z$1.core.$strip>, z$1.ZodObject<{
+             permissionMode: z$1.ZodLiteral<"full">;
+@@ -4385,9 +4385,9 @@ declare const hostDaemonCommandRegistry: {
+             capabilities: z$1.ZodObject<{
+                 supportsServiceTier: z$1.ZodBoolean;
+                 permissionModes: z$1.ZodArray<z$1.ZodEnum<{
+-                    full: "full";
+-                    "accept-edits": "accept-edits";
+                     auto: "auto";
++                    "accept-edits": "accept-edits";
++                    full: "full";
+                 }>>;
+                 supportsThreadArchive: z$1.ZodBoolean;
+                 supportsThreadRename: z$1.ZodBoolean;
+@@ -4407,6 +4407,9 @@ declare const hostDaemonCommandRegistry: {
+                     personal: "personal";
+                 }>;
+             }, z$1.core.$strip>;
++            projectId: z$1.ZodString;
++            providerThreadId: z$1.ZodString;
++            providerId: z$1.ZodString;
+             bridgeLaunch: z$1.ZodObject<{
+                 pluginId: z$1.ZodString;
+                 source: z$1.ZodDiscriminatedUnion<[z$1.ZodObject<{
+@@ -4420,9 +4423,9 @@ declare const hostDaemonCommandRegistry: {
+                 capabilities: z$1.ZodObject<{
+                     supportsServiceTier: z$1.ZodBoolean;
+                     permissionModes: z$1.ZodArray<z$1.ZodEnum<{
+-                        full: "full";
+-                        "accept-edits": "accept-edits";
+                         auto: "auto";
++                        "accept-edits": "accept-edits";
++                        full: "full";
+                     }>>;
+                     supportsThreadArchive: z$1.ZodBoolean;
+                     supportsThreadRename: z$1.ZodBoolean;
+@@ -4437,8 +4440,6 @@ declare const hostDaemonCommandRegistry: {
+                 replace: "replace";
+                 append: "append";
+             }>;
+-            projectId: z$1.ZodString;
+-            providerId: z$1.ZodString;
+             acpLaunchSpec: z$1.ZodOptional<z$1.ZodObject<{
+                 displayName: z$1.ZodString;
+                 command: z$1.ZodString;
+@@ -4570,7 +4571,6 @@ declare const hostDaemonCommandRegistry: {
+                 skillFilePath: z$1.ZodString;
+             }, z$1.core.$strict>], "kind">>;
+             disallowedTools: z$1.ZodOptional<z$1.ZodArray<z$1.ZodString>>;
+-            providerThreadId: z$1.ZodString;
+         }, z$1.core.$strict>;
+         target: z$1.ZodDiscriminatedUnion<[z$1.ZodObject<{
+             mode: z$1.ZodLiteral<"start">;
+@@ -4583,8 +4583,8 @@ declare const hostDaemonCommandRegistry: {
+         }, z$1.core.$strip>], "mode">;
+     }, z$1.core.$strict>, z$1.ZodObject<{
+         appliedAs: z$1.ZodEnum<{
+-            steer: "steer";
+             "new-turn": "new-turn";
++            steer: "steer";
+         }>;
+     }, z$1.core.$strip>, "settled", false>;
+     "thread.stop": HostDaemonCommandDescriptor<"thread.stop", z$1.ZodObject<{
+@@ -4631,16 +4631,16 @@ declare const hostDaemonCommandRegistry: {
+             permissionScope: z$1.ZodLiteral<"workspace">;
+             approvalReviewer: z$1.ZodLiteral<"user">;
+             permissionEscalation: z$1.ZodEnum<{
+-                ask: "ask";
+                 deny: "deny";
++                ask: "ask";
+             }>;
+         }, z$1.core.$strip>, z$1.ZodObject<{
+             permissionMode: z$1.ZodLiteral<"auto">;
+             permissionScope: z$1.ZodLiteral<"workspace">;
+             approvalReviewer: z$1.ZodLiteral<"automatic">;
+             permissionEscalation: z$1.ZodEnum<{
+-                ask: "ask";
+                 deny: "deny";
++                ask: "ask";
+             }>;
+         }, z$1.core.$strip>, z$1.ZodObject<{
+             permissionMode: z$1.ZodLiteral<"full">;
+@@ -4757,9 +4757,9 @@ declare const hostDaemonCommandRegistry: {
+             capabilities: z$1.ZodObject<{
+                 supportsServiceTier: z$1.ZodBoolean;
+                 permissionModes: z$1.ZodArray<z$1.ZodEnum<{
+-                    full: "full";
+-                    "accept-edits": "accept-edits";
+                     auto: "auto";
++                    "accept-edits": "accept-edits";
++                    full: "full";
+                 }>>;
+                 supportsThreadArchive: z$1.ZodBoolean;
+                 supportsThreadRename: z$1.ZodBoolean;
+@@ -4779,6 +4779,9 @@ declare const hostDaemonCommandRegistry: {
+                     personal: "personal";
+                 }>;
+             }, z$1.core.$strip>;
++            projectId: z$1.ZodString;
++            providerThreadId: z$1.ZodString;
++            providerId: z$1.ZodString;
+             bridgeLaunch: z$1.ZodObject<{
+                 pluginId: z$1.ZodString;
+                 source: z$1.ZodDiscriminatedUnion<[z$1.ZodObject<{
+@@ -4792,9 +4795,9 @@ declare const hostDaemonCommandRegistry: {
+                 capabilities: z$1.ZodObject<{
+                     supportsServiceTier: z$1.ZodBoolean;
+                     permissionModes: z$1.ZodArray<z$1.ZodEnum<{
+-                        full: "full";
+-                        "accept-edits": "accept-edits";
+                         auto: "auto";
++                        "accept-edits": "accept-edits";
++                        full: "full";
+                     }>>;
+                     supportsThreadArchive: z$1.ZodBoolean;
+                     supportsThreadRename: z$1.ZodBoolean;
+@@ -4809,8 +4812,6 @@ declare const hostDaemonCommandRegistry: {
+                 replace: "replace";
+                 append: "append";
+             }>;
+-            projectId: z$1.ZodString;
+-            providerId: z$1.ZodString;
+             acpLaunchSpec: z$1.ZodOptional<z$1.ZodObject<{
+                 displayName: z$1.ZodString;
+                 command: z$1.ZodString;
+@@ -4942,7 +4943,6 @@ declare const hostDaemonCommandRegistry: {
+                 skillFilePath: z$1.ZodString;
+             }, z$1.core.$strict>], "kind">>;
+             disallowedTools: z$1.ZodOptional<z$1.ZodArray<z$1.ZodString>>;
+-            providerThreadId: z$1.ZodString;
+         }, z$1.core.$strict>;
+     }, z$1.core.$strict>, z$1.ZodObject<{
+         cleared: z$1.ZodBoolean;
+@@ -4988,9 +4988,9 @@ declare const hostDaemonCommandRegistry: {
+             capabilities: z$1.ZodObject<{
+                 supportsServiceTier: z$1.ZodBoolean;
+                 permissionModes: z$1.ZodArray<z$1.ZodEnum<{
+-                    full: "full";
+-                    "accept-edits": "accept-edits";
+                     auto: "auto";
++                    "accept-edits": "accept-edits";
++                    full: "full";
+                 }>>;
+                 supportsThreadArchive: z$1.ZodBoolean;
+                 supportsThreadRename: z$1.ZodBoolean;
+@@ -5021,9 +5021,9 @@ declare const hostDaemonCommandRegistry: {
+             capabilities: z$1.ZodObject<{
+                 supportsServiceTier: z$1.ZodBoolean;
+                 permissionModes: z$1.ZodArray<z$1.ZodEnum<{
+-                    full: "full";
+-                    "accept-edits": "accept-edits";
+                     auto: "auto";
++                    "accept-edits": "accept-edits";
++                    full: "full";
+                 }>>;
+                 supportsThreadArchive: z$1.ZodBoolean;
+                 supportsThreadRename: z$1.ZodBoolean;
+@@ -5411,8 +5411,8 @@ declare const hostDaemonCommandRegistry: {
+                 skill: "skill";
+             }>;
+             origin: z$1.ZodEnum<{
+-                project: "project";
+                 user: "user";
++                project: "project";
+             }>;
+             description: z$1.ZodNullable<z$1.ZodString>;
+             argumentHint: z$1.ZodNullable<z$1.ZodString>;
+@@ -5433,9 +5433,9 @@ declare const hostDaemonCommandRegistry: {
+             description: z$1.ZodNullable<z$1.ZodString>;
+             filePath: z$1.ZodString;
+             rootKind: z$1.ZodEnum<{
++                plugin: "plugin";
+                 "shared-user": "shared-user";
+                 "shared-project": "shared-project";
+-                plugin: "plugin";
+                 "bb-project": "bb-project";
+                 "bb-data-dir": "bb-data-dir";
+                 "bb-builtin": "bb-builtin";
+@@ -5741,9 +5741,9 @@ declare const hostDaemonCommandRegistry: {
+             capabilities: z$1.ZodObject<{
+                 supportsServiceTier: z$1.ZodBoolean;
+                 permissionModes: z$1.ZodArray<z$1.ZodEnum<{
+-                    full: "full";
+-                    "accept-edits": "accept-edits";
+                     auto: "auto";
++                    "accept-edits": "accept-edits";
++                    full: "full";
+                 }>>;
+                 supportsThreadArchive: z$1.ZodBoolean;
+                 supportsThreadRename: z$1.ZodBoolean;
+@@ -6331,9 +6331,9 @@ declare const hostDaemonCommandRegistry: {
+                 conclusion: z$1.ZodNullable<z$1.ZodEnum<{
+                     unknown: "unknown";
+                     success: "success";
++                    skipped: "skipped";
+                     cancelled: "cancelled";
+                     failure: "failure";
+-                    skipped: "skipped";
+                     neutral: "neutral";
+                     timed_out: "timed_out";
+                     action_required: "action_required";
+@@ -7141,8 +7141,8 @@ declare const systemExecutionOptionsResponseSchema: z$1.ZodObject<{
+             supportsFork: z$1.ZodBoolean;
+             supportsSessionRewind: z$1.ZodBoolean;
+             permissionModes: z$1.ZodArray<z$1.ZodEnum<{
+-                auto: "auto";
+                 "accept-edits": "accept-edits";
++                auto: "auto";
+                 full: "full";
+             }>>;
+         }, z$1.core.$strip>;
+@@ -7173,8 +7173,8 @@ declare const systemExecutionOptionsResponseSchema: z$1.ZodObject<{
+         available: z$1.ZodBoolean;
+     }, z$1.core.$strip>>;
+     permissionCeiling: z$1.ZodEnum<{
+-        auto: "auto";
+         "accept-edits": "accept-edits";
++        auto: "auto";
+         full: "full";
+     }>;
+     models: z$1.ZodArray<z$1.ZodObject<{
+@@ -7769,9 +7769,9 @@ declare const terminalSessionSchema: z$1.ZodObject<{
+     cols: z$1.ZodNumber;
+     rows: z$1.ZodNumber;
+     status: z$1.ZodEnum<{
++        running: "running";
+         starting: "starting";
+         disconnected: "disconnected";
+-        running: "running";
+         exited: "exited";
+     }>;
+     exitCode: z$1.ZodNullable<z$1.ZodNumber>;
+@@ -7800,9 +7800,9 @@ declare const terminalListResponseSchema: z$1.ZodObject<{
+         cols: z$1.ZodNumber;
+         rows: z$1.ZodNumber;
+         status: z$1.ZodEnum<{
++            running: "running";
+             starting: "starting";
+             disconnected: "disconnected";
+-            running: "running";
+             exited: "exited";
+         }>;
+         exitCode: z$1.ZodNullable<z$1.ZodNumber>;
+@@ -7874,9 +7874,9 @@ declare const terminalOutputResponseSchema: z$1.ZodObject<{
+ type TerminalOutputResponse = z$1.infer<typeof terminalOutputResponseSchema>;
+ 
+ declare const timelineRowStatusSchema: z$1.ZodEnum<{
+-    error: "error";
+     pending: "pending";
+     completed: "completed";
++    error: "error";
+     interrupted: "interrupted";
+ }>;
+ type TimelineRowStatus = z$1.infer<typeof timelineRowStatusSchema>;
+@@ -8032,9 +8032,9 @@ declare const timelineSystemRowSchema: z$1.ZodUnion<readonly [z$1.ZodObject<{
+     title: z$1.ZodString;
+     detail: z$1.ZodNullable<z$1.ZodString>;
+     status: z$1.ZodNullable<z$1.ZodEnum<{
+-        error: "error";
+         pending: "pending";
+         completed: "completed";
++        error: "error";
+         interrupted: "interrupted";
+     }>>;
+     systemKind: z$1.ZodEnum<{
+@@ -8054,9 +8054,9 @@ declare const timelineSystemRowSchema: z$1.ZodUnion<readonly [z$1.ZodObject<{
+     title: z$1.ZodString;
+     detail: z$1.ZodNullable<z$1.ZodString>;
+     status: z$1.ZodNullable<z$1.ZodEnum<{
+-        error: "error";
+         pending: "pending";
+         completed: "completed";
++        error: "error";
+         interrupted: "interrupted";
+     }>>;
+     systemKind: z$1.ZodLiteral<"operation">;
+@@ -8085,9 +8085,9 @@ declare const timelineSystemRowSchema: z$1.ZodUnion<readonly [z$1.ZodObject<{
+     systemKind: z$1.ZodLiteral<"operation">;
+     operationKind: z$1.ZodLiteral<"parent-change">;
+     status: z$1.ZodEnum<{
+-        error: "error";
+         pending: "pending";
+         completed: "completed";
++        error: "error";
+         interrupted: "interrupted";
+     }>;
+     parentChange: z$1.ZodObject<{
+@@ -8118,9 +8118,9 @@ declare const timelineCommandWorkRowSchema: z$1.ZodObject<{
+     createdAt: z$1.ZodNumber;
+     kind: z$1.ZodLiteral<"work">;
+     status: z$1.ZodEnum<{
+-        error: "error";
+         pending: "pending";
+         completed: "completed";
++        error: "error";
+         interrupted: "interrupted";
+     }>;
+     workKind: z$1.ZodLiteral<"command">;
+@@ -8165,9 +8165,9 @@ declare const timelineToolWorkRowSchema: z$1.ZodObject<{
+     createdAt: z$1.ZodNumber;
+     kind: z$1.ZodLiteral<"work">;
+     status: z$1.ZodEnum<{
+-        error: "error";
+         pending: "pending";
+         completed: "completed";
++        error: "error";
+         interrupted: "interrupted";
+     }>;
+     workKind: z$1.ZodLiteral<"tool">;
+@@ -8214,9 +8214,9 @@ declare const timelineFileChangeWorkRowSchema: z$1.ZodObject<{
+     createdAt: z$1.ZodNumber;
+     kind: z$1.ZodLiteral<"work">;
+     status: z$1.ZodEnum<{
+-        error: "error";
+         pending: "pending";
+         completed: "completed";
++        error: "error";
+         interrupted: "interrupted";
+     }>;
+     workKind: z$1.ZodLiteral<"file-change">;
+@@ -8249,9 +8249,9 @@ declare const timelineWebSearchWorkRowSchema: z$1.ZodObject<{
+     createdAt: z$1.ZodNumber;
+     kind: z$1.ZodLiteral<"work">;
+     status: z$1.ZodEnum<{
+-        error: "error";
+         pending: "pending";
+         completed: "completed";
++        error: "error";
+         interrupted: "interrupted";
+     }>;
+     workKind: z$1.ZodLiteral<"web-search">;
+@@ -8270,9 +8270,9 @@ declare const timelineWebFetchWorkRowSchema: z$1.ZodObject<{
+     createdAt: z$1.ZodNumber;
+     kind: z$1.ZodLiteral<"work">;
+     status: z$1.ZodEnum<{
+-        error: "error";
+         pending: "pending";
+         completed: "completed";
++        error: "error";
+         interrupted: "interrupted";
+     }>;
+     workKind: z$1.ZodLiteral<"web-fetch">;
+@@ -8293,9 +8293,9 @@ declare const timelineImageViewWorkRowSchema: z$1.ZodObject<{
+     createdAt: z$1.ZodNumber;
+     kind: z$1.ZodLiteral<"work">;
+     status: z$1.ZodEnum<{
+-        error: "error";
+         pending: "pending";
+         completed: "completed";
++        error: "error";
+         interrupted: "interrupted";
+     }>;
+     workKind: z$1.ZodLiteral<"image-view">;
+@@ -8314,9 +8314,9 @@ declare const timelineApprovalWorkRowSchema: z$1.ZodDiscriminatedUnion<[z$1.ZodO
+     createdAt: z$1.ZodNumber;
+     kind: z$1.ZodLiteral<"work">;
+     status: z$1.ZodEnum<{
+-        error: "error";
+         pending: "pending";
+         completed: "completed";
++        error: "error";
+         interrupted: "interrupted";
+     }>;
+     workKind: z$1.ZodLiteral<"approval">;
+@@ -8340,9 +8340,9 @@ declare const timelineApprovalWorkRowSchema: z$1.ZodDiscriminatedUnion<[z$1.ZodO
+     createdAt: z$1.ZodNumber;
+     kind: z$1.ZodLiteral<"work">;
+     status: z$1.ZodEnum<{
+-        error: "error";
+         pending: "pending";
+         completed: "completed";
++        error: "error";
+         interrupted: "interrupted";
+     }>;
+     workKind: z$1.ZodLiteral<"approval">;
+@@ -8376,9 +8376,9 @@ declare const timelineQuestionWorkRowSchema: z$1.ZodObject<{
+     createdAt: z$1.ZodNumber;
+     kind: z$1.ZodLiteral<"work">;
+     status: z$1.ZodEnum<{
+-        error: "error";
+         pending: "pending";
+         completed: "completed";
++        error: "error";
+         interrupted: "interrupted";
+     }>;
+     workKind: z$1.ZodLiteral<"question">;
+@@ -8437,9 +8437,9 @@ declare const timelineWorkflowWorkRowSchema: z$1.ZodObject<{
+     createdAt: z$1.ZodNumber;
+     kind: z$1.ZodLiteral<"work">;
+     status: z$1.ZodEnum<{
+-        error: "error";
+         pending: "pending";
+         completed: "completed";
++        error: "error";
+         interrupted: "interrupted";
+     }>;
+     workKind: z$1.ZodLiteral<"workflow">;
+@@ -8649,10 +8649,10 @@ declare const createThreadRequestSchema: z$1.ZodObject<{
+         ultra: "ultra";
+     }>>;
+     permissionMode: z$1.ZodOptional<z$1.ZodPipe<z$1.ZodUnion<readonly [z$1.ZodEnum<{
+-        auto: "auto";
+         "accept-edits": "accept-edits";
++        auto: "auto";
+         full: "full";
+-    }>, z$1.ZodLiteral<"workspace-write">]>, z$1.ZodTransform<"auto" | "accept-edits" | "full", "auto" | "accept-edits" | "full" | "workspace-write">>>;
++    }>, z$1.ZodLiteral<"workspace-write">]>, z$1.ZodTransform<"accept-edits" | "auto" | "full", "accept-edits" | "auto" | "full" | "workspace-write">>>;
+     executionInputSources: z$1.ZodOptional<z$1.ZodObject<{
+         providerId: z$1.ZodOptional<z$1.ZodEnum<{
+             explicit: "explicit";
+@@ -8890,10 +8890,10 @@ declare const forkThreadRequestSchema: z$1.ZodObject<{
+     }, z$1.core.$strip>>>>;
+     title: z$1.ZodOptional<z$1.ZodString>;
+     permissionMode: z$1.ZodOptional<z$1.ZodPipe<z$1.ZodUnion<readonly [z$1.ZodEnum<{
+-        auto: "auto";
+         "accept-edits": "accept-edits";
++        auto: "auto";
+         full: "full";
+-    }>, z$1.ZodLiteral<"workspace-write">]>, z$1.ZodTransform<"auto" | "accept-edits" | "full", "auto" | "accept-edits" | "full" | "workspace-write">>>;
++    }>, z$1.ZodLiteral<"workspace-write">]>, z$1.ZodTransform<"accept-edits" | "auto" | "full", "accept-edits" | "auto" | "full" | "workspace-write">>>;
+     visibility: z$1.ZodDefault<z$1.ZodEnum<{
+         visible: "visible";
+         hidden: "hidden";
+@@ -9009,10 +9009,10 @@ declare const sendMessageRequestSchema: z$1.ZodObject<{
+         ultra: "ultra";
+     }>>;
+     permissionMode: z$1.ZodOptional<z$1.ZodPipe<z$1.ZodUnion<readonly [z$1.ZodEnum<{
+-        auto: "auto";
+         "accept-edits": "accept-edits";
++        auto: "auto";
+         full: "full";
+-    }>, z$1.ZodLiteral<"workspace-write">]>, z$1.ZodTransform<"auto" | "accept-edits" | "full", "auto" | "accept-edits" | "full" | "workspace-write">>>;
++    }>, z$1.ZodLiteral<"workspace-write">]>, z$1.ZodTransform<"accept-edits" | "auto" | "full", "accept-edits" | "auto" | "full" | "workspace-write">>>;
+     executionInputSources: z$1.ZodOptional<z$1.ZodObject<{
+         model: z$1.ZodOptional<z$1.ZodEnum<{
+             explicit: "explicit";
+@@ -9245,10 +9245,10 @@ declare const editMessageRequestSchema: z$1.ZodObject<{
+         ultra: "ultra";
+     }>>;
+     permissionMode: z$1.ZodOptional<z$1.ZodPipe<z$1.ZodUnion<readonly [z$1.ZodEnum<{
+-        auto: "auto";
+         "accept-edits": "accept-edits";
++        auto: "auto";
+         full: "full";
+-    }>, z$1.ZodLiteral<"workspace-write">]>, z$1.ZodTransform<"auto" | "accept-edits" | "full", "auto" | "accept-edits" | "full" | "workspace-write">>>;
++    }>, z$1.ZodLiteral<"workspace-write">]>, z$1.ZodTransform<"accept-edits" | "auto" | "full", "accept-edits" | "auto" | "full" | "workspace-write">>>;
+     executionInputSources: z$1.ZodOptional<z$1.ZodObject<{
+         model: z$1.ZodOptional<z$1.ZodEnum<{
+             explicit: "explicit";
+@@ -9375,10 +9375,10 @@ declare const createQueuedMessageRequestSchema: z$1.ZodObject<{
+         ultra: "ultra";
+     }>>;
+     permissionMode: z$1.ZodOptional<z$1.ZodPipe<z$1.ZodUnion<readonly [z$1.ZodEnum<{
+-        auto: "auto";
+         "accept-edits": "accept-edits";
++        auto: "auto";
+         full: "full";
+-    }>, z$1.ZodLiteral<"workspace-write">]>, z$1.ZodTransform<"auto" | "accept-edits" | "full", "auto" | "accept-edits" | "full" | "workspace-write">>>;
++    }>, z$1.ZodLiteral<"workspace-write">]>, z$1.ZodTransform<"accept-edits" | "auto" | "full", "accept-edits" | "auto" | "full" | "workspace-write">>>;
+     executionInputSources: z$1.ZodOptional<z$1.ZodObject<{
+         model: z$1.ZodOptional<z$1.ZodEnum<{
+             explicit: "explicit";
+@@ -9600,8 +9600,8 @@ declare const sendQueuedMessageResponseSchema: z$1.ZodObject<{
+             ultra: "ultra";
+         }>;
+         permissionMode: z$1.ZodEnum<{
+-            auto: "auto";
+             "accept-edits": "accept-edits";
++            auto: "auto";
+             full: "full";
+         }>;
+         serviceTier: z$1.ZodEnum<{
+@@ -9967,9 +9967,9 @@ declare const threadWithIncludesResponseSchema: z$1.ZodObject<{
+         isGitRepo: z$1.ZodBoolean;
+         isWorktree: z$1.ZodBoolean;
+         workspaceProvisionType: z$1.ZodEnum<{
+-            unmanaged: "unmanaged";
+-            "managed-worktree": "managed-worktree";
+             personal: "personal";
++            "managed-worktree": "managed-worktree";
++            unmanaged: "unmanaged";
+         }>;
+         branchName: z$1.ZodNullable<z$1.ZodString>;
+         baseBranch: z$1.ZodNullable<z$1.ZodString>;
+@@ -9997,8 +9997,8 @@ declare const threadWithIncludesResponseSchema: z$1.ZodObject<{
+             connected: "connected";
+         }>;
+         maxPermissionMode: z$1.ZodEnum<{
+-            auto: "auto";
+             "accept-edits": "accept-edits";
++            auto: "auto";
+             full: "full";
+         }>;
+         lastSeenAt: z$1.ZodNullable<z$1.ZodNumber>;
+@@ -10273,8 +10273,8 @@ declare const threadQueuedMessageListResponseSchema: z$1.ZodArray<z$1.ZodObject<
+         ultra: "ultra";
+     }>;
+     permissionMode: z$1.ZodEnum<{
+-        auto: "auto";
+         "accept-edits": "accept-edits";
++        auto: "auto";
+         full: "full";
+     }>;
+     serviceTier: z$1.ZodEnum<{
+@@ -10467,9 +10467,9 @@ declare const threadTimelineResponseSchema: z$1.ZodObject<{
+         createdAt: z$1.ZodNumber;
+         kind: z$1.ZodLiteral<"work">;
+         status: z$1.ZodEnum<{
+-            error: "error";
+             pending: "pending";
+             completed: "completed";
++            error: "error";
+             interrupted: "interrupted";
+         }>;
+         workKind: z$1.ZodLiteral<"workflow">;
+@@ -10541,9 +10541,9 @@ declare const threadTimelineResponseSchema: z$1.ZodObject<{
+         createdAt: z$1.ZodNumber;
+         kind: z$1.ZodLiteral<"work">;
+         status: z$1.ZodEnum<{
+-            error: "error";
+             pending: "pending";
+             completed: "completed";
++            error: "error";
+             interrupted: "interrupted";
+         }>;
+         workKind: z$1.ZodLiteral<"workflow">;
+@@ -10623,8 +10623,8 @@ declare const threadTimelineResponseSchema: z$1.ZodObject<{
+         updatedAt: z$1.ZodNumber;
+         objective: z$1.ZodString;
+         status: z$1.ZodEnum<{
+-            active: "active";
+             paused: "paused";
++            active: "active";
+             budgetLimited: "budgetLimited";
+             complete: "complete";
+         }>;
+@@ -10638,8 +10638,8 @@ declare const threadTimelineResponseSchema: z$1.ZodObject<{
+         originalModel: z$1.ZodString;
+         fallbackModel: z$1.ZodString;
+         reason: z$1.ZodEnum<{
+-            refusal: "refusal";
+             provider: "provider";
++            refusal: "refusal";
+         }>;
+         message: z$1.ZodString;
+     }, z$1.core.$strip>>;
+@@ -11457,6 +11457,28 @@ interface PluginThreadHeaderActionRegistration {
+     title: string;
+     component: ComponentType<PluginThreadHeaderActionProps>;
+ }
++/**
++ * Props passed to a `transcriptPrelude` component, rendered above the native
++ * thread timeline (collapsed plugin content that continues a prior session).
++ */
++interface PluginTranscriptPreludeProps {
++    /**
++     * The thread whose native timeline this prelude sits above. Never null:
++     * the slot is not rendered on the compose screen.
++     */
++    threadId: string;
++}
++/**
++ * Render plugin rows above the native chat transcript (for example a
++ * previous-provider session continued by a switch). The host mounts every
++ * registered prelude above the first native message; a component that has
++ * nothing to show should return null.
++ */
++interface PluginTranscriptPreludeRegistration {
++    /** Unique within the plugin; letters, digits, `-`, `_`. */
++    id: string;
++    component: ComponentType<PluginTranscriptPreludeProps>;
++}
+ /** One pane's place in the split layout, as fractions of the split area. */
+ interface PluginSidebarSplitPane {
+     paneId: string;
+@@ -11681,6 +11703,11 @@ interface PluginAppSlots {
+      * docs/api_to_audit.md.
+      */
+     experimental_providerIcon(registration: PluginProviderIconRegistration): void;
++    /**
++     * Render rows above the native thread transcript (see
++     * {@link PluginTranscriptPreludeRegistration}).
++     */
++    transcriptPrelude(registration: PluginTranscriptPreludeRegistration): void;
+ }
+ interface PluginAppComposer {
+     customize(registration: ComposerCustomization): void;
+@@ -14394,4 +14421,4 @@ interface BbPluginApi {
+ }
+ 
+ export { PLUGIN_CLI_OUTPUT_MAX_BYTES, defineRpcContract, experimental_defineHostEntry };
+-export type { BbContext, BbNavigate, BbPluginApi, ComposerCustomization, ComposerPlusMenuItem, ComposerRichTextSpec, ComposerStructuredDraft, ComposerView, ExperimentalHostCallOptions, ExperimentalHostClient, ExperimentalHostEntry, ExperimentalHostPaths, ExperimentalHostRpcContext, ExperimentalHostRpcHandlers, ExperimentalHostSignalContract, ExperimentalHostSignalEvent, ExperimentalHostSignals, ExperimentalHostWatchChange, ExperimentalHostWatchChangeType, ExperimentalHostWatchEvent, ExperimentalHostWatchListener, ExperimentalHostWatchOptions, ExperimentalHostWatchSubscription, ExperimentalHostWorkerLease, JsonValue, MarkdownProps, NewThreadComposerProps, NewThreadRequest, PluginAgentConfiguration, PluginAgentConfigurationContext, PluginAgentToolContentPart, PluginAgentToolContext, PluginAgentToolExperimentalStatusLabels, PluginAgentToolRegistrationBase, PluginAgentToolResult, PluginAgentToolSelection, PluginAgents, PluginAppBuilder, PluginAppComposer, PluginAppContentScripts, PluginAppDefinition, PluginAppSetup, PluginAppSlots, PluginBackground, PluginCli, PluginCliCommandInfo, PluginCliContext, PluginCliExecutionResult, PluginCliOutputLimitError, PluginCliRegistration, PluginCliResult, PluginComposerApi, PluginComposerMention, PluginComposerScope, PluginComposerTextEffect, PluginComposerThreadRowStatus, PluginContentScriptContext, PluginContentScriptDisposer, PluginContentScriptRegistration, PluginEvents, PluginFileOpenerProps, PluginFileOpenerRegistration, PluginFileOpenerSource, PluginHomepageSectionProps, PluginHomepageSectionRegistration, PluginHosts, PluginHttp, PluginHttpAuthMode, PluginHttpHandler, PluginInteractionCancelReason, PluginInteractionRequest, PluginInteractionResult, PluginKvStorage, PluginLogger, PluginMentionItem, PluginMentionProviderRegistration, PluginMentionSearchContext, PluginMentionTrigger, PluginMessageActionContext, PluginMessageActionRegistration, PluginMessageActionThreadPanelOptions, PluginMessageDirectiveMessage, PluginMessageDirectiveOpenWorkspaceFile, PluginMessageDirectiveProps, PluginMessageDirectiveRegistration, PluginNavPanelProps, PluginNavPanelRegistration, PluginNewThreadPanelActionContext, PluginNewThreadPanelActionRegistration, PluginNewThreadPanelProps, PluginPendingInteractionProps, PluginPendingInteractionRegistration, PluginPendingInteractionView, PluginProviderCapabilities, PluginProviderComposerAction, PluginProviderDeclaration, PluginProviderIconRegistration, PluginProviderPermissionMode, PluginProviderReasoningLevel, PluginRealtime, PluginRealtimeConnectionState, PluginRpc, PluginRpcCallArgs, PluginRpcClient, PluginRpcContract, PluginRpcError, PluginRpcErrorCode, PluginRpcHandlers, PluginRpcIssuePathSegment, PluginRpcMethodContract, PluginRpcResult, PluginRpcValidationIssue, PluginSdkApp, PluginServerApi, PluginSettingDescriptor, PluginSettingDescriptors, PluginSettingValue, PluginSettings, PluginSettingsHandle, PluginSettingsSectionProps, PluginSettingsSectionRegistration, PluginSettingsState, PluginSettingsValues, PluginSharedPortTunnelIdentity, PluginSidebarFooterActionContext, PluginSidebarFooterActionProps, PluginSidebarFooterActionRegistration, PluginSidebarProject, PluginSidebarPullRequest, PluginSidebarSplitPane, PluginSidebarThread, PluginSidebarThreadActions, PluginSidebarThreadActivity, PluginSidebarThreadIndicator, PluginSidebarThreadPullRequestState, PluginSidebarThreadSplit, PluginSidebarThreadsState, PluginSidebarWorkspaceKind, PluginStatusApi, PluginStorage, PluginThreadEventHandler, PluginThreadEventName, PluginThreadEventPayloads, PluginThreadHeaderActionProps, PluginThreadHeaderActionRegistration, PluginThreadListProps, PluginThreadListRegistration, PluginThreadPanelActionContext, PluginThreadPanelActionRegistration, PluginThreadPanelProps, PluginUi, StandardSchemaV1, StandardSchemaV1InferInput, StandardSchemaV1InferOutput, StandardSchemaV1Issue, StandardSchemaV1Result, ThreadChatMessageAction, ThreadChatMessageReference, ThreadChatProps };
++export type { BbContext, BbNavigate, BbPluginApi, ComposerCustomization, ComposerPlusMenuItem, ComposerRichTextSpec, ComposerStructuredDraft, ComposerView, ExperimentalHostCallOptions, ExperimentalHostClient, ExperimentalHostEntry, ExperimentalHostPaths, ExperimentalHostRpcContext, ExperimentalHostRpcHandlers, ExperimentalHostSignalContract, ExperimentalHostSignalEvent, ExperimentalHostSignals, ExperimentalHostWatchChange, ExperimentalHostWatchChangeType, ExperimentalHostWatchEvent, ExperimentalHostWatchListener, ExperimentalHostWatchOptions, ExperimentalHostWatchSubscription, ExperimentalHostWorkerLease, JsonValue, MarkdownProps, NewThreadComposerProps, NewThreadRequest, PluginAgentConfiguration, PluginAgentConfigurationContext, PluginAgentToolContentPart, PluginAgentToolContext, PluginAgentToolExperimentalStatusLabels, PluginAgentToolRegistrationBase, PluginAgentToolResult, PluginAgentToolSelection, PluginAgents, PluginAppBuilder, PluginAppComposer, PluginAppContentScripts, PluginAppDefinition, PluginAppSetup, PluginAppSlots, PluginBackground, PluginCli, PluginCliCommandInfo, PluginCliContext, PluginCliExecutionResult, PluginCliOutputLimitError, PluginCliRegistration, PluginCliResult, PluginComposerApi, PluginComposerMention, PluginComposerScope, PluginComposerTextEffect, PluginComposerThreadRowStatus, PluginContentScriptContext, PluginContentScriptDisposer, PluginContentScriptRegistration, PluginEvents, PluginFileOpenerProps, PluginFileOpenerRegistration, PluginFileOpenerSource, PluginHomepageSectionProps, PluginHomepageSectionRegistration, PluginHosts, PluginHttp, PluginHttpAuthMode, PluginHttpHandler, PluginInteractionCancelReason, PluginInteractionRequest, PluginInteractionResult, PluginKvStorage, PluginLogger, PluginMentionItem, PluginMentionProviderRegistration, PluginMentionSearchContext, PluginMentionTrigger, PluginMessageActionContext, PluginMessageActionRegistration, PluginMessageActionThreadPanelOptions, PluginMessageDirectiveMessage, PluginMessageDirectiveOpenWorkspaceFile, PluginMessageDirectiveProps, PluginMessageDirectiveRegistration, PluginNavPanelProps, PluginNavPanelRegistration, PluginNewThreadPanelActionContext, PluginNewThreadPanelActionRegistration, PluginNewThreadPanelProps, PluginPendingInteractionProps, PluginPendingInteractionRegistration, PluginPendingInteractionView, PluginProviderCapabilities, PluginProviderComposerAction, PluginProviderDeclaration, PluginProviderIconRegistration, PluginProviderPermissionMode, PluginProviderReasoningLevel, PluginRealtime, PluginRealtimeConnectionState, PluginRpc, PluginRpcCallArgs, PluginRpcClient, PluginRpcContract, PluginRpcError, PluginRpcErrorCode, PluginRpcHandlers, PluginRpcIssuePathSegment, PluginRpcMethodContract, PluginRpcResult, PluginRpcValidationIssue, PluginSdkApp, PluginServerApi, PluginSettingDescriptor, PluginSettingDescriptors, PluginSettingValue, PluginSettings, PluginSettingsHandle, PluginSettingsSectionProps, PluginSettingsSectionRegistration, PluginSettingsState, PluginSettingsValues, PluginSharedPortTunnelIdentity, PluginSidebarFooterActionContext, PluginSidebarFooterActionProps, PluginSidebarFooterActionRegistration, PluginSidebarProject, PluginSidebarPullRequest, PluginSidebarSplitPane, PluginSidebarThread, PluginSidebarThreadActions, PluginSidebarThreadActivity, PluginSidebarThreadIndicator, PluginSidebarThreadPullRequestState, PluginSidebarThreadSplit, PluginSidebarThreadsState, PluginSidebarWorkspaceKind, PluginStatusApi, PluginStorage, PluginThreadEventHandler, PluginThreadEventName, PluginThreadEventPayloads, PluginThreadHeaderActionProps, PluginThreadHeaderActionRegistration, PluginThreadListProps, PluginThreadListRegistration, PluginThreadPanelActionContext, PluginThreadPanelActionRegistration, PluginThreadPanelProps, PluginTranscriptPreludeProps, PluginTranscriptPreludeRegistration, PluginUi, StandardSchemaV1, StandardSchemaV1InferInput, StandardSchemaV1InferOutput, StandardSchemaV1Issue, StandardSchemaV1Result, ThreadChatMessageAction, ThreadChatMessageReference, ThreadChatProps };
+diff --git a/packages/plugin-sdk/src/app-contract.ts b/packages/plugin-sdk/src/app-contract.ts
+index 0af205a89..37c2b3f96 100644
+--- a/packages/plugin-sdk/src/app-contract.ts
++++ b/packages/plugin-sdk/src/app-contract.ts
+@@ -600,6 +600,30 @@ export interface PluginThreadHeaderActionRegistration {
+   component: ComponentType<PluginThreadHeaderActionProps>;
+ }
+ 
++/**
++ * Props passed to a `transcriptPrelude` component, rendered above the native
++ * thread timeline (collapsed plugin content that continues a prior session).
++ */
++export interface PluginTranscriptPreludeProps {
++  /**
++   * The thread whose native timeline this prelude sits above. Never null:
++   * the slot is not rendered on the compose screen.
++   */
++  threadId: string;
++}
++
++/**
++ * Render plugin rows above the native chat transcript (for example a
++ * previous-provider session continued by a switch). The host mounts every
++ * registered prelude above the first native message; a component that has
++ * nothing to show should return null.
++ */
++export interface PluginTranscriptPreludeRegistration {
++  /** Unique within the plugin; letters, digits, `-`, `_`. */
++  id: string;
++  component: ComponentType<PluginTranscriptPreludeProps>;
++}
++
+ /** One pane's place in the split layout, as fractions of the split area. */
+ export interface PluginSidebarSplitPane {
+   paneId: string;
+@@ -835,6 +859,11 @@ export interface PluginAppSlots {
+    * docs/api_to_audit.md.
+    */
+   experimental_providerIcon(registration: PluginProviderIconRegistration): void;
++  /**
++   * Render rows above the native thread transcript (see
++   * {@link PluginTranscriptPreludeRegistration}).
++   */
++  transcriptPrelude(registration: PluginTranscriptPreludeRegistration): void;
+ }
+ 
+ export interface PluginAppComposer {
+diff --git a/packages/plugin-sdk/src/internal/plugin-app-collector.ts b/packages/plugin-sdk/src/internal/plugin-app-collector.ts
+index 804b11fab..65759059c 100644
+--- a/packages/plugin-sdk/src/internal/plugin-app-collector.ts
++++ b/packages/plugin-sdk/src/internal/plugin-app-collector.ts
+@@ -15,6 +15,7 @@ import type {
+   PluginThreadHeaderActionRegistration,
+   PluginThreadListRegistration,
+   PluginThreadPanelActionRegistration,
++  PluginTranscriptPreludeRegistration,
+ } from "@get-bb/plugin-sdk";
+ import {
+   collectComposerCustomization,
+@@ -44,6 +45,7 @@ export interface CollectedPluginAppRegistrations {
+   messageDirectives: PluginMessageDirectiveRegistration[];
+   messageActions: PluginMessageActionRegistration[];
+   providerIcons: PluginProviderIconRegistration[];
++  transcriptPreludes: PluginTranscriptPreludeRegistration[];
+   contentScripts: PluginContentScriptRegistration[];
+ }
+ 
+@@ -73,6 +75,7 @@ export function collectPluginAppRegistrations(
+     messageDirectives: [],
+     messageActions: [],
+     providerIcons: [],
++    transcriptPreludes: [],
+     contentScripts: [],
+   };
+   const seenIds = {
+@@ -90,6 +93,7 @@ export function collectPluginAppRegistrations(
+     messageDirective: new Set<string>(),
+     messageAction: new Set<string>(),
+     providerIcon: new Set<string>(),
++    transcriptPrelude: new Set<string>(),
+     contentScript: new Set<string>(),
+   };
+ 
+@@ -339,6 +343,15 @@ export function collectPluginAppRegistrations(
+           icon: requireComponent(kind, registration.icon),
+         });
+       },
++      transcriptPrelude(registration) {
++        const kind = "slots.transcriptPrelude";
++        const id = requireSlotId(kind, registration?.id);
++        requireUniqueId(kind, seenIds.transcriptPrelude, id);
++        collected.transcriptPreludes.push({
++          id,
++          component: requireComponent(kind, registration.component),
++        });
++      },
+     },
+     composer: {
+       customize(registration) {
+-- 
+2.50.1 (Apple Git-155)
+
