@@ -1,0 +1,69 @@
+name: Fork upstream rebase
+
+# NSAI fork only. Replays patches/ onto upstream so drift surfaces without
+# replacing the packaged /Applications/bb.app or its official update feed.
+on:
+  schedule:
+    - cron: "17 11 * * *"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Upstream ref (tag, branch, or upstream/main)"
+        required: false
+        default: "upstream/main"
+  push:
+    branches:
+      - "nsai/**"
+    paths:
+      - "patches/**"
+      - ".github/workflows/fork-upstream-rebase.yml"
+      - "apps/desktop/src/desktop-auto-update.ts"
+      - "apps/desktop/test/desktop-auto-update.test.ts"
+
+concurrency:
+  group: fork-rebase-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apply-patches:
+    name: Apply patches onto upstream
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout fork branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/get-bb/bb.git || true
+          git fetch upstream --tags --prune
+
+      - name: Stash patches and replay onto upstream
+        env:
+          TARGET: ${{ github.event.inputs.ref || 'upstream/main' }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/bb-fork-patches
+          cp patches/*.patch /tmp/bb-fork-patches/
+          git checkout --detach "$TARGET"
+          git am --3way --committer-date-is-author-date /tmp/bb-fork-patches/*.patch
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify updater kill-switch
+        run: pnpm exec vitest run --config apps/desktop/vitest.config.ts test/desktop-auto-update.test.ts
+        working-directory: apps/desktop
