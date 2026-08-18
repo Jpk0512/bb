@@ -65,6 +65,26 @@ describe("run-dev", () => {
     expect(Object.values(config.ports)).not.toContain(38887);
   });
 
+  it("honors an explicit BB_DEV_APP_PORT override for the app dev server", () => {
+    const homeDir = "/Users/tester";
+    const repoRoot = "/Users/tester/.bb-dev/projects/env_q7e5i54kxt/bb";
+    const config = resolveDevInstanceConfig({
+      env: { BB_DEV_APP_PORT: "5191" },
+      homeDir,
+      repoRoot,
+    });
+
+    expect(config.ports.appPort).toBe(5191);
+    expect(config.ports.serverPort).toBe(expectedDevPorts(repoRoot).serverPort);
+    expect(() =>
+      resolveDevInstanceConfig({
+        env: { BB_DEV_APP_PORT: "not-a-port" },
+        homeDir,
+        repoRoot,
+      }),
+    ).toThrow("BB_DEV_APP_PORT must be a valid TCP port");
+  });
+
   it("keeps Cloud gateway ports out of the worker band and packaged ports", () => {
     const rootsByOffset = new Map([
       [0, "/repo/port-13604"],

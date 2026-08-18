@@ -22,6 +22,7 @@ export interface DevInstanceConfig {
 }
 
 export interface ResolveDevInstanceConfigArgs {
+  env?: NodeJS.ProcessEnv;
   homeDir: string;
   repoRoot: string;
 }
@@ -144,10 +145,17 @@ function reservePackagedAppPorts(port: number): number {
   return port;
 }
 
-function resolvePorts(repoRootPath: string): DevPortSet {
+function resolvePorts(
+  repoRootPath: string,
+  env: NodeJS.ProcessEnv = process.env,
+): DevPortSet {
   const offset = resolvePortOffset(repoRootPath);
   return {
-    appPort: DEV_APP_PORT_BASE + offset,
+    appPort: resolvePortFromEnv({
+      defaultPort: DEV_APP_PORT_BASE + offset,
+      env,
+      name: "BB_DEV_APP_PORT",
+    }),
     cloudPort: reservePackagedAppPorts(DEV_CLOUD_PORT_BASE + offset),
     cloudWorkerPort: DEV_CLOUD_WORKER_PORT_BASE + offset,
     hostDaemonPort: DEV_HOST_DAEMON_PORT_BASE + offset,
@@ -205,7 +213,7 @@ export function resolveDevInstanceConfig(
 ): DevInstanceConfig {
   const instanceId = resolveInstanceId(args);
   const dataDir = join(args.homeDir, BB_DEV_DATA_ROOT_DIR, instanceId);
-  const ports = resolvePorts(args.repoRoot);
+  const ports = resolvePorts(args.repoRoot, args.env);
   const serverUrl = `http://${BB_LOOPBACK_HOST}:${ports.serverPort}`;
   return {
     dataDir,
