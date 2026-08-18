@@ -1,7 +1,13 @@
 name: Fork upstream rebase
 
-# NSAI fork only. Replays patches/ onto upstream so drift surfaces without
-# replacing the packaged /Applications/bb.app or its official update feed.
+# NSAI fork only. Rebases this branch onto upstream and re-checks the surfaces
+# the fork owns, so drift surfaces early. It never touches the packaged
+# /Applications/bb.app or its official update feed.
+#
+# This used to replay a patches/ directory. The fork now edits core directly, so
+# the branch itself is the source of truth and a real rebase is the honest test:
+# a conflict, or a fork surface that silently stops working, fails here instead
+# of on the next upstream release.
 on:
   schedule:
     - cron: "17 11 * * *"
@@ -14,21 +20,16 @@ on:
   push:
     branches:
       - "nsai/**"
-    paths:
-      - "patches/**"
-      - ".github/workflows/fork-upstream-rebase.yml"
-      - "apps/desktop/src/desktop-auto-update.ts"
-      - "apps/desktop/test/desktop-auto-update.test.ts"
 
 concurrency:
   group: fork-rebase-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  apply-patches:
-    name: Apply patches onto upstream
+  rebase-onto-upstream:
+    name: Rebase onto upstream and verify fork surfaces
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout fork branch
         uses: actions/checkout@v4
@@ -40,17 +41,16 @@ jobs:
           git remote add upstream https://github.com/get-bb/bb.git || true
           git fetch upstream --tags --prune
 
-      - name: Stash patches and replay onto upstream
+      - name: Rebase onto upstream
         env:
           TARGET: ${{ github.event.inputs.ref || 'upstream/main' }}
         run: |
           set -euo pipefail
           git config user.email "bb-fork-ci@users.noreply.github.com"
           git config user.name "bb-fork-ci"
-          mkdir -p /tmp/bb-fork-patches
-          cp patches/*.patch /tmp/bb-fork-patches/
-          git checkout --detach "$TARGET"
-          git am --3way --committer-date-is-author-date /tmp/bb-fork-patches/*.patch
+          # Fails loudly on conflict. That is the signal: resolve it here rather
+          # than discovering it while trying to ship.
+          git rebase "$TARGET"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -66,6 +66,35 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Verify updater kill-switch
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      # Each step below guards one thing the fork added. If an upstream refactor
+      # silently drops one, this is where it shows up.
+      - name: Updater kill-switch stays honored
         run: pnpm exec vitest run --config vitest.config.ts test/desktop-auto-update.test.ts
         working-directory: apps/desktop
+
+      - name: Dev app port override stays honored
+        run: pnpm exec vitest run packages/scripts/test/run-dev.test.ts --root .
+
+      - name: Proxied browser origins stay allowed
+        run: |
+          pnpm exec vitest run packages/config/test/local-app-origins.test.ts --root .
+          pnpm exec vitest run plugins/connect/src/local-loopback.test.ts --root .
+
+      - name: Server origin guard stays correct
+        run: pnpm exec vitest run test/browser-request-guard.test.ts
+        working-directory: apps/server
+
+      - name: transcriptPrelude slot stays wired and documented
+        run: |
+          pnpm exec vitest run test/services/plugins/plugin-authoring-docs.test.ts
+        working-directory: apps/server
+
+      - name: bb.local stays an allowed dev host
+        run: |
+          set -euo pipefail
+          # No test owns this one-line allowlist, so assert it directly rather
+          # than let a config rewrite drop it unnoticed.
+          grep -q '"bb.local"' apps/app/vite.dev.config.ts
