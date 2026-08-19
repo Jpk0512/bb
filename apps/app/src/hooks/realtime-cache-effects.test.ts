@@ -45,6 +45,24 @@ import {
   REALTIME_THREAD_CHANGE_REGISTRY,
 } from "./cache-owners/realtime-cache-registry";
 
+/**
+ * PHASE 6 CHARTER — change kinds reserved up front by the Wave 0 charter
+ * commit so that four primitives implemented partly in parallel do not each
+ * edit `packages/domain/src/change-kinds.ts`. Nothing emits them yet and the
+ * registry entries are deliberately empty. Each owning wave wires its dirty
+ * handlers and deletes its kind from this set:
+ *   - "provider-changed"      → BBF-3, Wave 1
+ *   - "notifications-changed" → BBF-7, Wave 2
+ * See docs/fork/phase-6-charter.md.
+ */
+const CHARTER_RESERVED_THREAD_CHANGE_KINDS: ReadonlySet<string> = new Set([
+  "provider-changed",
+  "notifications-changed",
+]);
+const CHARTER_RESERVED_SYSTEM_CHANGE_KINDS: ReadonlySet<string> = new Set([
+  "notifications-changed",
+]);
+
 const PROJECT_PROMPT_HISTORY_THREAD_CHANGES = [
   "thread-created",
   "thread-deleted",
@@ -126,6 +144,9 @@ describe("createRealtimeCacheEffects", () => {
 
   it("maps every realtime thread change to at least one dirty handler", () => {
     for (const changeKind of THREAD_CHANGE_KINDS) {
+      if (CHARTER_RESERVED_THREAD_CHANGE_KINDS.has(changeKind)) {
+        continue;
+      }
       expect(
         REALTIME_THREAD_CHANGE_REGISTRY[changeKind].dirty.length,
       ).toBeGreaterThan(0);
@@ -158,6 +179,9 @@ describe("createRealtimeCacheEffects", () => {
 
   it("maps every cache-affecting system change to a dirty handler", () => {
     for (const changeKind of SYSTEM_CHANGE_KINDS) {
+      if (CHARTER_RESERVED_SYSTEM_CHANGE_KINDS.has(changeKind)) {
+        continue;
+      }
       const dirty = REALTIME_SYSTEM_CHANGE_REGISTRY[changeKind]?.dirty ?? [];
       expect(dirty.length).toBeGreaterThan(0);
     }

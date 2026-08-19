@@ -71,17 +71,40 @@ describe("migration journal integrity", () => {
     expect(violations).toEqual([]);
   });
 
-  it("has `idx` values matching array position", () => {
+  // Fork note: this assertion used to be `idx === array position`. The fork
+  // reserves the `0900_` band for its own migrations (see
+  // docs/fork/phase-6-charter.md) so that an upstream `0100_*` migration
+  // arriving on a rebase can never collide with a fork migration filename.
+  // drizzle-kit allocates the next idx as `lastEntry.idx + 1` and names both
+  // the .sql and the snapshot from it, so the band is expressed as an idx
+  // jump. What actually has to hold is what the snapshot-by-idx lookup and
+  // that allocation rule need: idx values are unique and strictly increasing
+  // in journal order.
+  it("has unique, strictly increasing `idx` values in journal order", () => {
     const { entries } = readJournal();
 
-    const mismatches: string[] = [];
-    for (let i = 0; i < entries.length; i++) {
-      if (entries[i].idx !== i) {
-        mismatches.push(
-          `entries[${i}] ${entries[i].tag} has idx=${entries[i].idx}, expected ${i}`,
+    const violations: string[] = [];
+    for (let i = 1; i < entries.length; i++) {
+      if (entries[i].idx <= entries[i - 1].idx) {
+        violations.push(
+          `entries[${i}] ${entries[i].tag} has idx=${entries[i].idx}, ` +
+            `expected > entries[${i - 1}] ${entries[i - 1].tag} idx=${entries[i - 1].idx}`,
         );
       }
     }
+
+    expect(violations).toEqual([]);
+  });
+
+  it("names every migration file after its journal idx", () => {
+    const { entries } = readJournal();
+
+    const mismatches = entries
+      .filter(
+        (entry) =>
+          !entry.tag.startsWith(`${String(entry.idx).padStart(4, "0")}_`),
+      )
+      .map((entry) => `${entry.tag} has idx=${entry.idx}`);
 
     expect(mismatches).toEqual([]);
   });

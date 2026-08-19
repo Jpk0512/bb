@@ -386,6 +386,21 @@ export const threadSchema = z.object({
   originKind: threadOriginKindSchema.nullable(),
   /** Id of the plugin that spawned this thread; null for non-plugin origins. */
   originPluginId: z.string().nullable(),
+  /**
+   * PHASE 6 CHARTER (BBF-5). Namespaced role slug supplied by the spawner
+   * ("dispatch:worker", "board:reviewer"); null/absent means "not a
+   * role-tagged child". Optional so every existing thread mapper keeps
+   * compiling until BBF-5 populates it. See docs/fork/phase-6-charter.md.
+   */
+  childKind: z.string().nullable().optional(),
+  /**
+   * PHASE 6 CHARTER (BBF-3). Forward lineage edge; non-null means this thread
+   * was RETIRED and continues in the named thread. Per charter decision D4
+   * this is a third disposition, distinct from `archivedAt` (user intent) and
+   * `visibility: "hidden"` (plugin-owned worker). Optional for the same
+   * compile-compatibility reason as `childKind`.
+   */
+  supersededByThreadId: z.string().nullable().optional(),
   visibility: threadVisibilitySchema,
   archivedAt: z.number().nullable(),
   pinnedAt: z.number().nullable(),
@@ -406,6 +421,13 @@ export const threadListEntrySchema = threadWithRuntimeSchema.extend({
   activity: threadActivityStateSchema,
   pinSortKey: z.string().nullable(),
   hasPendingInteraction: z.boolean(),
+  /**
+   * PHASE 6 CHARTER (BBF-7). Count of undismissed notifications for this
+   * thread, for the sidebar chip. `hasPendingInteraction` on this same schema
+   * is the established precedent for per-thread attention state in the list
+   * payload. Optional until BBF-7 adds the correlated subquery.
+   */
+  unreadNotificationCount: z.number().optional(),
   environmentHostId: z.string().nullable(),
   environmentName: z.string().nullable(),
   environmentBranchName: z.string().nullable(),

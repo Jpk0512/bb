@@ -421,6 +421,11 @@ export class WatchInterestCoordinator {
       case "host-detail":
       case "host-list":
       case "system":
+      // PHASE 6 CHARTER (BBF-4). A plugin channel never resolves to a host
+      // watch target; `isWatchableSubscriptionTarget` already filters it out
+      // before this point. Listed explicitly so the exhaustiveness check keeps
+      // working. See docs/fork/phase-6-charter.md.
+      case "plugin-channel":
         return null;
     }
   }

@@ -304,6 +304,7 @@ function dropRewindAddedTables(db: DbConnection): void {
     .run();
   dropHostMaxPermissionModeColumn(db);
   dropEnvironmentRetireRequestedAtColumn(db);
+  dropPhase6CharterSchema(db);
   dropPluginArtifactGitCheckoutRootColumn(db);
   dropThreadSectionSchema(db);
   restoreWideExperimentsTable(db);
@@ -655,6 +656,38 @@ function dropMarketplaceCatalogSchema(db: DbConnection): void {
   }
 }
 
+/**
+ * PHASE 6 CHARTER — migration 0900 reserves three tables (notifications,
+ * thread_turns, thread_plugin_agent_configs), three `threads` columns and two
+ * `threads` indexes for the Phase 6 primitives. Rewind scenarios that clear
+ * its journal row must remove all of them, or migrate() replays the
+ * CREATE/ADD against a DB that already has them. Indexes are dropped before
+ * the columns because SQLite refuses to drop an indexed column.
+ * See docs/fork/phase-6-charter.md.
+ */
+function dropPhase6CharterSchema(db: DbConnection): void {
+  db.$client.prepare("DROP TABLE IF EXISTS notifications").run();
+  db.$client.prepare("DROP TABLE IF EXISTS thread_turns").run();
+  db.$client.prepare("DROP TABLE IF EXISTS thread_plugin_agent_configs").run();
+  db.$client.prepare("DROP INDEX IF EXISTS threads_superseded_idx").run();
+  db.$client.prepare("DROP INDEX IF EXISTS threads_parent_child_kind_idx").run();
+  const columns = new Set(
+    db.$client
+      .prepare<[], TableInfoRow>("PRAGMA table_info(threads)")
+      .all()
+      .map((column) => column.name),
+  );
+  for (const column of [
+    "child_kind",
+    "provider_generation",
+    "superseded_by_thread_id",
+  ]) {
+    if (columns.has(column)) {
+      db.$client.prepare(`ALTER TABLE threads DROP COLUMN ${column}`).run();
+    }
+  }
+}
+
 function dropEnvironmentNameColumn(db: DbConnection): void {
   db.$client.prepare("ALTER TABLE environments DROP COLUMN name").run();
 }
@@ -748,6 +781,7 @@ function dropQueuedMessageSenderThreadIdColumn(db: DbConnection): void {
 /** Tables created by migrations after 0023, dropped so migrate() re-applies. */
 function dropPost0023Tables(db: DbConnection): void {
   dropEnvironmentRetireRequestedAtColumn(db);
+  dropPhase6CharterSchema(db);
   dropPluginArtifactGitCheckoutRootColumn(db);
   dropProjectGitRemoteUrlColumn(db);
   db.$client.prepare("DROP TABLE IF EXISTS thread_tabs").run();
@@ -1519,6 +1553,7 @@ describe("migrate", () => {
     dropOnboardingCompletedAtColumn(db);
     dropNewOnboardingExperimentColumn(db);
     dropEnvironmentRetireRequestedAtColumn(db);
+    dropPhase6CharterSchema(db);
     dropPluginArtifactGitCheckoutRootColumn(db);
     dropMarketplaceCatalogSchema(db);
     // Delete by the journal timestamp, not a hash substring: migration hashes
@@ -1812,6 +1847,7 @@ describe("migrate", () => {
       dropNewOnboardingExperimentColumn(db);
       dropHostMaxPermissionModeColumn(db);
       dropEnvironmentRetireRequestedAtColumn(db);
+      dropPhase6CharterSchema(db);
       dropPluginArtifactGitCheckoutRootColumn(db);
       dropMarketplaceCatalogSchema(db);
 
@@ -2214,6 +2250,7 @@ describe("migrate", () => {
       dropNewOnboardingExperimentColumn(db);
       dropHostMaxPermissionModeColumn(db);
       dropEnvironmentRetireRequestedAtColumn(db);
+      dropPhase6CharterSchema(db);
       dropPluginArtifactGitCheckoutRootColumn(db);
       dropMarketplaceCatalogSchema(db);
 
@@ -2313,6 +2350,7 @@ describe("migrate", () => {
       dropNewOnboardingExperimentColumn(db);
       dropHostMaxPermissionModeColumn(db);
       dropEnvironmentRetireRequestedAtColumn(db);
+      dropPhase6CharterSchema(db);
       dropPluginArtifactGitCheckoutRootColumn(db);
       dropMarketplaceCatalogSchema(db);
 

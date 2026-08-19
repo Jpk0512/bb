@@ -397,6 +397,18 @@ export const REALTIME_THREAD_CHANGE_REGISTRY = {
       dirtyThreadTerminalQueries, // Terminal panel lists sessions by thread.
     ],
   },
+  // PHASE 6 CHARTER — reserved, deliberately unwired. Nothing emits these
+  // kinds yet; the owning wave adds the dirty handlers and removes the kind
+  // from CHARTER_RESERVED_THREAD_CHANGE_KINDS in realtime-cache-effects.test.ts.
+  // See docs/fork/phase-6-charter.md.
+  "provider-changed": {
+    flush: "debounced",
+    dirty: [], // BBF-3 (Wave 1) wires the thread record + execution option queries.
+  },
+  "notifications-changed": {
+    flush: "debounced",
+    dirty: [], // BBF-7 (Wave 2) wires the inbox + per-thread badge queries.
+  },
 } satisfies ThreadChangeRegistry;
 
 export const REALTIME_ENVIRONMENT_CHANGE_REGISTRY = {
@@ -519,6 +531,11 @@ export const REALTIME_SYSTEM_CHANGE_REGISTRY = {
       dirtyPluginManagementQueries,
       reconcilePluginFrontendBundles,
     ],
+  },
+  // PHASE 6 CHARTER — reserved, deliberately unwired. See the thread registry
+  // above and docs/fork/phase-6-charter.md.
+  "notifications-changed": {
+    dirty: [], // BBF-7 (Wave 2) wires the global inbox badge query.
   },
 } satisfies SystemChangeRegistry;
 

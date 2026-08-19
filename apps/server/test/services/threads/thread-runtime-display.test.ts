@@ -212,6 +212,10 @@ function createThreadListEntry(
     ...args.thread,
     modelOverride: null,
     reasoningLevelOverride: null,
+    // Phase 6 charter columns: declared on the row, unread by any code path.
+    childKind: null,
+    providerGeneration: 0,
+    supersededByThreadId: null,
     environmentBranchName: null,
     environmentHostId: args.environmentHostId,
     environmentName: null,

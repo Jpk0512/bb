@@ -572,12 +572,30 @@ export const threads = sqliteTable(
       (): AnySQLiteColumn => threads.id,
       { onDelete: "set null" },
     ),
+    // PHASE 6 CHARTER (BBF-3). The forward lineage edge: this thread was
+    // retired and continues in superseded_by_thread_id. Kept next to
+    // parent_thread_id / source_thread_id so the three self-FKs (parent /
+    // fork source / supersession) read as one family. Reserved by the Wave 0
+    // charter; no code path reads it yet — see docs/fork/phase-6-charter.md.
+    supersededByThreadId: text("superseded_by_thread_id").references(
+      (): AnySQLiteColumn => threads.id,
+      { onDelete: "set null" },
+    ),
+    // PHASE 6 CHARTER (BBF-3). Bumped on every in-place provider change so a
+    // provider session boundary can be derived without adding a column to the
+    // events table. Reserved by the Wave 0 charter; unread today.
+    providerGeneration: integer("provider_generation").notNull().default(0),
     originKind: text("origin_kind", {
       enum: threadOriginKindValues,
     }),
     // Id of the plugin that spawned this thread (create origin "plugin").
     // NULL for every other origin.
     originPluginId: text("origin_plugin_id"),
+    // PHASE 6 CHARTER (BBF-5). Namespaced role slug supplied by the spawner
+    // ("dispatch:worker", "board:reviewer"). NULL means "not a role-tagged
+    // child". Only meaningful when parent_thread_id is set. Reserved by the
+    // Wave 0 charter; no code path reads it yet — see docs/fork/phase-6-charter.md.
+    childKind: text("child_kind"),
     visibility: text("visibility", { enum: threadVisibilityValues })
       .notNull()
       .default("visible"),
@@ -627,6 +645,15 @@ export const threads = sqliteTable(
     index("threads_active_maintenance_idx")
       .on(table.status)
       .where(sql`${table.deletedAt} IS NULL`),
+    // PHASE 6 CHARTER (BBF-3). Serves "who did this thread supersede" — the
+    // predecessor lookup the lineage-aware timeline pages backwards through.
+    index("threads_superseded_idx").on(table.supersededByThreadId),
+    // PHASE 6 CHARTER (BBF-5). Serves listChildren(parentThreadId, childKind).
+    // Partial so the overwhelming majority of threads (child_kind IS NULL)
+    // stay out of the index entirely.
+    index("threads_parent_child_kind_idx")
+      .on(table.parentThreadId, table.childKind)
+      .where(sql`${table.childKind} IS NOT NULL`),
   ],
 );
 
@@ -1008,6 +1035,208 @@ export const pendingInteractions = sqliteTable(
     index("pending_interactions_plugin_status_created_idx").on(
       table.pluginId,
       table.status,
+      table.createdAt,
+    ),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// PHASE 6 CHARTER — reserved declarations (Wave 0)
+//
+// Everything below this banner was landed by the Wave 0 charter commit so that
+// the four Phase 6 primitives that each need a drizzle migration (BBF-3,
+// BBF-5, BBF-6, BBF-7) share ONE generated migration instead of four rival
+// ones. drizzle-kit generation is stateful: two agents generating concurrently
+// both emit a migration claiming descent from the same snapshot, and
+// `validateAppliedMigrationHistory` in packages/db/src/migrate.ts hash-checks
+// the chain on startup.
+//
+// NOTHING IN THIS BLOCK IS READ BY ANY CODE PATH YET. The owning wave fills in
+// the data layer. See docs/fork/phase-6-charter.md.
+// ---------------------------------------------------------------------------
+
+/**
+ * BBF-5 — agent configuration pinned at thread creation.
+ *
+ * Spawn-pinned tool/skill/instruction selection for one (thread, plugin) pair.
+ * A separate table rather than a JSON column on `threads` because it must
+ * survive plugin reload, cascade on thread delete, and later admit more than
+ * one contributing plugin.
+ *
+ * Per charter decision D2 this configuration is AUTHORITATIVE for tool and
+ * skill selection; BBF-8's `onTurnPreflight` must not alter either.
+ */
+export const threadPluginAgentConfigs = sqliteTable(
+  "thread_plugin_agent_configs",
+  {
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => threads.id, { onDelete: "cascade" }),
+    pluginId: text("plugin_id").notNull(),
+    /** JSON array of tool ids / PluginAgentToolSelection objects. */
+    toolsJson: text("tools_json").notNull(),
+    /** JSON array of skill ids. */
+    skillsJson: text("skills_json").notNull(),
+    instructions: text("instructions"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.threadId, table.pluginId] }),
+    index("thread_plugin_agent_configs_plugin_idx").on(table.pluginId),
+  ],
+);
+
+/**
+ * BBF-6 — materialized per-turn telemetry.
+ *
+ * Written when a turn completes rather than derived on read, because
+ * `pruneTokenUsageEventsBeforeSequence` deletes all but the latest root-turn
+ * usage row: a read-time projection can never recover tokens for turn N-5.
+ *
+ * Per charter decision D1 the record is the PAYLOAD carried on BBF-8's
+ * `bb.runtime.onTurnSettled` event, and it is NULLABLE on that event: a turn
+ * that dies with the provider process never produces a `turn/completed` row
+ * and therefore never produces a row here.
+ *
+ * Spans are one bounded JSON column with an explicit truncation flag rather
+ * than a second high-write table; the counts and durations that aggregate
+ * consumers need are typed columns.
+ */
+export const threadTurns = sqliteTable(
+  "thread_turns",
+  {
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => threads.id, { onDelete: "cascade" }),
+    turnId: text("turn_id").notNull(),
+    /** Denormalized from `threads` for the project-scoped aggregates. */
+    projectId: text("project_id").notNull(),
+    providerId: text("provider_id").notNull(),
+    model: text("model"),
+    /** "turn-request" | "thread-default" */
+    modelSource: text("model_source"),
+    reasoningLevel: text("reasoning_level").$type<ReasoningLevel>(),
+    serviceTier: text("service_tier").$type<ServiceTier>(),
+    /** Set when this turn is a subagent turn spawned by a tool call. */
+    parentToolCallId: text("parent_tool_call_id"),
+    isRoot: integer("is_root", { mode: "boolean" }).notNull().default(true),
+    /** "user" | "plugin" | "system" | "provider" — free-form on purpose. */
+    initiator: text("initiator"),
+    startedAt: integer("started_at").notNull(),
+    completedAt: integer("completed_at"),
+    durationMs: integer("duration_ms"),
+    status: text("status").notNull(),
+    errorMessage: text("error_message"),
+    countToolCalls: integer("count_tool_calls").notNull().default(0),
+    countCommands: integer("count_commands").notNull().default(0),
+    countFileChanges: integer("count_file_changes").notNull().default(0),
+    countDelegations: integer("count_delegations").notNull().default(0),
+    countSubagentSpans: integer("count_subagent_spans").notNull().default(0),
+    countErrors: integer("count_errors").notNull().default(0),
+    countInterrupted: integer("count_interrupted", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    usageTotalTokens: integer("usage_total_tokens"),
+    usageInputTokens: integer("usage_input_tokens"),
+    usageCachedInputTokens: integer("usage_cached_input_tokens"),
+    usageOutputTokens: integer("usage_output_tokens"),
+    usageReasoningOutputTokens: integer("usage_reasoning_output_tokens"),
+    usageModelContextWindow: integer("usage_model_context_window"),
+    /** "provider-turn-delta" | "provider-last" | "none" */
+    usageSource: text("usage_source"),
+    /**
+     * Present-and-always-null today: the column exists so a price table can be
+     * applied later without a migration.
+     */
+    usageCostUsd: text("usage_cost_usd"),
+    /** Event sequence range the record was built from, for auditing. */
+    sourceSeqStart: integer("source_seq_start"),
+    sourceSeqEnd: integer("source_seq_end"),
+    /** JSON span tree; NULL when no spans were recorded. */
+    spansJson: text("spans_json"),
+    spansTruncated: integer("spans_truncated", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.threadId, table.turnId] }),
+    index("thread_turns_thread_started_idx").on(
+      table.threadId,
+      table.startedAt,
+    ),
+    index("thread_turns_project_completed_idx").on(
+      table.projectId,
+      table.completedAt,
+    ),
+    index("thread_turns_project_model_completed_idx").on(
+      table.projectId,
+      table.model,
+      table.completedAt,
+    ),
+  ],
+);
+
+/**
+ * BBF-7 — durable, non-blocking notifications.
+ *
+ * Deliberately NOT an overload of `pending_interactions`: that table is a
+ * rendezvous whose presence means "a turn is blocked on the user" and drives
+ * thread activity. A notification is durable, survives restart with no waiter,
+ * and must not make a thread look blocked.
+ *
+ * Per charter decision D3 this table is the single announcement channel to the
+ * HUMAN for child completion; the parent agent keeps its system message.
+ */
+export const notifications = sqliteTable(
+  "notifications",
+  {
+    id: text("id").primaryKey(),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => threads.id, { onDelete: "cascade" }),
+    /** Denormalized for the project-scoped inbox query. */
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    sourceKind: text("source_kind")
+      .$type<"plugin" | "system">()
+      .notNull()
+      .default("plugin"),
+    pluginId: text("plugin_id"),
+    /** "review-ready" | "worker-finished" | "approval-needed" | "info" */
+    category: text("category").notNull(),
+    title: text("title").notNull(),
+    body: text("body"),
+    /** JSON, plugin-owned. */
+    payload: text("payload").notNull().default("{}"),
+    /** Plugin component id; mirrors pending_interactions.renderer_id. */
+    rendererId: text("renderer_id"),
+    /**
+     * Idempotency key. Creating twice with the same (plugin_id, dedupe_key)
+     * returns the same row, so retry is free and cannot double-deliver.
+     */
+    dedupeKey: text("dedupe_key"),
+    /** Whether creating this row bumps the thread's latest_attention_at. */
+    attention: integer("attention", { mode: "boolean" })
+      .notNull()
+      .default(true),
+    createdAt: integer("created_at").notNull(),
+    /** Seen in the inbox. Distinct from dismissal. */
+    readAt: integer("read_at"),
+    /** Gone from the inbox. Terminal. */
+    dismissedAt: integer("dismissed_at"),
+  },
+  (table) => [
+    uniqueIndex("notifications_dedupe_idx").on(table.pluginId, table.dedupeKey),
+    index("notifications_thread_created_idx").on(
+      table.threadId,
+      table.createdAt,
+    ),
+    index("notifications_open_idx").on(table.dismissedAt, table.createdAt),
+    index("notifications_project_created_idx").on(
+      table.projectId,
       table.createdAt,
     ),
   ],

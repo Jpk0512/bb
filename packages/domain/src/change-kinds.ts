@@ -22,6 +22,14 @@ export const THREAD_CHANGE_KINDS = [
   "order-changed",
   "tabs-changed",
   "terminals-changed",
+  // PHASE 6 CHARTER (BBF-3). The app caches thread.providerId and drives the
+  // whole model picker off it; an in-place provider change needs its own kind
+  // or the picker keeps showing the old provider until an unrelated
+  // invalidation happens. Reserved by Wave 0; nothing emits it yet.
+  "provider-changed",
+  // PHASE 6 CHARTER (BBF-7). Payload-free "refetch the inbox" signal for the
+  // per-thread badge. Reserved by Wave 0; nothing emits it yet.
+  "notifications-changed",
 ] as const;
 export type ThreadChangeKind = (typeof THREAD_CHANGE_KINDS)[number];
 
@@ -55,6 +63,11 @@ export type HostChangeKind = (typeof HOST_CHANGE_KINDS)[number];
 export const SYSTEM_CHANGE_KINDS = [
   "config-changed",
   "plugins-changed",
+  // PHASE 6 CHARTER (BBF-7). System-scoped twin of the thread-scoped kind
+  // above, for the global inbox badge. Both are payload-free refetch signals,
+  // so broadcasting to every connected client leaks nothing; scoping is
+  // enforced by the projectId filter on the list route. Reserved by Wave 0.
+  "notifications-changed",
 ] as const;
 export type SystemChangeKind = (typeof SYSTEM_CHANGE_KINDS)[number];
 
@@ -114,6 +127,21 @@ export const realtimeSubscriptionTargetSchema = z.discriminatedUnion("kind", [
       kind: z.literal("system"),
     })
     .strict(),
+  // PHASE 6 CHARTER (BBF-4). A scoped cross-plugin realtime channel.
+  // `scope` narrows the channel to one entity (a thread id, a run id, …);
+  // null means the plugin-wide channel. `as` is the subscribing plugin's own
+  // id, carried for attribution only and deliberately EXCLUDED from the
+  // subscription key so two plugins watching the same channel share one
+  // fan-out entry. Reserved by Wave 0; no hub routing reads it yet.
+  z
+    .object({
+      kind: z.literal("plugin-channel"),
+      pluginId: z.string().min(1),
+      channel: z.string().min(1),
+      scope: z.string().nullable(),
+      as: z.string().min(1).optional(),
+    })
+    .strict(),
 ]);
 export type RealtimeSubscriptionTarget = z.infer<
   typeof realtimeSubscriptionTargetSchema
@@ -163,6 +191,11 @@ export function realtimeSubscriptionTargetKey(
       return "host-list";
     case "system":
       return "system";
+    // PHASE 6 CHARTER (BBF-4). `as` is intentionally not part of the key.
+    case "plugin-channel":
+      return `plugin-channel:${target.pluginId}:${target.channel}${
+        target.scope === null ? "" : `#${target.scope}`
+      }`;
     default:
       return assertUnhandledRealtimeSubscriptionTarget(target);
   }
