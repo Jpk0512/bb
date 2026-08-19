@@ -30,6 +30,78 @@ export interface TimelineSequenceWindowStart {
 const SEQUENCE_CURSOR_ANCHOR_ID_SEPARATOR = ":in-turn:";
 const BYTE_CURSOR_ANCHOR_ID_SEPARATOR = ":byte-window:";
 
+/**
+ * A cursor that has walked past the start of the requested thread and into the
+ * thread that thread retired (its lineage predecessor).
+ *
+ * The client never learns about this: it keeps calling
+ * `GET /threads/:id/timeline` with the SAME `:id`, and the server continues the
+ * page into the predecessor. That is deliberate — teaching the client to fetch
+ * two threads means duplicating cursor, delta, dedupe and unread-divider logic,
+ * while continuing on the server makes every existing consumer (including a
+ * plugin's own paging loop) lineage-complete for free.
+ *
+ * The anchorId nests: `<predecessorThreadId>:lineage:<that thread's own
+ * anchorId>`. An empty inner id means "the latest page of that thread", which
+ * is the first page across the seam. Nesting keeps every subsequent page of
+ * the predecessor tagged, so the whole chain pages through one route.
+ */
+const LINEAGE_CURSOR_ANCHOR_ID_SEPARATOR = ":lineage:";
+
+export interface LineageCursorTarget {
+  /** The predecessor thread whose rows this page serves. */
+  threadId: string;
+  /**
+   * That thread's own cursor, or null for its latest page. Never a lineage
+   * cursor itself: each page re-tags with the thread it actually read.
+   */
+  innerCursor: TimelinePaginationCursor | null;
+}
+
+export function buildLineageCursorAnchorId(args: {
+  threadId: string;
+  innerAnchorId: string | null;
+}): string {
+  return `${args.threadId}${LINEAGE_CURSOR_ANCHOR_ID_SEPARATOR}${
+    args.innerAnchorId ?? ""
+  }`;
+}
+
+/**
+ * Parses a lineage cursor, or returns null when the cursor names a row or
+ * sequence in the requested thread itself. Must be consulted BEFORE
+ * {@link readSequenceCursor}, which prefixes on the requested thread's id and
+ * would misread a lineage cursor as a plain row anchor.
+ */
+export function readLineageCursor(
+  cursor: TimelinePaginationCursor,
+): LineageCursorTarget | null {
+  const separatorIndex = cursor.anchorId.indexOf(
+    LINEAGE_CURSOR_ANCHOR_ID_SEPARATOR,
+  );
+  if (separatorIndex <= 0) {
+    return null;
+  }
+  const threadId = cursor.anchorId.slice(0, separatorIndex);
+  const innerAnchorId = cursor.anchorId.slice(
+    separatorIndex + LINEAGE_CURSOR_ANCHOR_ID_SEPARATOR.length,
+  );
+  if (!Number.isInteger(cursor.anchorSeq)) {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "Timeline pagination cursor is no longer available",
+    );
+  }
+  return {
+    threadId,
+    innerCursor:
+      innerAnchorId.length === 0
+        ? null
+        : { anchorId: innerAnchorId, anchorSeq: cursor.anchorSeq },
+  };
+}
+
 export function buildSequenceCursorAnchorId(
   args: TimelineSequenceWindowStart,
 ): string {

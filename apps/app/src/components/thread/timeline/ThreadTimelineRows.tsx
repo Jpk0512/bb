@@ -618,7 +618,11 @@ function buildTurnSummaryDetailsIdentity({
   return {
     sourceSeqEnd: rowSourceSeqEnd,
     sourceSeqStart: rowSourceSeqStart,
-    threadId: threadId ?? rowThreadId,
+    // The ROW's thread wins. A lineage-continued timeline renders rows from
+    // the thread this one retired in the same scroll container, and their
+    // sequence numbers belong to that thread — resolving them against the
+    // surface thread would fetch the wrong turn's details, or none.
+    threadId: rowThreadId ?? threadId,
     turnId: rowTurnId,
   };
 }
@@ -963,6 +967,12 @@ function ConversationRow({
       </div>
     );
   }
+  // A lineage-continued timeline renders rows from the thread this one retired
+  // in the same scroll container. Those rows are read-only: edit and fork both
+  // address the SURFACE thread by source sequence, and a predecessor's
+  // sequences name a different thread's events entirely.
+  const isPriorLineageRow =
+    threadId !== undefined && row.threadId !== threadId;
   // The narrow, stable message reference plugin actions receive — sourced
   // from row fields, never the row object itself.
   const messageReference: ThreadChatMessageReference = {
@@ -1000,6 +1010,7 @@ function ConversationRow({
     const originKind = isForkSeedAnchorRow(row) ? threadOriginKind : null;
     const canEditMessage =
       onEditMessage !== undefined &&
+      !isPriorLineageRow &&
       row.initiator === "user" &&
       !row.turnRequest.isGrouped &&
       row.turnRequest.kind === "message" &&
@@ -1064,7 +1075,7 @@ function ConversationRow({
   // handler entirely when no host can fork, which keeps the Fork button out of
   // the action bar rather than rendering it dead.
   const onFork =
-    onForkMessage === undefined
+    onForkMessage === undefined || isPriorLineageRow
       ? undefined
       : () => onForkMessage({ sourceSeqEnd: row.sourceSeqEnd });
   // Side chats supply this so each agent message can be handed back to the main

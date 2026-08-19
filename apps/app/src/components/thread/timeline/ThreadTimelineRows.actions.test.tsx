@@ -447,6 +447,54 @@ describe("ThreadTimelineRows actions", () => {
     });
   });
 
+  it("renders a prior-lineage row read-only", () => {
+    // Lineage-continued rows come from the thread this one retired and share
+    // the scroll container. Edit and fork address the SURFACE thread by source
+    // sequence, so offering them here would rewrite a different thread.
+    const markup = toMarkup(
+      <ThreadTimelineRows
+        threadId="thr_current"
+        timelineRows={[
+          conversationRow({
+            id: "prior_lineage_message",
+            role: "user",
+            text: "A request from the retired thread.",
+            sourceSeqStart: 4,
+            threadId: "thr_retired",
+          }),
+        ]}
+        onEditMessage={vi.fn()}
+        onForkMessage={vi.fn()}
+        threadRuntimeDisplayStatus="idle"
+        workspaceRootPath={undefined}
+      />,
+    );
+    expect(markup).not.toContain('aria-label="Edit message"');
+    expect(markup).not.toContain('aria-label="Fork message"');
+  });
+
+  it("keeps edit and fork on a row from the surface thread itself", () => {
+    const markup = toMarkup(
+      <ThreadTimelineRows
+        threadId="thr_current"
+        timelineRows={[
+          conversationRow({
+            id: "current_message",
+            role: "user",
+            text: "A request from this thread.",
+            sourceSeqStart: 4,
+            threadId: "thr_current",
+          }),
+        ]}
+        onEditMessage={vi.fn()}
+        onForkMessage={vi.fn()}
+        threadRuntimeDisplayStatus="idle"
+        workspaceRootPath={undefined}
+      />,
+    );
+    expect(markup).toContain('aria-label="Edit message"');
+  });
+
   it("keeps the last real user action footer inline when a remote-image-only row follows", () => {
     const { container } = renderWithRouter(
       <ThreadTimelineRows
