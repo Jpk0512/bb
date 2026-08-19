@@ -19,6 +19,7 @@ import type {
   PluginMentionTrigger,
 } from "./plugin-api.js";
 import type { HostSharedPortCoordinator } from "../../ws/host-shared-ports.js";
+import type { PluginRealtimeCoordinator } from "../../ws/plugin-realtime.js";
 import type { ProviderRegistryService } from "../providers/provider-registry.js";
 import type { PluginHostArtifactRegistry } from "./plugin-host-artifact-registry.js";
 export type {
@@ -89,6 +90,18 @@ export interface PluginServiceDeps {
   ensureSharedPortTunnel?: (
     hostId: string,
   ) => Promise<HostDaemonConnectTunnelIdentity>;
+  /**
+   * Cross-plugin realtime declarations (BBF-4). Omitted only by isolated
+   * plugin-runtime tests, exactly like `sharedPorts`: without it
+   * `bb.realtime.declare` is a no-op and every plugin still gets its own
+   * channels, which is the correct degraded behaviour for a test host.
+   */
+  pluginRealtime?: Pick<
+    PluginRealtimeCoordinator,
+    | "replaceDeclarationsForOwner"
+    | "clearDeclarationsForOwner"
+    | "listChannelContributions"
+  >;
   /** Omitted only by isolated plugin tests that exercise no provider surface;
    * `bb.agents.experimental_registerProvider` throws without it. */
   providerRegistry?: ProviderRegistryService;

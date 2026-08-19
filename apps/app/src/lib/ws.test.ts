@@ -249,24 +249,31 @@ describe("WebSocketManager subscriptions", () => {
     expect(readClientMessages(socket)).toEqual([]);
   });
 
-  it("ref-counts plugin-channel targets across subscribers and replays once", () => {
+  it("ref-counts plugin-channel targets per asserting subscriber and replays each", () => {
     const { manager, socket } = createConnectedManager();
 
-    // Two different plugins watching the same publisher channel. `as` is not
-    // part of the key, so this must be one refcounted subscription.
+    // Two different plugins watching the same publisher channel. They share one
+    // hub fan-out entry (`as` is excluded from realtimeSubscriptionTargetKey),
+    // but the server authorizes each claim separately, so each must reach it.
+    // Deduping on the server key here would make mount order decide who gets
+    // fed.
+    manager.subscribe(PLUGIN_CHANNEL_TARGET);
     manager.subscribe(PLUGIN_CHANNEL_TARGET);
     manager.subscribe(PLUGIN_CHANNEL_OTHER_SUBSCRIBER_TARGET);
 
     expect(readClientMessages(socket)).toEqual([
       { type: "subscribe", target: PLUGIN_CHANNEL_TARGET },
+      { type: "subscribe", target: PLUGIN_CHANNEL_OTHER_SUBSCRIBER_TARGET },
     ]);
 
     manager.unsubscribe(PLUGIN_CHANNEL_OTHER_SUBSCRIBER_TARGET);
+    manager.unsubscribe(PLUGIN_CHANNEL_TARGET);
     socket.sentMessages.length = 0;
     socket.close();
     socket.open();
 
-    // The surviving subscriber still gets its subscription re-established.
+    // The still-held subscriber (refcount 2, released once) is re-established;
+    // the released one is not.
     expect(readClientMessages(socket)).toEqual([
       { type: "subscribe", target: PLUGIN_CHANNEL_TARGET },
     ]);

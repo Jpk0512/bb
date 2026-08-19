@@ -35,6 +35,7 @@ import {
   buildPluginHost,
   createPluginDevLoop,
 } from "@bb/plugin-build";
+import type { PluginRealtimeChannelContribution } from "../../ws/plugin-realtime.js";
 import { getPluginBuildToolchain } from "./build-toolchain.js";
 import {
   marketplacePublisherLabels,
@@ -407,6 +408,14 @@ export interface PluginService {
    * GET /plugins/contributions. No plugin code runs.
    */
   listMentionProviderContributions(): PluginMentionProviderContribution[];
+  /**
+   * Public realtime channels declared by running plugins (bb.realtime.declare),
+   * for GET /plugins/contributions. This is how a subscriber frontend learns
+   * that a publisher went away: the app already refetches contributions on the
+   * `plugins-changed` broadcast, so no new wire message is needed. A disabled
+   * plugin contributes none, like every other runtime-observed capability.
+   */
+  listRealtimeChannelContributions(): PluginRealtimeChannelContribution[];
   /**
    * Run every loaded plugin's mention providers against one composer query
    * (design §4.9). Providers run concurrently, each wrapped in the
@@ -2179,6 +2188,10 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
           },
         ],
       };
+    },
+
+    listRealtimeChannelContributions() {
+      return deps.pluginRealtime?.listChannelContributions() ?? [];
     },
 
     listMentionProviderContributions() {

@@ -202,6 +202,7 @@ export function registerPluginRoutes(
     context.json({
       cliCommands: plugins.listCliContributions(),
       mentionProviders: plugins.listMentionProviderContributions(),
+      realtimeChannels: plugins.listRealtimeChannelContributions(),
     }),
   );
 

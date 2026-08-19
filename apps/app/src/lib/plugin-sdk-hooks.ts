@@ -16,6 +16,9 @@ import type {
   PluginComposerApi,
   PluginComposerMention,
   PluginRealtimeConnectionState,
+  PluginRealtimePublisherState,
+  PluginRealtimeSignalMeta,
+  PluginRealtimeSubscriptionState,
   PluginRpcContract,
   PluginRpcClient,
   PluginSettingsState,
@@ -52,6 +55,7 @@ import { useRouteState } from "@/hooks/useRouteState";
 import { useServerConnectionState } from "@/hooks/useServerConnectionState";
 import { wsManager } from "@/lib/ws";
 import { pluginSdkSettingsQueryKey } from "@/hooks/queries/query-keys";
+import { usePluginContributions } from "@/hooks/queries/plugin-contribution-queries";
 
 /**
  * Host implementations of the `@get-bb/plugin-sdk/app` hooks (plugin design
@@ -226,24 +230,91 @@ export function useRpc<
   return client as PluginRpcClient<Contract>;
 }
 
+/**
+ * Subscribe to a plugin realtime channel (BBF-4).
+ *
+ * This hook lives in the HOST, not in plugin bundles: `bb plugin build`
+ * rewrites `@get-bb/plugin-sdk/app` to a shim that reads
+ * `globalThis.__bbPluginRuntime.pluginSdkApp`, so changing this implementation
+ * reaches every already-installed plugin with no rebuild. That is what makes
+ * the hub-routing flip safe — an old bundle calling `useRealtime(channel,
+ * handler)` starts sending the subscribe frame that the now-strict router
+ * requires. (Adding a NEW export name would not have that property: the shim's
+ * export list is baked at plugin build time.)
+ *
+ * Disposal: the effect unsubscribes on unmount and whenever the publisher,
+ * channel or id set changes. Reconnects are handled below the hook, by
+ * `WebSocketManager.onopen` replaying its active subscriptions.
+ */
 export function useRealtime(
   channel: string,
-  handler: (payload: unknown) => void,
-): void {
-  const pluginId = usePluginId();
+  handler: (payload: unknown, meta: PluginRealtimeSignalMeta) => void,
+  options?: {
+    pluginId?: string;
+    ids?: readonly string[] | null;
+  },
+): PluginRealtimeSubscriptionState {
+  const selfPluginId = usePluginId();
+  const publisherId = options?.pluginId ?? selfPluginId;
+  const ids = options?.ids ?? null;
+  // Serialized so a caller passing a fresh array literal every render (the
+  // normal case for `visibleTaskIds.map(...)`) does not resubscribe forever.
+  const serializedIds =
+    ids === null ? null : [...new Set(ids)].sort().join("\u0000");
+
   // Keep the latest handler without resubscribing per render.
   const handlerRef = useRef(handler);
   useEffect(() => {
     handlerRef.current = handler;
   });
-  useEffect(
-    () =>
-      wsManager.onPluginSignal((signal) => {
-        if (signal.pluginId !== pluginId || signal.channel !== channel) return;
-        handlerRef.current(signal.payload);
-      }),
-    [pluginId, channel],
-  );
+
+  useEffect(() => {
+    const scopes = serializedIds === null
+      ? [null]
+      : serializedIds.length === 0
+        ? []
+        : serializedIds.split("\u0000");
+    const targets = scopes.map((scope) => ({
+      kind: "plugin-channel" as const,
+      pluginId: publisherId,
+      channel,
+      scope,
+      as: selfPluginId,
+    }));
+    for (const target of targets) wsManager.subscribe(target);
+    const wanted = new Set(scopes);
+    const unsubscribeSignals = wsManager.onPluginSignal((signal) => {
+      // Defense in depth. The server routes by subscription key now, but this
+      // socket is shared by every plugin panel in the window, so a signal for a
+      // channel THIS caller did not ask for still arrives here.
+      if (signal.pluginId !== publisherId || signal.channel !== channel) return;
+      if (serializedIds !== null && !wanted.has(signal.scope)) return;
+      handlerRef.current(signal.payload, {
+        scope: signal.scope,
+        pluginId: signal.pluginId,
+      });
+    });
+    return () => {
+      unsubscribeSignals();
+      for (const target of targets) wsManager.unsubscribe(target);
+    };
+  }, [publisherId, selfPluginId, channel, serializedIds]);
+
+  const contributions = usePluginContributions();
+  const publisher = useMemo<PluginRealtimePublisherState>(() => {
+    if (publisherId === selfPluginId) return "self";
+    // Until the one shared contributions query resolves, report the optimistic
+    // state: a spurious "unavailable" on first paint would make every
+    // subscriber flash an error banner on every reload.
+    if (contributions.data === undefined) return "live";
+    return contributions.data.realtimeChannels.some(
+      (entry) => entry.pluginId === publisherId && entry.channel === channel,
+    )
+      ? "live"
+      : "unavailable";
+  }, [contributions.data, publisherId, selfPluginId, channel]);
+
+  return useMemo(() => ({ publisher }), [publisher]);
 }
 
 /** Exposes the lifecycle of the same socket that backs `useRealtime`. */

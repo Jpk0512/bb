@@ -88,6 +88,30 @@ function subscriptionKeysForMessage(message: ChangedMessage): string[] {
   }
 }
 
+/**
+ * Subscription keys a `bb.realtime.publish` reaches (BBF-4). The scoped
+ * publish also reaches the channel-wide key, so `{ ids: [...] }` and "watch the
+ * whole channel" subscribers both see it — the same widening
+ * `subscriptionKeysForMessage` applies to entity changes.
+ */
+function pluginSignalSubscriptionKeys(
+  pluginId: string,
+  channel: string,
+  scope: string | null,
+): string[] {
+  const channelWide = subscriptionKey({
+    kind: "plugin-channel",
+    pluginId,
+    channel,
+    scope: null,
+  });
+  if (scope === null) return [channelWide];
+  return [
+    channelWide,
+    subscriptionKey({ kind: "plugin-channel", pluginId, channel, scope }),
+  ];
+}
+
 interface ThreadEventWaiter {
   reject: (reason?: Error) => void;
   resolve: (notified: boolean) => void;
@@ -781,30 +805,49 @@ export class NotificationHub implements DbNotifier {
   }
 
   /**
-   * Broadcast an ephemeral plugin realtime signal (`bb.realtime.publish`) to
-   * every connected client. V1 broadcasts to all clients — per-channel
-   * subscriptions arrive with the plugin frontend runtime. Returns how many
-   * clients the signal reached.
+   * Route an ephemeral plugin realtime signal (`bb.realtime.publish`) to the
+   * clients subscribed to it, and return how many it reached.
+   *
+   * BBF-4 replaced a broadcast to every connected socket with routing over the
+   * same `clientSocketsByKey` map that entity changes already use. A publish
+   * carrying `scope` reaches both the scoped key and the channel-wide key —
+   * mirroring `subscriptionKeysForMessage`, where a thread change reaches both
+   * `thread-detail:<id>` and `thread-list` — so a subscriber can watch one
+   * entity or the whole channel. A publish with `scope: null` reaches only the
+   * channel-wide key.
+   *
+   * Note the consequence: a channel with no subscriber now delivers to nobody
+   * instead of to everybody. That is the point (previously every plugin's every
+   * payload crossed the `bb connect` tunnel to every client and was discarded
+   * by a client-side `if`), but it means a publisher whose subscribers never
+   * subscribe goes quiet rather than noisy.
    */
   notifyPluginSignal(
     pluginId: string,
     channel: string,
     payload: unknown,
+    options?: { scope?: string | null },
   ): number {
+    const scope = options?.scope ?? null;
     const message = JSON.stringify(
       pluginSignalSchema.parse({
         type: "plugin-signal",
         pluginId,
         channel,
+        scope,
         payload,
       }),
     );
-    let delivered = 0;
-    for (const socket of this.clientKeysBySocket.keys()) {
-      socket.send(message);
-      delivered += 1;
+    const recipients = new Set<HubSocket>();
+    for (const key of pluginSignalSubscriptionKeys(pluginId, channel, scope)) {
+      const sockets = this.clientSocketsByKey.get(key);
+      if (!sockets) continue;
+      for (const socket of sockets) recipients.add(socket);
     }
-    return delivered;
+    for (const socket of recipients) {
+      socket.send(message);
+    }
+    return recipients.size;
   }
 
   notifyProject(projectId: string, changes: ProjectChangeKind[]): void {

@@ -16,6 +16,7 @@ import type { LifecycleDedupers } from "./lifecycle-dedupers.js";
 import type { NotificationHub } from "./ws/hub.js";
 import type { WatchInterestCoordinator } from "./ws/watch-interests.js";
 import type { HostSharedPortCoordinator } from "./ws/host-shared-ports.js";
+import type { PluginRealtimeCoordinator } from "./ws/plugin-realtime.js";
 import type { SkillTreeRegistry } from "./services/skills/injected-skills.js";
 import type { ProviderRegistryService } from "./services/providers/provider-registry.js";
 import type { PluginHostArtifactRegistry } from "./services/plugins/plugin-host-artifact-registry.js";
@@ -70,6 +71,12 @@ export interface AppDeps {
   terminalSessions: TerminalSessionLifecycle;
   watchInterests: WatchInterestCoordinator;
   sharedPorts: HostSharedPortCoordinator;
+  /**
+   * Cross-plugin realtime subscription policy (BBF-4). It lives in AppDeps
+   * rather than being read off the plugin service because the `/ws` handler is
+   * handed `deps` only, and `pluginService` is not in AppDeps.
+   */
+  pluginRealtime: PluginRealtimeCoordinator;
 }
 
 export interface ServerAppDeps extends AppDeps {

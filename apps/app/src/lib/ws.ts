@@ -162,8 +162,25 @@ export class WebSocketManager {
     this.setConnectionState("connecting");
   }
 
-  subscribe(target: RealtimeSubscriptionTarget): void {
+  /**
+   * Refcount key for one active subscription.
+   *
+   * For plugin-channel targets (BBF-4) it is deliberately FINER than the
+   * server's fan-out key: `realtimeSubscriptionTargetKey` excludes `as` so one
+   * window is one hub fan-out entry however many plugins want it, but the
+   * server authorizes per asserting subscriber. If the app deduped on the
+   * server key, only the first subscriber's `as` would ever be sent, and mount
+   * order would silently decide whether a publisher's own panel — or a foreign
+   * one — got the feed.
+   */
+  private subscriptionRefcountKey(target: RealtimeSubscriptionTarget): string {
     const key = realtimeSubscriptionTargetKey(target);
+    if (target.kind !== "plugin-channel") return key;
+    return `${key}|as=${target.as ?? target.pluginId}`;
+  }
+
+  subscribe(target: RealtimeSubscriptionTarget): void {
+    const key = this.subscriptionRefcountKey(target);
     const existing = this.subscriptions.get(key);
     if (existing) {
       existing.count += 1;
@@ -177,7 +194,7 @@ export class WebSocketManager {
   }
 
   unsubscribe(target: RealtimeSubscriptionTarget): void {
-    const key = realtimeSubscriptionTargetKey(target);
+    const key = this.subscriptionRefcountKey(target);
     const existing = this.subscriptions.get(key);
     if (!existing) {
       return;
