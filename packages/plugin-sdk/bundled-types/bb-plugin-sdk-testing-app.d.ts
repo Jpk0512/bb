@@ -173,6 +173,17 @@ interface RenderSlotOptions<Contract extends PluginRpcContract = PluginRpcContra
     };
     /** Initial `useRealtimeConnectionState()` value; defaults to `connected`. */
     realtimeConnectionState?: PluginRealtimeConnectionState;
+    /**
+     * Cross-plugin channels the publishing plugin has declared with
+     * `bb.realtime.declare`. Omitted → every publisher reports `"live"`, matching
+     * the host before its contributions query resolves. Pass `[]` to test the
+     * `"unavailable"` branch (publisher disabled, reloading, or no longer
+     * declaring the channel).
+     */
+    declaredRealtimeChannels?: readonly {
+        pluginId: string;
+        channel: string;
+    }[];
     /** Initial state for this render's isolated composer scope and view. */
     composer?: {
         text?: string;
@@ -198,7 +209,12 @@ interface RenderedSlotBehaviorDrivers {
      * Push a realtime event to `useRealtime(channel, …)` subscribers, wrapped
      * in act. The payload is JSON-round-tripped like `bb.realtime.publish`.
      */
-    emitRealtime(channel: string, payload: unknown): Promise<void>;
+    emitRealtime(channel: string, payload: unknown, options?: {
+        /** Publishing plugin; omitted → this plugin's own channel. */
+        pluginId?: string;
+        /** Entity id on the publish; omitted → the channel-wide stream. */
+        scope?: string | null;
+    }): Promise<void>;
     /** Drive the lifecycle of the same connection used by realtime events. */
     setRealtimeConnectionState(state: PluginRealtimeConnectionState): Promise<void>;
     /** Replace composer text as a host-originated edit, wrapped in act. */

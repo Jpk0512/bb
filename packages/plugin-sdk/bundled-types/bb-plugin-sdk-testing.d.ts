@@ -134,8 +134,16 @@ interface FakeMentionProviderRecord {
 }
 interface FakeRealtimeSignal {
     channel: string;
-    /** JSON-round-tripped, like the WS broadcast; `undefined` → `null`. */
+    /** JSON-round-tripped, like the WS frame; `undefined` → `null`. */
     payload: unknown;
+    /** Entity id the publish was scoped to; null for the channel-wide stream. */
+    scope: string | null;
+}
+/** One `bb.realtime.declare` entry, as the last call left it. */
+interface FakeRealtimeChannelDeclaration {
+    channel: string;
+    label: string;
+    scoped: boolean;
 }
 interface ExperimentalFakeHostRpcCall {
     method: string;
@@ -172,6 +180,8 @@ interface FakePluginInspectionState {
     readonly logEntries: FakeLogEntry[];
     /** Every `bb.realtime.publish`, payload normalized like the wire. */
     readonly realtimeSignals: FakeRealtimeSignal[];
+    /** Channels declared public with `bb.realtime.declare`, in declaration order. */
+    readonly realtimeChannelDeclarations: FakeRealtimeChannelDeclaration[];
     /** Every `bb.status.needsConfiguration` message, in order. */
     readonly needsConfigurationMessages: string[];
     /** Recorded `bb.sdk` calls + stub control. */
