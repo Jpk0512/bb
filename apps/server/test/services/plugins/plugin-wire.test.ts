@@ -22,10 +22,26 @@ const WIRE_SOURCE = `
     },
     boom: { input: z.record(z.string(), z.unknown()), output: z.null() },
     publish: {
-      input: z.object({ channel: z.string(), payload: z.unknown() }),
+      input: z.object({
+        channel: z.string(),
+        payload: z.unknown(),
+        scope: z.string().nullish(),
+      }),
       output: z.literal("published"),
     },
     publishBad: { input: z.record(z.string(), z.unknown()), output: z.null() },
+    declareChannels: {
+      input: z.object({
+        channels: z.array(
+          z.object({
+            channel: z.string(),
+            label: z.string(),
+            scoped: z.boolean(),
+          }),
+        ),
+      }),
+      output: z.literal("declared"),
+    },
     invalidOutput: { input: z.null(), output: z.string() },
     bigintResult: { input: z.null(), output: z.any() },
     cyclicResult: { input: z.null(), output: z.any() },
@@ -91,11 +107,17 @@ const WIRE_SOURCE = `
         throw new Error("rpc boom");
       },
       publish: async (input: any) => {
-        bb.realtime.publish(input.channel, input.payload);
+        bb.realtime.publish(input.channel, input.payload, {
+          scope: input.scope ?? null,
+        });
         return "published";
       },
       publishBad: async () => {
         bb.realtime.publish("bad", { n: BigInt(1) });
+      },
+      declareChannels: async (input: any) => {
+        bb.realtime.declare(input.channels);
+        return "declared";
       },
       invalidOutput: () => 42,
       bigintResult: () => BigInt(1),
@@ -635,9 +657,19 @@ describe("plugin wire surfaces (http/rpc dispatcher + realtime)", () => {
     });
   });
 
-  it("bb.realtime.publish broadcasts a plugin-signal WS frame to connected clients", async () => {
-    const socket = createMockHubSocket();
-    harness.hub.subscribe(socket, { kind: "system" });
+  it("bb.realtime.publish routes a plugin-signal WS frame to subscribers only", async () => {
+    // BBF-4: this used to assert a broadcast. A socket that did not ask for the
+    // channel now hears nothing, which is the point — before, every plugin's
+    // every payload crossed a `bb connect` tunnel to every client.
+    const bystander = createMockHubSocket();
+    harness.hub.subscribe(bystander, { kind: "system" });
+    const subscriber = createMockHubSocket();
+    harness.hub.subscribe(subscriber, {
+      kind: "plugin-channel",
+      pluginId: "wire",
+      channel: "issues-updated",
+      scope: null,
+    });
 
     const response = await rpc(harness, "publish", {
       channel: "issues-updated",
@@ -646,13 +678,104 @@ describe("plugin wire surfaces (http/rpc dispatcher + realtime)", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, result: "published" });
 
-    expect(socket.messages).toHaveLength(1);
-    expect(JSON.parse(socket.messages[0])).toEqual({
+    expect(bystander.messages).toHaveLength(0);
+    expect(subscriber.messages).toHaveLength(1);
+    expect(JSON.parse(subscriber.messages[0])).toEqual({
       type: "plugin-signal",
       pluginId: "wire",
       channel: "issues-updated",
+      scope: null,
       payload: { count: 42 },
     });
+  });
+
+  it("bb.realtime.publish carries a scope, narrowing delivery to that id", async () => {
+    const wide = createMockHubSocket();
+    harness.hub.subscribe(wide, {
+      kind: "plugin-channel",
+      pluginId: "wire",
+      channel: "issues-updated",
+      scope: null,
+    });
+    const scoped = createMockHubSocket();
+    harness.hub.subscribe(scoped, {
+      kind: "plugin-channel",
+      pluginId: "wire",
+      channel: "issues-updated",
+      scope: "issue_1",
+    });
+
+    await rpc(harness, "publish", {
+      channel: "issues-updated",
+      payload: { id: "issue_2" },
+      scope: "issue_2",
+    });
+    expect(scoped.messages).toHaveLength(0);
+    // The channel-wide subscriber still sees every scoped publish.
+    expect(wide.messages).toHaveLength(1);
+
+    await rpc(harness, "publish", {
+      channel: "issues-updated",
+      payload: { id: "issue_1" },
+      scope: "issue_1",
+    });
+    expect(scoped.messages).toHaveLength(1);
+    expect(JSON.parse(scoped.messages[0])).toMatchObject({
+      scope: "issue_1",
+    });
+  });
+
+  it("bb.realtime.declare opens a channel to other plugins and disposal revokes it", async () => {
+    const board = createMockHubSocket();
+    const target = {
+      kind: "plugin-channel",
+      pluginId: "wire",
+      channel: "issues-updated",
+      scope: null,
+      as: "board",
+    } as const;
+
+    // Undeclared: the request is remembered but not granted. It is deliberately
+    // not an error — this is a compatibility contract, not a permission, and a
+    // rejected subscribe must never disturb the shared socket.
+    harness.deps.pluginRealtime.subscribe(board, target);
+    await rpc(harness, "publish", {
+      channel: "issues-updated",
+      payload: { count: 1 },
+    });
+    expect(board.messages).toHaveLength(0);
+
+    const declared = await rpc(harness, "declareChannels", {
+      channels: [
+        { channel: "issues-updated", label: "Issue changes", scoped: true },
+      ],
+    });
+    expect(declared.status).toBe(200);
+    expect(
+      harness.pluginService.listRealtimeChannelContributions(),
+    ).toContainEqual({
+      pluginId: "wire",
+      channel: "issues-updated",
+      label: "Issue changes",
+      scoped: true,
+    });
+
+    await rpc(harness, "publish", {
+      channel: "issues-updated",
+      payload: { count: 2 },
+    });
+    expect(board.messages).toHaveLength(1);
+
+    // Disabling the publisher revokes delivery without the subscriber acting.
+    await harness.pluginService.setEnabled("wire", false);
+    await rpc(harness, "publish", {
+      channel: "issues-updated",
+      payload: { count: 3 },
+    });
+    expect(board.messages).toHaveLength(1);
+    expect(
+      harness.pluginService.listRealtimeChannelContributions(),
+    ).toEqual([]);
   });
 
   it("bb.realtime.publish rejects payloads that do not survive JSON", async () => {
