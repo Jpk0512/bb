@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type {
   ReorderPinnedThreadRequest,
+  SwitchThreadProviderRequest,
   ThreadArchiveAllResponse,
   ThreadResponse,
   UpdateThreadRequest,
@@ -99,6 +100,35 @@ export function useUpdateThread(options?: UpdateThreadMutationOptions) {
         transaction: context,
       });
     },
+    onSuccess: (thread) => {
+      applyThreadUpdateResult({ queryClient, thread });
+    },
+  });
+}
+
+export interface SwitchThreadProviderMutationRequest
+  extends SwitchThreadProviderRequest {
+  id: string;
+}
+
+/**
+ * Binds a thread to a different provider in place. Not an update: the server
+ * releases the thread's current provider session first, so this can fail with
+ * the thread untouched, and it must never be issued optimistically.
+ *
+ * The realtime `provider-changed` kind refreshes the thread record, the list
+ * rows and the execution-option catalog; applying the response here just gets
+ * the picker to the right provider before that round trip lands.
+ */
+export function useSwitchThreadProvider() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    meta: {
+      errorMessage: "Failed to switch provider.",
+    },
+    mutationFn: ({ id, ...request }: SwitchThreadProviderMutationRequest) =>
+      sdk.threads.switchProvider({ threadId: id, ...request }),
     onSuccess: (thread) => {
       applyThreadUpdateResult({ queryClient, thread });
     },

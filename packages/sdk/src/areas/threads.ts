@@ -59,6 +59,8 @@ import type {
   ThreadTimelineQuery,
   TimelineTurnSummaryDetailsQuery,
   UpdateThreadTabsRequest,
+  SetThreadLineageRequest,
+  SwitchThreadProviderRequest,
   UpdateThreadRequest,
   UpdateQueuedMessageRequest,
 } from "@bb/server-contract";
@@ -198,6 +200,14 @@ export interface ThreadEditMessageArgs extends EditMessageRequest {
 }
 
 export interface ThreadActionArgs {
+  threadId: string;
+}
+
+export interface ThreadSwitchProviderArgs extends SwitchThreadProviderRequest {
+  threadId: string;
+}
+
+export interface ThreadSetLineageArgs extends SetThreadLineageRequest {
   threadId: string;
 }
 
@@ -484,6 +494,25 @@ export interface ThreadsArea {
   ): Promise<ThreadTimelineTurnSummaryDetailsResult>;
   storageFiles(args: ThreadStorageFilesArgs): Promise<ThreadStorageFilesResult>;
   storagePaths(args: ThreadStoragePathsArgs): Promise<ThreadStoragePathsResult>;
+  /**
+   * Retire this thread into another one, or clear the edge with
+   * `supersededByThreadId: null`. A retired thread is NOT archived and NOT
+   * hidden: it stays readable and navigable, and delivery to it resolves to
+   * the live head of its lineage.
+   */
+  setLineage(args: ThreadSetLineageArgs): Promise<ThreadMutationResult>;
+  /**
+   * Bind this thread to a different provider IN PLACE. The thread keeps its
+   * id, timeline, tabs and environment; only the native provider session is
+   * new, and it starts with no conversation history — carry context forward as
+   * agent-only input on the next turn.
+   *
+   * Releases the thread's current provider session first and refuses if that
+   * release fails, so this is not a metadata update. `model` is validated
+   * against the TARGET provider's catalog; omit it to take that provider's
+   * default.
+   */
+  switchProvider(args: ThreadSwitchProviderArgs): Promise<ThreadMutationResult>;
   unarchive(args: ThreadActionArgs): Promise<ThreadUnarchiveResult>;
   unpin(args: ThreadActionArgs): Promise<ThreadMutationResult>;
   update(args: ThreadUpdateArgs): Promise<ThreadMutationResult>;
@@ -1176,6 +1205,28 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
           },
           ...signalRequestArgs(input.signal),
         ),
+      );
+    },
+    async setLineage(input) {
+      return transport.readJson(
+        transport.api.v1.threads[":id"].lineage.$post({
+          param: { id: input.threadId },
+          json: { supersededByThreadId: input.supersededByThreadId },
+        }),
+      );
+    },
+    async switchProvider(input) {
+      return transport.readJson(
+        transport.api.v1.threads[":id"]["switch-provider"].$post({
+          param: { id: input.threadId },
+          json: {
+            providerId: input.providerId,
+            ...(input.model === undefined ? {} : { model: input.model }),
+            ...(input.reasoningLevel === undefined
+              ? {}
+              : { reasoningLevel: input.reasoningLevel }),
+          },
+        }),
       );
     },
     async unarchive(input) {
