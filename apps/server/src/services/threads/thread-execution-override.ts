@@ -80,7 +80,11 @@ export function resolveThreadExecutionOverrideUpdate(
         throw new ApiError(
           400,
           "invalid_request",
-          `Model "${patch.model}" is not available in this thread's ${providerId} model catalog. Choose a model offered by ${providerId}; changing providers requires starting a new thread.`,
+          // A cross-provider model must not sneak in through a metadata PATCH:
+          // rebinding a provider retires the thread's live session, so it is
+          // its own explicit, release-gated verb. The message names that verb
+          // rather than telling the user to start over.
+          `Model "${patch.model}" is not available in this thread's ${providerId} model catalog. Choose a model offered by ${providerId}, or switch this thread to a different provider.`,
         );
       }
       nextModel = patch.model;

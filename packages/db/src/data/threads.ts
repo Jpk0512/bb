@@ -1790,6 +1790,32 @@ export function setThreadProvider(
   return updated ?? null;
 }
 
+/**
+ * The thread that was retired INTO `successorThreadId`, if any — the backward
+ * lineage edge. Served by `threads_superseded_idx`. Deleted rows are excluded;
+ * project scoping is the caller's, because the caller is the one that knows
+ * which project the read is authorized against.
+ */
+export function findThreadSupersededBy(
+  db: DbQueryConnection,
+  successorThreadId: string,
+) {
+  return (
+    db
+      .select()
+      .from(threads)
+      .where(
+        and(
+          eq(threads.supersededByThreadId, successorThreadId),
+          nonDeletedThreads(),
+        ),
+      )
+      .orderBy(desc(threads.createdAt), desc(threads.id))
+      .limit(1)
+      .get() ?? null
+  );
+}
+
 export interface SetThreadSupersededByInput {
   threadId: string;
   supersededByThreadId: string | null;

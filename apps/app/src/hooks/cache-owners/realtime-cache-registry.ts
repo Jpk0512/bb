@@ -397,14 +397,23 @@ export const REALTIME_THREAD_CHANGE_REGISTRY = {
       dirtyThreadTerminalQueries, // Terminal panel lists sessions by thread.
     ],
   },
-  // PHASE 6 CHARTER — reserved, deliberately unwired. Nothing emits these
-  // kinds yet; the owning wave adds the dirty handlers and removes the kind
-  // from CHARTER_RESERVED_THREAD_CHANGE_KINDS in realtime-cache-effects.test.ts.
-  // See docs/fork/phase-6-charter.md.
+  // An in-place provider change rebinds a live thread: it retires the old
+  // native session, replaces the model/reasoning override with the target
+  // provider's, and appends a marker event. Immediate rather than debounced
+  // because the model picker is almost certainly open and showing the old
+  // provider at the moment this arrives.
   "provider-changed": {
-    flush: "debounced",
-    dirty: [], // BBF-3 (Wave 1) wires the thread record + execution option queries.
+    flush: "immediate",
+    dirty: [
+      dirtyThreadListQueries, // Rows render the provider that owns the thread.
+      dirtyThreadDetailQueries, // Detail renders providerId and the picker selection.
+      dirtyThreadDefaultExecutionOptionsQueries, // The model catalog is now the target provider's.
+    ],
   },
+  // PHASE 6 CHARTER — reserved, deliberately unwired. Nothing emits this kind
+  // yet; the owning wave adds the dirty handlers and removes the kind from
+  // CHARTER_RESERVED_THREAD_CHANGE_KINDS in realtime-cache-effects.test.ts.
+  // See docs/fork/phase-6-charter.md.
   "notifications-changed": {
     flush: "debounced",
     dirty: [], // BBF-7 (Wave 2) wires the inbox + per-thread badge queries.

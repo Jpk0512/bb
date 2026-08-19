@@ -394,11 +394,11 @@ export const threadSchema = z.object({
    */
   childKind: z.string().nullable().optional(),
   /**
-   * PHASE 6 CHARTER (BBF-3). Forward lineage edge; non-null means this thread
-   * was RETIRED and continues in the named thread. Per charter decision D4
-   * this is a third disposition, distinct from `archivedAt` (user intent) and
-   * `visibility: "hidden"` (plugin-owned worker). Optional for the same
-   * compile-compatibility reason as `childKind`.
+   * Forward lineage edge (BBF-3); non-null means this thread was RETIRED and
+   * continues in the named thread. Per charter decision D4 this is a third
+   * disposition, distinct from `archivedAt` (user intent) and
+   * `visibility: "hidden"` (plugin-owned worker), and nothing may collapse
+   * two of the three into one flag.
    */
   supersededByThreadId: z.string().nullable().optional(),
   visibility: threadVisibilitySchema,

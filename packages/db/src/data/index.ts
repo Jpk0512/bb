@@ -86,6 +86,7 @@ export {
   createThread,
   countLiveThreadsInEnvironment,
   countNonDeletedAssignedChildThreads,
+  findThreadSupersededBy,
   getThread,
   getThreadExecutionOverride,
   hasActiveThreadAttention,
