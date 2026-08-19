@@ -247,6 +247,24 @@ describe("lineage timeline continuation", () => {
     expect(buildLineageContinuationCursor(db, otherProjectThread)).toBeNull();
   });
 
+  it("skips an empty intermediate predecessor and continues into origin history", () => {
+    const { chain, db } = setup();
+    const [origin, middle, head] = chain as [Thread, Thread, Thread];
+    db.$client
+      .prepare("DELETE FROM events WHERE thread_id = ?")
+      .run(middle.id);
+
+    const cursor = buildLineageContinuationCursor(db, head);
+    expect(cursor).not.toBeNull();
+    expect(cursor?.anchorId).toContain(origin.id);
+
+    const resolved = resolveLineageTimelinePage(db, {
+      page: olderPage(cursor!),
+      thread: head,
+    });
+    expect(resolved?.thread.id).toBe(origin.id);
+  });
+
   it("terminates on a self-referential lineage edge", () => {
     const { chain, db } = setup();
     const head = chain[2]!;

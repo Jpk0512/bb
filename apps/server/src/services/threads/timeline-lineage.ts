@@ -124,23 +124,28 @@ export function buildLineageContinuationCursor(
   db: LineageTimelinePageDeps["db"],
   thread: Thread,
 ): { anchorId: string; anchorSeq: number } | null {
-  const predecessor = findLineagePredecessor(db, thread);
-  if (predecessor === null) {
-    return null;
+  let cursor = thread;
+  for (let depth = 0; depth < MAX_LINEAGE_PAGE_DEPTH; depth += 1) {
+    const predecessor = findLineagePredecessor(db, cursor);
+    if (predecessor === null) {
+      return null;
+    }
+    const maxSeq = getLatestThreadSequence(db, { threadId: predecessor.id });
+    if (maxSeq > 0) {
+      return {
+        anchorId: buildLineageCursorAnchorId({
+          threadId: predecessor.id,
+          innerAnchorId: null,
+        }),
+        anchorSeq: maxSeq,
+      };
+    }
+    // An empty predecessor is a hop, not a stop: origin history still lives
+    // further back. `anchorSeq` must be positive, so skip until a predecessor
+    // with rows (or the chain ends).
+    cursor = predecessor;
   }
-  const maxSeq = getLatestThreadSequence(db, { threadId: predecessor.id });
-  if (maxSeq <= 0) {
-    // An empty predecessor has nothing to show, and `anchorSeq` must be
-    // positive. Stop here rather than emitting a cursor that returns nothing.
-    return null;
-  }
-  return {
-    anchorId: buildLineageCursorAnchorId({
-      threadId: predecessor.id,
-      innerAnchorId: null,
-    }),
-    anchorSeq: maxSeq,
-  };
+  return null;
 }
 
 export interface BuildLineageTimelinePageArgs {

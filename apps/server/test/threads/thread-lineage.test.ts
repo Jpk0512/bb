@@ -140,6 +140,28 @@ describe("setThreadLineage", () => {
     });
   });
 
+  it("refuses a second predecessor onto the same successor", async () => {
+    await withTestHarness(async (harness) => {
+      const { threads } = seedChain(harness, 14, 2);
+      const extra = seedThread(harness.deps, {
+        projectId: threads[0]!.projectId,
+        title: "fan-in",
+      });
+
+      expect(() =>
+        setThreadLineage(harness.deps, {
+          thread: extra,
+          supersededByThreadId: threads[1]!.id,
+        }),
+      ).toThrow(/only one predecessor/);
+
+      expect(getThread(harness.db, extra.id)?.supersededByThreadId).toBeNull();
+      expect(findLineagePredecessor(harness.db, threads[1]!)?.id).toBe(
+        threads[0]!.id,
+      );
+    });
+  });
+
   it("un-retires a thread when the edge is cleared", async () => {
     await withTestHarness(async (harness) => {
       const { threads } = seedChain(harness, 7, 2);

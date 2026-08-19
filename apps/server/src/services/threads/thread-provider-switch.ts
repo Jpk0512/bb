@@ -123,6 +123,13 @@ export async function switchThreadProvider(
       if (!latest || latest.deletedAt !== null) {
         throw new ApiError(404, "thread_not_found", "Thread not found");
       }
+      if (latest.archivedAt !== null) {
+        throw new ApiError(
+          409,
+          "thread_not_writable",
+          "Un-archive this thread before changing its provider.",
+        );
+      }
       if (latest.providerId !== thread.providerId) {
         throw new ApiError(
           409,

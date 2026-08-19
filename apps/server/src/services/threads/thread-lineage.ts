@@ -200,6 +200,18 @@ export function setThreadLineage(
       successorId: successor.id,
       threadId: thread.id,
     });
+    // Chain semantics: one predecessor per successor. Timeline continuation
+    // walks a single backward edge; a silent fan-in would drop every other
+    // predecessor's history. Re-pointing THIS thread onto the same successor
+    // is a no-op, not a second predecessor.
+    const existing = findThreadSupersededBy(deps.db, successor.id);
+    if (existing && existing.id !== thread.id) {
+      throw new ApiError(
+        409,
+        "conflict",
+        "That thread already continues another lineage. A successor can have only one predecessor.",
+      );
+    }
   }
 
   const updated = setThreadSupersededBy(deps.db, deps.hub, {

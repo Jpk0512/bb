@@ -271,6 +271,38 @@ describe("switchThreadProvider", () => {
     });
   });
 
+  it("refuses a switch if the thread is archived while the old session is released", async () => {
+    await withTestHarness(async (harness) => {
+      const { thread } = seedConnectedSwitchableThread(harness, 11);
+      const settled = switchThreadProvider(harness.deps, {
+        thread,
+        providerId: "claude-code",
+      }).then(
+        () => "resolved" as const,
+        (error: unknown) => error,
+      );
+      const stop = await waitForQueuedCommand(
+        harness,
+        (queued) =>
+          queued.command.type === "thread.stop" &&
+          "threadId" in queued.command &&
+          queued.command.threadId === thread.id,
+      );
+      archiveThread(harness.db, harness.hub, thread.id);
+      await reportQueuedCommandSuccess(harness, stop, {
+        providerCheckpointId: null,
+      });
+
+      const result = await settled;
+      expect(result).not.toBe("resolved");
+      expect(result).toMatchObject({ status: 409 });
+      const after = getThread(harness.db, thread.id);
+      expect(after?.providerId).toBe("codex");
+      expect(after?.providerGeneration).toBe(0);
+      expect(after?.archivedAt).not.toBeNull();
+    });
+  });
+
   it("refuses a target provider with no registered bridge before touching state", async () => {
     await withTestHarness(async (harness) => {
       const { thread } = seedSwitchableThread(harness, 6);
