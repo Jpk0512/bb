@@ -916,12 +916,23 @@ describe("realtime and status", () => {
     const { bb, harness } = createFakePluginHost();
     bb.realtime.publish("notes-changed", undefined);
     bb.realtime.publish("notes-changed", { at: new Date(0) });
+    bb.realtime.publish("notes-changed", { id: "n1" }, { scope: "n1" });
     expect(harness.realtimeSignals).toEqual([
-      { channel: "notes-changed", payload: null },
+      { channel: "notes-changed", payload: null, scope: null },
       {
         channel: "notes-changed",
         payload: { at: "1970-01-01T00:00:00.000Z" },
+        scope: null,
       },
+      { channel: "notes-changed", payload: { id: "n1" }, scope: "n1" },
+    ]);
+    // Declarations are what a publisher opts into for cross-plugin
+    // subscribers; the harness records the set as the last call left it.
+    bb.realtime.declare([
+      { channel: "notes-changed", label: "Note changes", scoped: true },
+    ]);
+    expect(harness.realtimeChannelDeclarations).toEqual([
+      { channel: "notes-changed", label: "Note changes", scoped: true },
     ]);
     expect(() => bb.realtime.publish("bad", { boom: 1n })).toThrow(
       "not JSON-serializable",

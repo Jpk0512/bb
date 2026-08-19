@@ -20,13 +20,28 @@ export interface PluginMentionProviderContribution {
   triggers: readonly PluginMentionTrigger[];
 }
 
+/**
+ * One realtime channel a plugin has declared other plugins may subscribe to
+ * (BBF-4, `bb.realtime.declare`). Runtime-observed, so a disabled plugin
+ * contributes none — which is exactly how a subscriber's `useRealtime` learns
+ * its publisher went away, without a new wire message.
+ */
+export interface PluginRealtimeChannelContribution {
+  pluginId: string;
+  channel: string;
+  label: string;
+  scoped: boolean;
+}
+
 export interface PluginContributions {
   mentionProviders: PluginMentionProviderContribution[];
+  realtimeChannels: PluginRealtimeChannelContribution[];
 }
 
 
 const EMPTY_CONTRIBUTIONS: PluginContributions = {
   mentionProviders: [],
+  realtimeChannels: [],
 };
 
 function toMentionProviderContribution(
@@ -51,6 +66,27 @@ function toMentionProviderContribution(
   };
 }
 
+function toRealtimeChannelContribution(
+  value: unknown,
+): PluginRealtimeChannelContribution | null {
+  if (typeof value !== "object" || value === null) return null;
+  const entry = value as Record<string, unknown>;
+  if (
+    typeof entry.pluginId !== "string" ||
+    typeof entry.channel !== "string" ||
+    typeof entry.label !== "string" ||
+    typeof entry.scoped !== "boolean"
+  ) {
+    return null;
+  }
+  return {
+    pluginId: entry.pluginId,
+    channel: entry.channel,
+    label: entry.label,
+    scoped: entry.scoped,
+  };
+}
+
 async function fetchPluginContributions(
   signal: AbortSignal,
 ): Promise<PluginContributions> {
@@ -60,6 +96,7 @@ async function fetchPluginContributions(
   if (!response.ok) return EMPTY_CONTRIBUTIONS;
   const body = (await response.json()) as {
     mentionProviders?: unknown;
+    realtimeChannels?: unknown;
   };
   return {
     mentionProviders: Array.isArray(body.mentionProviders)
@@ -68,6 +105,14 @@ async function fetchPluginContributions(
           .filter(
             (provider): provider is PluginMentionProviderContribution =>
               provider !== null,
+          )
+      : [],
+    realtimeChannels: Array.isArray(body.realtimeChannels)
+      ? body.realtimeChannels
+          .map(toRealtimeChannelContribution)
+          .filter(
+            (entry): entry is PluginRealtimeChannelContribution =>
+              entry !== null,
           )
       : [],
   };

@@ -39,6 +39,7 @@ import type {
   PluginMentionTrigger,
   PluginProviderDeclaration,
   PluginRealtime,
+  PluginRealtimeChannelDeclaration,
   PluginRpc,
   PluginServerApi,
   PluginSettingDescriptors,
@@ -76,6 +77,7 @@ import {
 import type { BbSdk, ThreadForkArgs, ThreadSpawnArgs } from "@bb/sdk";
 import type { ServerLogger } from "../../types.js";
 import type { PluginInteractionResult } from "../interactions/pending-interactions.js";
+import { isValidPluginRealtimeChannelName } from "../../ws/plugin-realtime.js";
 import { appendPluginLogLine } from "./plugin-log.js";
 import {
   readPluginSettingsValues,
@@ -377,8 +379,21 @@ export function createPluginApi(options: {
   getSdk: () => BbSdk | undefined;
   /** Undefined until the server is listening (bb.server is bind-gated too). */
   getLoopbackBaseUrl: () => string | undefined;
-  /** Broadcasts a plugin-signal WS message (hub.notifyPluginSignal). */
-  publishSignal: (channel: string, payload: unknown) => void;
+  /** Routes a plugin-signal WS message (hub.notifyPluginSignal). */
+  publishSignal: (
+    channel: string,
+    payload: unknown,
+    options: { scope: string | null },
+  ) => void;
+  /**
+   * Replaces this plugin's public realtime channel declarations at activation,
+   * mirroring replaceDeclaredSharedPorts. Omitted-by-default in isolated tests
+   * is not possible here: the loader always supplies it, and a no-op is the
+   * correct behaviour when no coordinator is wired.
+   */
+  replaceDeclaredRealtimeChannels: (
+    channels: readonly PluginRealtimeChannelDeclaration[],
+  ) => void;
   /** Marks the plugin needs-configuration in the loader's status table. */
   reportNeedsConfiguration: (message: string) => void;
   /** Returns the owning plugin id when another plugin already registered
@@ -439,6 +454,7 @@ export function createPluginApi(options: {
     getSdk,
     getLoopbackBaseUrl,
     publishSignal,
+    replaceDeclaredRealtimeChannels,
     reportNeedsConfiguration,
     isAgentToolNameTaken,
     reportAgentToolProblem,
@@ -458,6 +474,16 @@ export function createPluginApi(options: {
   let pendingNeedsConfiguration: string | null = null;
   const pendingAgentToolProblems: string[] = [];
   const pendingSharedPorts = new Map<string, readonly number[]>();
+  /**
+   * Public realtime channels staged by `realtime.declare`, flushed into the
+   * coordinator at activate(). Same shape as pendingSharedPorts: declaring
+   * before the registration commit point must not publish a channel that a
+   * failed load then rolls back.
+   */
+  const pendingRealtimeChannels = new Map<
+    string,
+    PluginRealtimeChannelDeclaration
+  >();
   const disposeHooks: Array<() => void | Promise<void>> = [];
   const settingsRecord: PluginApiHandle["settings"] = {
     descriptors: {},
@@ -758,10 +784,64 @@ export function createPluginApi(options: {
   };
 
   const realtime: PluginRealtime = {
-    publish(channel, payload) {
+    declare(channels) {
+      assertLive();
+      if (!Array.isArray(channels)) {
+        throw new Error("realtime.declare expects an array of channels");
+      }
+      // Declarations are RUNTIME, not manifest — the same choice the codebase
+      // already made for agent-tool and thread-integration capabilities. The
+      // `scoped` flag has to stay honest with the publish call sites, and a
+      // disabled plugin must correctly report no public channels; a manifest
+      // list would drift from the code and would keep advertising channels
+      // that nothing publishes.
+      const declared = new Map<string, PluginRealtimeChannelDeclaration>();
+      for (const entry of channels) {
+        const channel = entry?.channel;
+        if (typeof channel !== "string" ||
+            !isValidPluginRealtimeChannelName(channel)) {
+          throw new Error(
+            `invalid realtime channel name ${JSON.stringify(channel)} — use ` +
+              'letters, digits, ".", "_", ":" and "-" (max 64 chars)',
+          );
+        }
+        if (declared.has(channel)) {
+          throw new Error(`realtime channel "${channel}" is declared twice`);
+        }
+        if (typeof entry.label !== "string" || entry.label.trim().length === 0) {
+          throw new Error(
+            `realtime channel "${channel}" needs a non-empty label — it is ` +
+              "shown to users in the plugin detail Includes section",
+          );
+        }
+        if (typeof entry.scoped !== "boolean") {
+          throw new Error(
+            `realtime channel "${channel}" must set scoped: true or false`,
+          );
+        }
+        declared.set(channel, {
+          channel,
+          label: entry.label,
+          scoped: entry.scoped,
+        });
+      }
+      for (const declaration of declared.values()) {
+        pendingRealtimeChannels.set(declaration.channel, declaration);
+      }
+      if (activated) {
+        replaceDeclaredRealtimeChannels([...pendingRealtimeChannels.values()]);
+      }
+    },
+    publish(channel, payload, options) {
       assertLive();
       if (typeof channel !== "string" || channel.length === 0) {
         throw new Error("realtime channel must be a non-empty string");
+      }
+      const scope = options?.scope ?? null;
+      if (scope !== null && (typeof scope !== "string" || scope.length === 0)) {
+        throw new Error(
+          `realtime scope for channel "${channel}" must be a non-empty string or null`,
+        );
       }
       // JSON round-trip up front: enforces serializability with a clear
       // error at the publish site and strips prototypes/getters before the
@@ -781,7 +861,7 @@ export function createPluginApi(options: {
         }
         normalized = JSON.parse(json);
       }
-      publishSignal(channel, normalized);
+      publishSignal(channel, normalized, { scope });
     },
   };
 
@@ -1368,6 +1448,7 @@ export function createPluginApi(options: {
       replaceDeclaredSharedPorts(
         [...pendingSharedPorts].map(([hostId, ports]) => ({ hostId, ports })),
       );
+      replaceDeclaredRealtimeChannels([...pendingRealtimeChannels.values()]);
       // Flush staged provider registrations into the live registry. On
       // reload the previous instance was disposed before this runs, so
       // re-declared ids are free again.

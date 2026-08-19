@@ -79,6 +79,32 @@ function Panel({ subPath }: PluginNavPanelProps) {
   );
 }
 
+/**
+ * Cross-plugin, scoped subscription (BBF-4). The harness must route exactly
+ * like the real runtime, or a plugin's migrated tests pass while the shipped
+ * panel receives nothing.
+ */
+function ScopedRealtimeProbe() {
+  const [seen, setSeen] = useState<string[]>([]);
+  const state = useRealtime(
+    "task",
+    (payload, meta) =>
+      setSeen((current) => [
+        ...current,
+        `${meta.pluginId}/${meta.scope ?? "-"}/${JSON.stringify(payload)}`,
+      ]),
+    { pluginId: "tasks", ids: ["task_1"] },
+  );
+  return (
+    <div>
+      <div>Publisher: {state.publisher}</div>
+      {seen.map((entry) => (
+        <div key={entry}>Saw {entry}</div>
+      ))}
+    </div>
+  );
+}
+
 function RealtimeConnectionProbe() {
   const state = useRealtimeConnectionState();
   return <div>Realtime: {state}</div>;
@@ -214,6 +240,11 @@ const app = await loadPluginApp(
       id: "realtime-connection",
       title: "Realtime connection",
       component: RealtimeConnectionProbe,
+    });
+    builder.slots.homepageSection({
+      id: "scoped-realtime",
+      title: "Scoped realtime",
+      component: ScopedRealtimeProbe,
     });
     builder.composer.customize({
       id: "improve-prompt",
@@ -908,6 +939,47 @@ describe("renderSlot", () => {
     await slot.findByText("b.md");
     slot.lifecycle.unmount();
     expect(slot.queryByText("b.md")).toBeNull();
+  });
+
+  it("routes scoped cross-plugin realtime events like the real runtime", async () => {
+    const slot = renderSlot(app.homepageSections[1]!, {}, {});
+
+    // Wrong publisher, wrong channel, and a scope outside the id set: all
+    // dropped. That last one is the whole point of scoped subscriptions.
+    await slot.behavior.emitRealtime("task", { n: 1 }, { scope: "task_1" });
+    await slot.behavior.emitRealtime("task", { n: 2 }, {
+      pluginId: "tasks",
+      scope: "task_2",
+    });
+    await slot.behavior.emitRealtime("other", { n: 3 }, {
+      pluginId: "tasks",
+      scope: "task_1",
+    });
+    expect(slot.queryByText(/^Saw /)).toBeNull();
+
+    await slot.behavior.emitRealtime("task", { n: 4 }, {
+      pluginId: "tasks",
+      scope: "task_1",
+    });
+    await slot.findByText('Saw tasks/task_1/{"n":4}');
+  });
+
+  it("reports a declared publisher as live and an undeclared one as unavailable", async () => {
+    const live = renderSlot(
+      app.homepageSections[1]!,
+      {},
+      { declaredRealtimeChannels: [{ pluginId: "tasks", channel: "task" }] },
+    );
+    await live.findByText("Publisher: live");
+    live.lifecycle.unmount();
+
+    // Publisher disabled, reloading, or no longer declaring the channel.
+    const gone = renderSlot(
+      app.homepageSections[1]!,
+      {},
+      { declaredRealtimeChannels: [] },
+    );
+    await gone.findByText("Publisher: unavailable");
   });
 
   it("reports RPC methods without handlers", async () => {

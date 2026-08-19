@@ -58,6 +58,29 @@ const THREAD_TARGET = {
 const PROJECT_TARGET = {
   kind: "project-list",
 } satisfies RealtimeSubscriptionTarget;
+// BBF-4 gate targets. `as` is deliberately excluded from the subscription key
+// (see realtimeSubscriptionTargetKey), so these two share one refcount entry.
+const PLUGIN_CHANNEL_TARGET = {
+  kind: "plugin-channel",
+  pluginId: "tasks",
+  channel: "task",
+  scope: null,
+  as: "board",
+} satisfies RealtimeSubscriptionTarget;
+const PLUGIN_CHANNEL_SCOPED_TARGET = {
+  kind: "plugin-channel",
+  pluginId: "tasks",
+  channel: "task",
+  scope: "task_1",
+  as: "board",
+} satisfies RealtimeSubscriptionTarget;
+const PLUGIN_CHANNEL_OTHER_SUBSCRIBER_TARGET = {
+  kind: "plugin-channel",
+  pluginId: "tasks",
+  channel: "task",
+  scope: null,
+  as: "telemetry",
+} satisfies RealtimeSubscriptionTarget;
 
 interface ConnectedManager {
   manager: WebSocketManager;
@@ -171,6 +194,88 @@ describe("WebSocketManager subscriptions", () => {
         type: "subscribe",
         target: PROJECT_TARGET,
       },
+    ]);
+  });
+
+  // ---------------------------------------------------------------------
+  // BBF-4 hub-routing gate (phase-6 charter §2). Plugin signals stop being
+  // broadcast and start being routed by subscription key, so a plugin panel
+  // only stays alive while its `plugin-channel` subscription exists on the
+  // server. bb is used remotely over a `bb connect` tunnel, and a tunnel drop
+  // tears the socket down: if these targets are not replayed by onopen, every
+  // remote plugin panel silently goes dead and stays dead with no error.
+  // These three tests are the precondition for flipping hub routing.
+  // ---------------------------------------------------------------------
+
+  it("replays plugin-channel subscriptions when the websocket reconnects", () => {
+    const { manager, socket } = createConnectedManager();
+
+    manager.subscribe(PLUGIN_CHANNEL_TARGET);
+    manager.subscribe(PLUGIN_CHANNEL_SCOPED_TARGET);
+    manager.subscribe(THREAD_TARGET);
+    socket.sentMessages.length = 0;
+
+    // A `bb connect` tunnel drop looks exactly like this to the app.
+    socket.close();
+    socket.open();
+
+    expect(readClientMessages(socket)).toEqual([
+      { type: "subscribe", target: PLUGIN_CHANNEL_TARGET },
+      { type: "subscribe", target: PLUGIN_CHANNEL_SCOPED_TARGET },
+      { type: "subscribe", target: THREAD_TARGET },
+    ]);
+  });
+
+  it("keeps replaying plugin-channel subscriptions across repeated drops", () => {
+    const { manager, socket } = createConnectedManager();
+
+    manager.subscribe(PLUGIN_CHANNEL_SCOPED_TARGET);
+
+    for (let drop = 0; drop < 3; drop += 1) {
+      socket.sentMessages.length = 0;
+      socket.close();
+      socket.open();
+      expect(readClientMessages(socket)).toEqual([
+        { type: "subscribe", target: PLUGIN_CHANNEL_SCOPED_TARGET },
+      ]);
+    }
+
+    // And a target released while offline is not resurrected by the next open.
+    manager.unsubscribe(PLUGIN_CHANNEL_SCOPED_TARGET);
+    socket.sentMessages.length = 0;
+    socket.close();
+    socket.open();
+
+    expect(readClientMessages(socket)).toEqual([]);
+  });
+
+  it("ref-counts plugin-channel targets per asserting subscriber and replays each", () => {
+    const { manager, socket } = createConnectedManager();
+
+    // Two different plugins watching the same publisher channel. They share one
+    // hub fan-out entry (`as` is excluded from realtimeSubscriptionTargetKey),
+    // but the server authorizes each claim separately, so each must reach it.
+    // Deduping on the server key here would make mount order decide who gets
+    // fed.
+    manager.subscribe(PLUGIN_CHANNEL_TARGET);
+    manager.subscribe(PLUGIN_CHANNEL_TARGET);
+    manager.subscribe(PLUGIN_CHANNEL_OTHER_SUBSCRIBER_TARGET);
+
+    expect(readClientMessages(socket)).toEqual([
+      { type: "subscribe", target: PLUGIN_CHANNEL_TARGET },
+      { type: "subscribe", target: PLUGIN_CHANNEL_OTHER_SUBSCRIBER_TARGET },
+    ]);
+
+    manager.unsubscribe(PLUGIN_CHANNEL_OTHER_SUBSCRIBER_TARGET);
+    manager.unsubscribe(PLUGIN_CHANNEL_TARGET);
+    socket.sentMessages.length = 0;
+    socket.close();
+    socket.open();
+
+    // The still-held subscriber (refcount 2, released once) is re-established;
+    // the released one is not.
+    expect(readClientMessages(socket)).toEqual([
+      { type: "subscribe", target: PLUGIN_CHANNEL_TARGET },
     ]);
   });
 });

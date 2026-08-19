@@ -34,6 +34,8 @@ import {
   type PluginPendingInteractionRegistration,
   type PluginProviderIconRegistration,
   type PluginRealtimeConnectionState,
+  type PluginRealtimeSignalMeta,
+  type PluginRealtimeSubscriptionState,
   type PluginRpcClient,
   type PluginSdkApp,
   type PluginSettingsSectionRegistration,
@@ -136,10 +138,34 @@ interface TestComposerStore {
   subscribe(listener: () => void): () => void;
 }
 
+/**
+ * Publisher id standing in for "this plugin" in the harness. The harness has no
+ * real plugin id, and a subscription to your own channel needs no declaration,
+ * so self-publishes get their own namespace instead of a fabricated id that a
+ * test could collide with.
+ */
+const TEST_SELF_PLUGIN_ID = "\u0000self";
+
+function realtimeKey(pluginId: string, channel: string): string {
+  return `${pluginId}\u0000${channel}`;
+}
+
+interface TestRealtimeListener {
+  /** Subscribed scope ids, or null for the publisher's channel-wide stream. */
+  scopes: ReadonlySet<string | null> | null;
+  emit: (payload: unknown, meta: PluginRealtimeSignalMeta) => void;
+}
+
 interface SlotEnv {
   rpcClient: PluginRpcClient;
   rpcCalls: RpcCall[];
-  realtimeHandlers: Map<string, Set<(payload: unknown) => void>>;
+  realtimeHandlers: Map<string, Set<TestRealtimeListener>>;
+  /**
+   * Foreign channels the harness treats as declared. Undefined means "assume
+   * every publisher is live", which is what the host reports before the shared
+   * contributions query resolves.
+   */
+  declaredRealtimeChannels: ReadonlySet<string> | undefined;
   realtimeConnection: TestRealtimeConnectionStore;
   settingsState: PluginSettingsState;
   bbContext: BbContext;
@@ -367,25 +393,54 @@ const testPluginSdkApp = {
   >(): PluginRpcClient<Contract> {
     return useSlotEnv("useRpc").rpcClient as PluginRpcClient<Contract>;
   },
-  useRealtime(channel: string, handler: (payload: unknown) => void): void {
+  useRealtime(
+    channel: string,
+    handler: (payload: unknown, meta: PluginRealtimeSignalMeta) => void,
+    options?: { pluginId?: string; ids?: readonly string[] | null },
+  ): PluginRealtimeSubscriptionState {
     const env = useSlotEnv("useRealtime");
+    const publisherId = options?.pluginId ?? TEST_SELF_PLUGIN_ID;
+    const ids = options?.ids ?? null;
+    const serializedIds =
+      ids === null ? null : [...new Set(ids)].sort().join("\u0000");
     // Latest handler without resubscribing per render, like the host hook.
     const handlerRef = useRef(handler);
     useEffect(() => {
       handlerRef.current = handler;
     });
     useEffect(() => {
-      const listener = (payload: unknown) => handlerRef.current(payload);
-      let listeners = env.realtimeHandlers.get(channel);
+      const scopes =
+        serializedIds === null
+          ? null
+          : new Set(
+              serializedIds.length === 0 ? [] : serializedIds.split("\u0000"),
+            );
+      const listener: TestRealtimeListener = {
+        scopes,
+        emit: (payload, meta) => handlerRef.current(payload, meta),
+      };
+      const key = realtimeKey(publisherId, channel);
+      let listeners = env.realtimeHandlers.get(key);
       if (!listeners) {
         listeners = new Set();
-        env.realtimeHandlers.set(channel, listeners);
+        env.realtimeHandlers.set(key, listeners);
       }
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
       };
-    }, [env, channel]);
+    }, [env, publisherId, channel, serializedIds]);
+    if (publisherId === TEST_SELF_PLUGIN_ID) return { publisher: "self" };
+    if (env.declaredRealtimeChannels === undefined) {
+      return { publisher: "live" };
+    }
+    return {
+      publisher: env.declaredRealtimeChannels.has(
+        realtimeKey(publisherId, channel),
+      )
+        ? "live"
+        : "unavailable",
+    };
   },
   useRealtimeConnectionState(): PluginRealtimeConnectionState {
     const connection = useSlotEnv(
@@ -715,6 +770,14 @@ export interface RenderSlotOptions<
   context?: { projectId?: string | null; threadId?: string | null };
   /** Initial `useRealtimeConnectionState()` value; defaults to `connected`. */
   realtimeConnectionState?: PluginRealtimeConnectionState;
+  /**
+   * Cross-plugin channels the publishing plugin has declared with
+   * `bb.realtime.declare`. Omitted → every publisher reports `"live"`, matching
+   * the host before its contributions query resolves. Pass `[]` to test the
+   * `"unavailable"` branch (publisher disabled, reloading, or no longer
+   * declaring the channel).
+   */
+  declaredRealtimeChannels?: readonly { pluginId: string; channel: string }[];
   /** Initial state for this render's isolated composer scope and view. */
   composer?: {
     text?: string;
@@ -743,7 +806,16 @@ export interface RenderedSlotBehaviorDrivers {
    * Push a realtime event to `useRealtime(channel, …)` subscribers, wrapped
    * in act. The payload is JSON-round-tripped like `bb.realtime.publish`.
    */
-  emitRealtime(channel: string, payload: unknown): Promise<void>;
+  emitRealtime(
+    channel: string,
+    payload: unknown,
+    options?: {
+      /** Publishing plugin; omitted → this plugin's own channel. */
+      pluginId?: string;
+      /** Entity id on the publish; omitted → the channel-wide stream. */
+      scope?: string | null;
+    },
+  ): Promise<void>;
   /** Drive the lifecycle of the same connection used by realtime events. */
   setRealtimeConnectionState(
     state: PluginRealtimeConnectionState,
@@ -863,7 +935,7 @@ export function renderSlot<
     },
   };
 
-  const realtimeHandlers = new Map<string, Set<(payload: unknown) => void>>();
+  const realtimeHandlers = new Map<string, Set<TestRealtimeListener>>();
   let realtimeConnectionState =
     options.realtimeConnectionState ?? ("connected" as const);
   const realtimeConnectionListeners = new Set<() => void>();
@@ -1050,6 +1122,13 @@ export function renderSlot<
     rpcClient,
     rpcCalls,
     realtimeHandlers,
+    declaredRealtimeChannels: options.declaredRealtimeChannels
+      ? new Set(
+          options.declaredRealtimeChannels.map((entry) =>
+            realtimeKey(entry.pluginId, entry.channel),
+          ),
+        )
+      : undefined,
     realtimeConnection,
     settingsState: { values: options.settings, isLoading: false },
     bbContext: { projectId, threadId },
@@ -1086,15 +1165,21 @@ export function renderSlot<
   const emitRealtime = async (
     channel: string,
     payload: unknown,
+    options?: { pluginId?: string; scope?: string | null },
   ): Promise<void> => {
     const normalized =
       payload === undefined
         ? null
         : strictJsonRoundTrip(payload, `realtime "${channel}" payload`);
-    const listeners = realtimeHandlers.get(channel);
+    const publisherId = options?.pluginId ?? TEST_SELF_PLUGIN_ID;
+    const scope = options?.scope ?? null;
+    const listeners = realtimeHandlers.get(realtimeKey(publisherId, channel));
     await act(async () => {
       for (const listener of [...(listeners ?? [])]) {
-        listener(normalized);
+        // A scoped publish reaches both the scoped and the channel-wide
+        // subscriber, exactly as the hub routes it.
+        if (listener.scopes !== null && !listener.scopes.has(scope)) continue;
+        listener.emit(normalized, { scope, pluginId: publisherId });
       }
     });
   };

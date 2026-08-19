@@ -204,14 +204,65 @@ export interface PluginRpc {
   ): void;
 }
 
+/** One channel `bb.realtime.declare` opens to other plugins' frontends. */
+export interface PluginRealtimeChannelDeclaration {
+  /** Channel name, matching /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/. */
+  channel: string;
+  /** Human label shown in the plugin detail "Includes" section. */
+  label: string;
+  /**
+   * True when publishes on this channel carry a `scope` id, so a subscriber
+   * can narrow to `{ ids: [...] }`. Declaring it is how a subscriber learns
+   * the ids are meaningful without reading your source.
+   */
+  scoped: boolean;
+}
+
 export interface PluginRealtime {
   /**
-   * Broadcast an ephemeral `plugin-signal` WS message
-   * `{ pluginId, channel, payload }` to every connected client (V1 has no
-   * per-channel subscriptions). `payload` must be JSON-serializable;
-   * `undefined` is normalized to `null`. Nothing is persisted.
+   * Publish an ephemeral `plugin-signal` WS message
+   * `{ pluginId, channel, scope, payload }`. The hub ROUTES it to the clients
+   * subscribed to this publisher + channel (+ scope) rather than broadcasting;
+   * a channel nobody subscribes to reaches nobody. Nothing is persisted and
+   * nothing is replayed, so a subscriber that misses an edge reconciles on the
+   * next `useRealtimeConnectionState()` transition to `connected`.
+   *
+   * `channel` is the event TYPE; `options.scope` is the entity ID it concerns
+   * (a task id, a thread id) or null for the channel-wide stream. Prefer
+   * `publish("worker", …, { scope: threadId })` over encoding the id in the
+   * channel name (`worker:<threadId>`): only the former lets a subscriber ask
+   * for one id, and only the former lets a subscriber watch the whole channel.
+   * A scoped publish reaches both the scoped and the channel-wide subscribers.
+   *
+   * `payload` must be JSON-serializable; `undefined` is normalized to `null`.
    */
-  publish(channel: string, payload: unknown): void;
+  publish(
+    channel: string,
+    payload: unknown,
+    options?: { scope?: string | null },
+  ): void;
+
+  /**
+   * Declare which of this plugin's channels OTHER plugins' frontends may
+   * subscribe to. Call it at load time; the set is replaced on every load and
+   * cleared when the plugin is disabled or disposed.
+   *
+   * **This is a compatibility contract, not a security boundary.** Do not
+   * present it to users as a permission. `bb.sdk.plugins.callRpc` already lets
+   * any plugin call any other plugin's RPC unrestricted, so a plugin denied a
+   * channel simply polls your RPC instead — a subscriber-side gate would be
+   * theater. All plugin frontends also share one JS realm, and the subscribing
+   * plugin id on the wire is client-asserted.
+   *
+   * What it does buy: an EXPLICIT, VERSIONED contract instead of an accidental
+   * one. Without it, an internal channel name becomes another plugin's
+   * dependency the moment it is observed, and renaming it breaks a stranger
+   * silently. Declaring says which names you intend to keep supporting.
+   *
+   * Your own frontend never needs a declaration to subscribe to your own
+   * channels.
+   */
+  declare(channels: readonly PluginRealtimeChannelDeclaration[]): void;
 }
 
 // ---------------------------------------------------------------------------

@@ -975,6 +975,39 @@ export type PluginRealtimeConnectionState =
   | "connected"
   | "reconnecting";
 
+/** Per-signal routing metadata handed to a `useRealtime` handler. */
+export interface PluginRealtimeSignalMeta {
+  /**
+   * The entity id this signal concerns, or null for the publisher's
+   * channel-wide stream. Equals the publisher's
+   * `bb.realtime.publish(channel, payload, { scope })`.
+   */
+  scope: string | null;
+  /** The publishing plugin. Equals `options.pluginId`, or your own id. */
+  pluginId: string;
+}
+
+/**
+ * Availability of the plugin whose channel you subscribed to.
+ *
+ * - `"live"` — the publisher is loaded and (for a cross-plugin subscription)
+ *   declares this channel; signals are being routed to you.
+ * - `"unavailable"` — the publisher is not running, or is running but no longer
+ *   declares this channel. Your subscription is REMEMBERED by the server: when
+ *   the plugin is re-enabled or finishes reloading and re-declares, delivery
+ *   resumes with no action from you. Signals published while unavailable are
+ *   lost (plugin signals are never buffered), so treat a transition back to
+ *   `"live"` the same way you treat a reconnect: refetch, do not assume.
+ * - `"self"` — you are subscribed to your own plugin's channel, which needs no
+ *   declaration and is therefore always routed.
+ */
+export type PluginRealtimePublisherState = "live" | "unavailable" | "self";
+
+/** What `useRealtime` reports about the subscription it just established. */
+export interface PluginRealtimeSubscriptionState {
+  publisher: PluginRealtimePublisherState;
+}
+
 /** Where `useComposer()` writes. */
 export type PluginComposerScope =
   | { kind: "thread"; threadId: string }
@@ -1423,7 +1456,37 @@ export interface PluginSdkApp {
   useRpc<
     Contract extends PluginRpcContract = PluginRpcContract,
   >(): PluginRpcClient<Contract>;
-  useRealtime(channel: string, handler: (payload: unknown) => void): void;
+  /**
+   * Subscribe to a plugin realtime channel (`bb.realtime.publish`).
+   *
+   * Called with two arguments it is unchanged: you receive your own plugin's
+   * publishes on `channel`, scoped and unscoped alike.
+   *
+   * `options.pluginId` subscribes to ANOTHER plugin's channel, which that
+   * plugin must have opted into with `bb.realtime.declare`. That declaration
+   * is a compatibility contract, not a security boundary — `callRpc` between
+   * plugins is already unrestricted — so read it as "this publisher intends to
+   * keep supporting this channel name", not as a permission you were granted.
+   *
+   * `options.ids` narrows delivery to those scope ids, which is the point of
+   * the whole primitive: a board showing 20 cards subscribes to 20 ids instead
+   * of rebuilding on every unrelated change. Omit it (or pass null) to take the
+   * publisher's channel-wide stream, which also receives every scoped publish.
+   *
+   * The subscription is torn down on unmount and whenever the publisher,
+   * channel or id set changes, and is re-established automatically after a
+   * dropped connection — including a `bb connect` tunnel drop.
+   */
+  useRealtime(
+    channel: string,
+    handler: (payload: unknown, meta: PluginRealtimeSignalMeta) => void,
+    options?: {
+      /** Publisher plugin id; defaults to your own plugin. */
+      pluginId?: string;
+      /** Scope ids to narrow to; null/omitted takes the channel-wide stream. */
+      ids?: readonly string[] | null;
+    },
+  ): PluginRealtimeSubscriptionState;
   /**
    * Observe the same shared connection that delivers `useRealtime` signals.
    * Use a subsequent transition to `connected` to reconcile server state that

@@ -840,11 +840,53 @@ rejected rather than coerced or silently dropped.
 
 ### bb.realtime
 
-`bb.realtime.publish(channel, payload)` broadcasts an ephemeral
-`plugin-signal` WS message to every connected client; the frontend hook
-`useRealtime(channel, handler)` receives it. Payload must be
-JSON-serializable; nothing is persisted. Publish state-changed signals and
-let the frontend refetch via rpc.
+`bb.realtime.publish(channel, payload, { scope })` sends an ephemeral
+`plugin-signal` WS message. The server ROUTES it to the clients subscribed to
+that publisher + channel (+ scope); a channel nobody subscribes to reaches
+nobody. Payload must be JSON-serializable; nothing is persisted and nothing is
+replayed. Publish state-changed signals and let the frontend refetch via rpc.
+
+**`channel` is the event type; `scope` is the entity id.** Do not encode the id
+in the channel name:
+
+```ts
+// Wrong — one channel per thread. A subscriber cannot watch the whole stream,
+// and cannot subscribe before it knows the id.
+bb.realtime.publish(`worker:${threadId}`, { reason });
+
+// Right.
+bb.realtime.publish("worker", { reason }, { scope: threadId });
+```
+
+A scoped publish reaches both the subscribers watching that id and the ones
+watching the channel as a whole. Omit `scope` (or pass null) for a plugin-wide
+stream that only channel-wide subscribers receive.
+
+**Cross-plugin subscriptions.** Another plugin's frontend can subscribe to your
+channel once you declare it:
+
+```ts
+bb.realtime.declare([
+  { channel: "task", label: "Task changes", scoped: true },
+]);
+```
+
+Then that plugin calls
+`useRealtime("task", handler, { pluginId: "tasks", ids: visibleTaskIds })`.
+
+Declare at load time. The set is replaced on every load and cleared when your
+plugin is disabled or disposed; a subscriber's request is remembered by the
+server, so re-declaring after a reload resumes delivery with no action on its
+side. Your own frontend never needs a declaration for your own channels.
+
+**`declare` is a compatibility contract, not a security boundary — never present
+it to a user as a permission.** `bb.sdk.plugins.callRpc` already lets any plugin
+call any other plugin's rpc unrestricted, so a plugin you do not declare a
+channel to simply polls your rpc instead; and every plugin frontend shares one
+JS realm, so the subscribing plugin id on the wire is client-asserted. What it
+buys is an explicit, versioned contract: without it, an internal channel name
+becomes another plugin's dependency the moment it is observed, and renaming it
+breaks a stranger silently. Declaring states which names you intend to keep.
 
 ### bb.background — services and schedules
 
@@ -1789,8 +1831,18 @@ Hooks:
 
 - `useRpc<typeof rpcContract>()` → `{ call(method, input?) }` — exact method,
   input, and result inference from a type-only backend contract import.
-- `useRealtime(channel, handler)` — fires for this plugin's
-  `bb.realtime.publish(channel, …)` signals while mounted.
+- `useRealtime(channel, handler, options?)` → `{ publisher }` — fires for
+  `bb.realtime.publish(channel, …)` signals while mounted. `handler` receives
+  `(payload, { scope, pluginId })`. Called with two arguments it watches your
+  own plugin's channel, scoped and unscoped publishes alike.
+  `options.pluginId` watches ANOTHER plugin's channel (that plugin must
+  `bb.realtime.declare` it); `options.ids` narrows delivery to those scope ids,
+  so a view showing 20 entities stops rebuilding on every unrelated change.
+  Subscriptions are torn down on unmount and on any change to publisher,
+  channel, or id set, and are re-established after a dropped connection.
+  `publisher` is `"self"`, `"live"`, or `"unavailable"` (publisher disabled,
+  reloading, or no longer declaring the channel) — treat a transition back to
+  `"live"` like a reconnect and refetch, because signals are not buffered.
 - `useRealtimeConnectionState()` — returns `"connecting"`, `"connected"`, or
   `"reconnecting"` for the same shared socket used by `useRealtime`. Reconcile
   durable server state on subsequent transitions to `connected` (not the first

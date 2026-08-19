@@ -189,8 +189,17 @@ export interface FakeMentionProviderRecord {
 
 export interface FakeRealtimeSignal {
   channel: string;
-  /** JSON-round-tripped, like the WS broadcast; `undefined` → `null`. */
+  /** JSON-round-tripped, like the WS frame; `undefined` → `null`. */
   payload: unknown;
+  /** Entity id the publish was scoped to; null for the channel-wide stream. */
+  scope: string | null;
+}
+
+/** One `bb.realtime.declare` entry, as the last call left it. */
+export interface FakeRealtimeChannelDeclaration {
+  channel: string;
+  label: string;
+  scoped: boolean;
 }
 
 export interface ExperimentalFakeHostRpcCall {
@@ -231,6 +240,8 @@ export interface FakePluginInspectionState {
   readonly logEntries: FakeLogEntry[];
   /** Every `bb.realtime.publish`, payload normalized like the wire. */
   readonly realtimeSignals: FakeRealtimeSignal[];
+  /** Channels declared public with `bb.realtime.declare`, in declaration order. */
+  readonly realtimeChannelDeclarations: FakeRealtimeChannelDeclaration[];
   /** Every `bb.status.needsConfiguration` message, in order. */
   readonly needsConfigurationMessages: string[];
   /** Recorded `bb.sdk` calls + stub control. */
@@ -1058,11 +1069,47 @@ function createFakePluginHostInternal(
 
   // --- realtime ---
   const realtimeSignals: FakeRealtimeSignal[] = [];
+  const realtimeChannelDeclarations: FakeRealtimeChannelDeclaration[] = [];
   const realtime: PluginRealtime = {
-    publish(channel, payload) {
+    declare(channels) {
+      assertLive();
+      if (!Array.isArray(channels)) {
+        throw new Error("realtime.declare expects an array of channels");
+      }
+      for (const entry of channels) {
+        if (
+          typeof entry?.channel !== "string" ||
+          entry.channel.length === 0 ||
+          typeof entry.label !== "string" ||
+          entry.label.trim().length === 0 ||
+          typeof entry.scoped !== "boolean"
+        ) {
+          throw new Error(
+            "realtime.declare entries need { channel, label, scoped }",
+          );
+        }
+        const existing = realtimeChannelDeclarations.findIndex(
+          (declared) => declared.channel === entry.channel,
+        );
+        const record = {
+          channel: entry.channel,
+          label: entry.label,
+          scoped: entry.scoped,
+        };
+        if (existing >= 0) realtimeChannelDeclarations[existing] = record;
+        else realtimeChannelDeclarations.push(record);
+      }
+    },
+    publish(channel, payload, options) {
       assertLive();
       if (typeof channel !== "string" || channel.length === 0) {
         throw new Error("realtime channel must be a non-empty string");
+      }
+      const scope = options?.scope ?? null;
+      if (scope !== null && (typeof scope !== "string" || scope.length === 0)) {
+        throw new Error(
+          `realtime scope for channel "${channel}" must be a non-empty string or null`,
+        );
       }
       const normalized =
         payload === undefined
@@ -1071,7 +1118,7 @@ function createFakePluginHostInternal(
               payload,
               `realtime payload for channel "${channel}"`,
             ) ?? null);
-      realtimeSignals.push({ channel, payload: normalized });
+      realtimeSignals.push({ channel, payload: normalized, scope });
     },
   };
 
@@ -1781,6 +1828,7 @@ function createFakePluginHostInternal(
     pluginId,
     logEntries,
     realtimeSignals,
+    realtimeChannelDeclarations,
     needsConfigurationMessages,
     sharedPortDeclarations,
     experimental_hostRpcCalls: hostRpcCalls,

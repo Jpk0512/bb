@@ -147,7 +147,7 @@ function createAutomationServiceBb() {
         },
       },
     },
-    realtime: { publish: () => undefined },
+    realtime: { publish: () => undefined, declare: () => undefined },
     log: {
       debug: () => undefined,
       error: () => undefined,
@@ -272,6 +272,7 @@ describe("startup reconciliation", () => {
         },
         realtime: {
           publish: (...args: unknown[]) => void published.push(args),
+          declare: () => undefined,
         },
         log: {
           debug: () => undefined,
@@ -785,7 +786,7 @@ describe("automation data access", () => {
           },
         },
       },
-      realtime: { publish: () => undefined },
+      realtime: { publish: () => undefined, declare: () => undefined },
       log: {
         debug: () => undefined,
         error: () => undefined,
@@ -879,7 +880,7 @@ describe("automation service", () => {
           },
         },
       },
-      realtime: { publish: () => undefined },
+      realtime: { publish: () => undefined, declare: () => undefined },
       log: {
         debug: () => undefined,
         error: () => undefined,

@@ -129,6 +129,7 @@ describe("plugin CLI commands (bb.cli.register + endpoints + skill + logs)", () 
         },
       ],
       mentionProviders: [],
+      realtimeChannels: [],
     });
     // bb plugin list shows the registered command too.
     const entry = harness.pluginService.list().find((p) => p.id === "acme");

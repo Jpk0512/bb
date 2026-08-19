@@ -4,6 +4,7 @@ import {
   onClientSocketOpen,
 } from "../../src/ws/client-protocol.js";
 import { NotificationHub } from "../../src/ws/hub.js";
+import { PluginRealtimeCoordinator } from "../../src/ws/plugin-realtime.js";
 import { createMockHubSocket } from "../helpers/mock-hub-socket.js";
 
 function createProtocolDeps(hub: NotificationHub) {
@@ -14,6 +15,9 @@ function createProtocolDeps(hub: NotificationHub) {
       subscribe: vi.fn(),
       unsubscribe: vi.fn(),
     },
+    // The real coordinator, not a stub: the interesting behaviour here is that
+    // it OWNS plugin-channel targets and calls the hub itself.
+    pluginRealtime: new PluginRealtimeCoordinator({ hub }),
   };
 }
 
@@ -193,5 +197,86 @@ describe("client websocket protocol", () => {
 
     expect(socket.closed).toEqual([{ code: 1008, reason: "invalid-message" }]);
     expect(deps.watchInterests.subscribe).not.toHaveBeenCalled();
+  });
+
+  // BBF-4. An unauthorized plugin-channel subscribe must be ignored, never
+  // fatal: one plugin's bad subscribe would otherwise kill the shared
+  // connection the whole window (and every other plugin panel) depends on.
+  it("ignores an undeclared cross-plugin subscribe without closing the socket", () => {
+    const hub = new NotificationHub();
+    const deps = createProtocolDeps(hub);
+    const socket = createMockHubSocket();
+
+    onClientSocketOpen(hub, socket);
+    onClientSocketMessage(
+      deps,
+      socket,
+      JSON.stringify({
+        type: "subscribe",
+        target: {
+          kind: "plugin-channel",
+          pluginId: "tasks",
+          channel: "task",
+          scope: null,
+          as: "board",
+        },
+      }),
+    );
+    hub.notifyPluginSignal("tasks", "task", { id: "task_1" });
+
+    expect(socket.closed).toHaveLength(0);
+    expect(socket.messages).toHaveLength(0);
+
+    // …and the request is remembered, so the publisher declaring later starts
+    // delivery with no client action.
+    deps.pluginRealtime.replaceDeclarationsForOwner("tasks", [
+      { channel: "task", label: "Task changes", scoped: true },
+    ]);
+    hub.notifyPluginSignal("tasks", "task", { id: "task_1" });
+
+    expect(socket.messages).toHaveLength(1);
+  });
+
+  it("routes a plugin's own channel subscribe to the hub with no declaration", () => {
+    const hub = new NotificationHub();
+    const deps = createProtocolDeps(hub);
+    const socket = createMockHubSocket();
+
+    onClientSocketOpen(hub, socket);
+    onClientSocketMessage(
+      deps,
+      socket,
+      JSON.stringify({
+        type: "subscribe",
+        target: {
+          kind: "plugin-channel",
+          pluginId: "recall",
+          channel: "recall",
+          scope: null,
+          as: "recall",
+        },
+      }),
+    );
+    hub.notifyPluginSignal("recall", "recall", { reason: "saved" });
+
+    expect(socket.messages).toHaveLength(1);
+
+    onClientSocketMessage(
+      deps,
+      socket,
+      JSON.stringify({
+        type: "unsubscribe",
+        target: {
+          kind: "plugin-channel",
+          pluginId: "recall",
+          channel: "recall",
+          scope: null,
+          as: "recall",
+        },
+      }),
+    );
+    hub.notifyPluginSignal("recall", "recall", { reason: "saved" });
+
+    expect(socket.messages).toHaveLength(1);
   });
 });

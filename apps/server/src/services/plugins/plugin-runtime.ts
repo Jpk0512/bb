@@ -1357,8 +1357,11 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       dataDir: deps.dataDir,
       getSdk: () => boundSdk,
       getLoopbackBaseUrl: () => boundLoopbackBaseUrl,
-      publishSignal: (channel, payload) => {
-        deps.hub.notifyPluginSignal(row.id, channel, payload);
+      publishSignal: (channel, payload, options) => {
+        deps.hub.notifyPluginSignal(row.id, channel, payload, options);
+      },
+      replaceDeclaredRealtimeChannels: (channels) => {
+        deps.pluginRealtime?.replaceDeclarationsForOwner(row.id, channels);
       },
       reportNeedsConfiguration: (message) => {
         reportNeedsConfiguration(row.id, message);
@@ -1573,6 +1576,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       if ((hungServices.get(row.id)?.size ?? 0) > 0) {
         loaded.delete(row.id);
         deps.sharedPorts?.clearDeclarationsForOwner(row.id);
+        deps.pluginRealtime?.clearDeclarationsForOwner(row.id);
         for (const database of handle.databaseHandles.splice(0)) {
           try {
             database.close();
@@ -1701,6 +1705,10 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     await disposePluginInstance(id, plugin);
     hostArtifacts.delete(id);
     deps.sharedPorts?.clearDeclarationsForOwner(id);
+    // Revokes foreign subscribers but does NOT forget their requests, so a
+    // reload (dispose then load) re-grants them without the subscriber having
+    // to notice. See PluginRealtimeCoordinator.
+    deps.pluginRealtime?.clearDeclarationsForOwner(id);
   }
 
   async function disposeAll(): Promise<void> {

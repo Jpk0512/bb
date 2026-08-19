@@ -175,19 +175,28 @@ export const serverMessageLenientSchema = changedMessageLenientSchema;
 
 /**
  * Ephemeral server→client WebSocket message carrying a plugin's
- * `bb.realtime.publish(channel, payload)` signal. V1 broadcasts to every
- * connected client — there is no per-channel subscription yet (client-side
- * consumption lands with the plugin frontend runtime). Nothing is persisted;
- * clients that predate this message type ignore it. `payload` is a
- * JSON-serializable value (publish normalizes `undefined` to `null`). Strict
- * schema guards the server's outgoing boundary (mirrors the thread-open signal
- * in threads.ts).
+ * `bb.realtime.publish(channel, payload, { scope })` signal (BBF-4). The hub
+ * routes it by `plugin-channel` subscription key rather than broadcasting, so
+ * it reaches only the clients that asked for this publisher + channel (+
+ * scope). Nothing is persisted and nothing is replayed; clients that predate
+ * this message type ignore it.
+ *
+ * `channel` is the event TYPE and `scope` is the entity ID it concerns (a task
+ * id, a thread id, …), or null for the publisher's unscoped stream. Splitting
+ * them is what lets a subscriber narrow to the ids it is showing; before BBF-4
+ * plugins concatenated the two (`dispatch:<parentThreadId>`) because the
+ * channel string was the only routable field.
+ *
+ * `payload` is a JSON-serializable value (publish normalizes `undefined` to
+ * `null`). Strict schema guards the server's outgoing boundary (mirrors the
+ * thread-open signal in threads.ts).
  */
 export const pluginSignalSchema = z
   .object({
     type: z.literal("plugin-signal"),
     pluginId: z.string().min(1),
     channel: z.string().min(1),
+    scope: z.string().nullable(),
     payload: z.unknown(),
   })
   .strict();
@@ -197,11 +206,18 @@ export type PluginSignal = z.infer<typeof pluginSignalSchema>;
  * Lenient counterpart of {@link pluginSignalSchema} for INBOUND parsing on
  * clients (mirrors threadOpenSignalLenientSchema): unknown fields from a
  * newer server are stripped instead of dropping the whole signal.
+ *
+ * `scope` is optional-with-default here on purpose. A pre-BBF-4 server sends no
+ * `scope` field at all, and an app that dropped those frames would leave every
+ * plugin panel dead against an older server; defaulting to null means such a
+ * signal is read as the publisher's unscoped stream, which is exactly what it
+ * was.
  */
 export const pluginSignalLenientSchema = z.object({
   type: z.literal("plugin-signal"),
   pluginId: z.string().min(1),
   channel: z.string().min(1),
+  scope: z.string().nullable().default(null),
   payload: z.unknown(),
 });
 

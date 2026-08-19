@@ -90,6 +90,18 @@ describe("usePluginContributions", () => {
         },
         { pluginId: "broken" }, // malformed: dropped at the boundary
       ],
+      realtimeChannels: [
+        {
+          pluginId: "tasks",
+          channel: "task",
+          label: "Task changes",
+          scoped: true,
+        },
+        // Malformed: dropped at the boundary like the mention providers, so a
+        // publisher on a newer/older server cannot break the whole query.
+        { pluginId: "tasks", channel: "half" },
+        { pluginId: "tasks", channel: "worse", label: "Worse", scoped: "yes" },
+      ],
     });
 
     const { wrapper } = createQueryClientTestHarness();
@@ -111,6 +123,14 @@ describe("usePluginContributions", () => {
             triggers: ["@", "#"],
           },
         ],
+        realtimeChannels: [
+          {
+            pluginId: "tasks",
+            channel: "task",
+            label: "Task changes",
+            scoped: true,
+          },
+        ],
       });
     });
     expect(fetchMock).toHaveBeenCalledWith(
@@ -129,6 +149,7 @@ describe("usePluginContributions", () => {
     await waitFor(() => {
       expect(result.current.data).toEqual({
         mentionProviders: [],
+        realtimeChannels: [],
       });
     });
   });
