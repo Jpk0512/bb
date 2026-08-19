@@ -22,6 +22,7 @@ import {
   getActiveStoredTurnId,
   getHighWaterMarks,
   getLastStoredProviderThreadId,
+  getStoredProviderThreadIdAtOrBeforeSequence,
   getLastStoredTurnRequestEvent,
   getLatestThreadOutputEventRow,
   getLatestThreadSequence,
@@ -60,7 +61,10 @@ import {
 } from "../../src/data/events.js";
 import { createEnvironment } from "../../src/data/environments.js";
 import { createProject } from "../../src/data/projects.js";
-import { createThread } from "../../src/data/threads.js";
+import {
+  createThread,
+  setThreadProvider,
+} from "../../src/data/threads.js";
 import { upsertHost } from "../../src/data/hosts.js";
 
 function setup() {
@@ -1780,6 +1784,116 @@ describe("events", () => {
       },
     });
     expect(getLastStoredProviderThreadId(db, thread.id)).toBe("provider_new");
+  });
+
+  it("scopes the provider thread id to the current provider generation", () => {
+    const { db, thread } = setup();
+
+    appendStoredThreadEvent(db, noopNotifier, {
+      threadId: thread.id,
+      scope: threadScope(),
+      providerThreadId: "codex_session",
+      type: "thread/identity",
+      data: { providerThreadId: "codex_session" },
+    });
+    expect(getLastStoredProviderThreadId(db, thread.id)).toBe("codex_session");
+
+    // The marker alone must not change anything: a thread whose generation is
+    // still 0 is every pre-existing thread, and it must read exactly as before.
+    const markerSequence = appendStoredThreadEvent(db, noopNotifier, {
+      threadId: thread.id,
+      scope: threadScope(),
+      type: "system/operation",
+      data: {
+        operation: "provider_change",
+        operationId: "evt_provider_switch",
+        status: "completed",
+        message: "Switched provider",
+        metadata: {
+          previousProviderId: "codex",
+          nextProviderId: "claude-code",
+          previousProviderThreadId: "codex_session",
+          generation: 1,
+        },
+      },
+    });
+    expect(markerSequence).toBeGreaterThan(0);
+    expect(getLastStoredProviderThreadId(db, thread.id)).toBe("codex_session");
+
+    // Bumping the generation is what arms the boundary. The retired session id
+    // disappears, which is what makes the next turn cold-start.
+    setThreadProvider(db, {
+      threadId: thread.id,
+      providerId: "claude-code",
+    });
+    expect(getLastStoredProviderThreadId(db, thread.id)).toBeNull();
+
+    appendStoredThreadEvent(db, noopNotifier, {
+      threadId: thread.id,
+      scope: threadScope(),
+      providerThreadId: "claude_session",
+      type: "thread/identity",
+      data: { providerThreadId: "claude_session" },
+    });
+    expect(getLastStoredProviderThreadId(db, thread.id)).toBe("claude_session");
+  });
+
+  it("refuses to resume a retired session for a fork cut before the switch", () => {
+    const { db, thread } = setup();
+
+    const beforeSwitch = appendStoredThreadEvent(db, noopNotifier, {
+      threadId: thread.id,
+      scope: threadScope(),
+      providerThreadId: "codex_session",
+      type: "thread/identity",
+      data: { providerThreadId: "codex_session" },
+    });
+    expect(
+      getStoredProviderThreadIdAtOrBeforeSequence(db, {
+        sequence: beforeSwitch,
+        threadId: thread.id,
+      }),
+    ).toBe("codex_session");
+
+    appendStoredThreadEvent(db, noopNotifier, {
+      threadId: thread.id,
+      scope: threadScope(),
+      type: "system/operation",
+      data: {
+        operation: "provider_change",
+        operationId: "evt_provider_switch",
+        status: "completed",
+        message: "Switched provider",
+        metadata: {},
+      },
+    });
+    setThreadProvider(db, {
+      threadId: thread.id,
+      providerId: "claude-code",
+    });
+
+    // The fork path resumes under the source thread's CURRENT provider, so a
+    // pre-switch cut must cold-start rather than hand codex's session to claude.
+    expect(
+      getStoredProviderThreadIdAtOrBeforeSequence(db, {
+        sequence: beforeSwitch,
+        threadId: thread.id,
+      }),
+    ).toBeNull();
+
+    const afterSwitch = appendStoredThreadEvent(db, noopNotifier, {
+      threadId: thread.id,
+      scope: threadScope(),
+      providerThreadId: "claude_session",
+      type: "thread/identity",
+      data: { providerThreadId: "claude_session" },
+    });
+    expect(
+      getStoredProviderThreadIdAtOrBeforeSequence(db, {
+        sequence: afterSwitch,
+        threadId: thread.id,
+      }),
+    ).toBe("claude_session");
   });
 
   it("ignores delegated child turn starts when reconstructing the active stored turn", () => {

@@ -2954,16 +2954,65 @@ export function getActiveStoredTurnId(
   return completed ? null : latestStarted.turnId;
 }
 
+/** The `system/operation` marker an in-place provider change appends. */
+export const PROVIDER_CHANGE_OPERATION = "provider_change";
+
+/**
+ * Sequence of the newest provider-change marker, or null when this thread has
+ * never changed provider.
+ *
+ * Gated on `threads.provider_generation` so a thread that never switched pays
+ * one primary-key read instead of a JSON scan over its `system/operation`
+ * events. Generation 0 is every pre-existing thread, so this is the byte-for-
+ * byte-unchanged path for them.
+ */
+export function getProviderGenerationBoundarySequence(
+  db: DbQueryConnection,
+  threadId: string,
+): number | null {
+  const threadRow = db
+    .select({ providerGeneration: threads.providerGeneration })
+    .from(threads)
+    .where(eq(threads.id, threadId))
+    .get();
+  if (!threadRow || threadRow.providerGeneration === 0) {
+    return null;
+  }
+  const marker = db
+    .select({ sequence: events.sequence })
+    .from(events)
+    .where(
+      sql`${events.threadId} = ${threadId}
+        AND ${events.type} = 'system/operation'
+        AND json_extract(${events.data}, '$.operation') = ${PROVIDER_CHANGE_OPERATION}`,
+    )
+    .orderBy(sql`${events.sequence} DESC`)
+    .limit(1)
+    .get();
+  return marker?.sequence ?? null;
+}
+
 export function getLastStoredProviderThreadId(
   db: DbQueryConnection,
   threadId: string,
 ): string | null {
+  // An in-place provider change starts a NEW native session on the same bb
+  // thread, so provider thread ids recorded before the switch name a session
+  // that belongs to a provider this thread no longer uses. Scoping the scan to
+  // the current generation is the whole mechanism for the switch: with no id
+  // after the boundary, `prepareReadyThreadTurnCommand` cold-starts against
+  // `thread.providerId` instead of resuming the retired session.
+  const boundarySequence = getProviderGenerationBoundarySequence(db, threadId);
   const latestProviderRow = db
     .select({ providerThreadId: events.providerThreadId })
     .from(events)
     .where(
-      sql`${events.threadId} = ${threadId}
-        AND ${events.providerThreadId} IS NOT NULL`,
+      boundarySequence === null
+        ? sql`${events.threadId} = ${threadId}
+        AND ${events.providerThreadId} IS NOT NULL`
+        : sql`${events.threadId} = ${threadId}
+        AND ${events.providerThreadId} IS NOT NULL
+        AND ${events.sequence} > ${boundarySequence}`,
     )
     .orderBy(sql`${events.sequence} DESC`)
     .limit(1)
@@ -2986,12 +3035,27 @@ export function getStoredProviderThreadIdAtOrBeforeSequence(
     threadId: string;
   },
 ): string | null {
+  // Same generation scoping as `getLastStoredProviderThreadId`, and for a
+  // stronger reason: the only caller is the fork path, which resumes the
+  // returned session under the SOURCE THREAD'S CURRENT `providerId`. A fork cut
+  // at a sequence before a provider change would otherwise hand a retired
+  // provider's session id to the new provider's bridge. Returning null there
+  // cold-starts the fork instead, which is the honest answer.
+  const boundarySequence = getProviderGenerationBoundarySequence(
+    db,
+    args.threadId,
+  );
   const row = db
     .select({ providerThreadId: events.providerThreadId })
     .from(events)
     .where(
-      sql`${events.threadId} = ${args.threadId}
+      boundarySequence === null
+        ? sql`${events.threadId} = ${args.threadId}
         AND ${events.sequence} <= ${args.sequence}
+        AND ${events.providerThreadId} IS NOT NULL`
+        : sql`${events.threadId} = ${args.threadId}
+        AND ${events.sequence} <= ${args.sequence}
+        AND ${events.sequence} > ${boundarySequence}
         AND ${events.providerThreadId} IS NOT NULL`,
     )
     .orderBy(sql`${events.sequence} DESC`)

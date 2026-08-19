@@ -402,6 +402,13 @@ export interface ListThreadsOptions {
   offset?: number;
   /** Hidden threads are excluded unless explicitly opted in. */
   includeHidden?: boolean;
+  /**
+   * Lineage disposition (charter D4). `false` excludes threads a lineage
+   * retired, `true` returns only those, `undefined` ignores the disposition.
+   * Deliberately independent of `archived` and `includeHidden`: a retired
+   * thread was not archived by the user and is not a plugin-owned worker.
+   */
+  retired?: boolean;
 }
 
 type ThreadRow = typeof threads.$inferSelect;
@@ -409,6 +416,8 @@ type ThreadRow = typeof threads.$inferSelect;
 export interface ListThreadsForProjectsOptions {
   projectIds: readonly string[];
   archived?: boolean;
+  /** See `ListThreadsOptions.retired`. */
+  retired?: boolean;
 }
 
 export interface PinThreadArgs {
@@ -712,6 +721,11 @@ function buildListThreadsFilters(options: ListThreadsOptions) {
       : options.hasParent === false
         ? isNull(threads.parentThreadId)
         : undefined,
+    options.retired === true
+      ? isNotNull(threads.supersededByThreadId)
+      : options.retired === false
+        ? isNull(threads.supersededByThreadId)
+        : undefined,
   ].filter((value) => value !== undefined);
 }
 
@@ -726,6 +740,11 @@ function buildListThreadsForProjectsFilters(
       ? isNotNull(threads.archivedAt)
       : options.archived === false
         ? isNull(threads.archivedAt)
+        : undefined,
+    options.retired === true
+      ? isNotNull(threads.supersededByThreadId)
+      : options.retired === false
+        ? isNull(threads.supersededByThreadId)
         : undefined,
   ].filter((value) => value !== undefined);
 }
@@ -1730,6 +1749,93 @@ export function setThreadExecutionOverride(
   return updated ?? null;
 }
 
+export interface SetThreadProviderInput {
+  threadId: string;
+  providerId: string;
+}
+
+/**
+ * Rebinds a thread to a different provider in place and bumps its provider
+ * generation. `provider_id` is deliberately absent from `UpdateThreadInput`:
+ * rebinding retires the thread's live provider session, so it must never ride
+ * along on a generic metadata update. The generation bump is what makes
+ * `getLastStoredProviderThreadId` stop resuming the retired session.
+ *
+ * Returns null when the thread is gone. Emits no realtime notification — the
+ * caller owns the `provider-changed` notify, because it also appends the
+ * marker event inside the same transaction.
+ */
+export function setThreadProvider(
+  db: ThreadWriteConnection,
+  input: SetThreadProviderInput,
+) {
+  const existing = db
+    .select()
+    .from(threads)
+    .where(eq(threads.id, input.threadId))
+    .get();
+  if (!existing) {
+    return null;
+  }
+  const updated = db
+    .update(threads)
+    .set({
+      providerId: input.providerId,
+      providerGeneration: existing.providerGeneration + 1,
+      updatedAt: Date.now(),
+    })
+    .where(eq(threads.id, input.threadId))
+    .returning()
+    .get();
+  return updated ?? null;
+}
+
+export interface SetThreadSupersededByInput {
+  threadId: string;
+  supersededByThreadId: string | null;
+}
+
+/**
+ * Sets (or clears) the forward lineage edge. Charter D4: this is the RETIRED
+ * disposition and is never conflated with `archivedAt` (user intent) or
+ * `visibility: "hidden"` (plugin-owned worker), so it gets its own writer
+ * rather than a field on `UpdateThreadInput`.
+ */
+export function setThreadSupersededBy(
+  db: ThreadWriteConnection,
+  notifier: DbNotifier,
+  input: SetThreadSupersededByInput,
+) {
+  const existing = db
+    .select()
+    .from(threads)
+    .where(eq(threads.id, input.threadId))
+    .get();
+  if (!existing) {
+    return null;
+  }
+  if (existing.supersededByThreadId === input.supersededByThreadId) {
+    return existing;
+  }
+  const updated = db
+    .update(threads)
+    .set({
+      supersededByThreadId: input.supersededByThreadId,
+      updatedAt: Date.now(),
+    })
+    .where(eq(threads.id, input.threadId))
+    .returning()
+    .get();
+  if (updated) {
+    // The lineage edge changes which sidebar lists contain this thread, which
+    // is the same invalidation `updateThread` uses for section membership.
+    notifier.notifyThread(input.threadId, ["title-changed"], {
+      projectId: existing.projectId,
+    });
+  }
+  return updated ?? null;
+}
+
 export function markThreadAttentionRequested(
   db: ThreadWriteConnection,
   notifier: DbNotifier,
@@ -1773,6 +1879,16 @@ export function deleteThread(
 ) {
   const existing = db.select().from(threads).where(eq(threads.id, id)).get();
   if (!existing) return false;
+  // `superseded_by_thread_id` is declared ON DELETE SET NULL, but drizzle-kit
+  // emits ALTER TABLE ADD COLUMN ... REFERENCES threads(id) with no delete
+  // action, so the live constraint is RESTRICT and deleting a successor would
+  // fail with SQLITE_CONSTRAINT_FOREIGNKEY. Clear inbound edges here so the
+  // behaviour matches the declared schema without rebuilding the threads
+  // table. Remove this once a migration restores the delete action.
+  db.update(threads)
+    .set({ supersededByThreadId: null })
+    .where(eq(threads.supersededByThreadId, id))
+    .run();
   db.delete(threads).where(eq(threads.id, id)).run();
   notifier.notifyThread(id, ["thread-deleted"], {
     projectId: existing.projectId,
