@@ -5,6 +5,8 @@ import {
   ENVIRONMENT_CHANGE_KINDS,
   HOST_CHANGE_KINDS,
   PROJECT_CHANGE_KINDS,
+  realtimeSubscriptionTargetKey,
+  subscribeMessageSchema,
   SYSTEM_CHANGE_KINDS,
   THREAD_CHANGE_KINDS,
   threadChangeMetadataSchema,
@@ -131,5 +133,79 @@ describe("lenient changed-message schema parity", () => {
     expect(Object.keys(maximalThreadMetadata).sort()).toEqual(
       Object.keys(threadChangeMetadataSchema.shape).sort(),
     );
+  });
+});
+
+describe("realtimeSubscriptionTargetKey for plugin-channel targets", () => {
+  it("distinguishes publisher, channel and scope", () => {
+    const key = (
+      target: Parameters<typeof realtimeSubscriptionTargetKey>[0],
+    ) => realtimeSubscriptionTargetKey(target);
+
+    expect(
+      key({
+        kind: "plugin-channel",
+        pluginId: "tasks",
+        channel: "task",
+        scope: null,
+      }),
+    ).toBe("plugin-channel:tasks:task");
+    expect(
+      key({
+        kind: "plugin-channel",
+        pluginId: "tasks",
+        channel: "task",
+        scope: "task_1",
+      }),
+    ).toBe("plugin-channel:tasks:task#task_1");
+
+    const keys = new Set(
+      [
+        { pluginId: "tasks", channel: "task", scope: null },
+        { pluginId: "tasks", channel: "task", scope: "task_1" },
+        { pluginId: "tasks", channel: "other", scope: null },
+        { pluginId: "telemetry", channel: "task", scope: null },
+      ].map((target) => key({ kind: "plugin-channel", ...target })),
+    );
+    expect(keys.size).toBe(4);
+  });
+
+  it("gives two subscribers of the same channel the SAME key", () => {
+    // `as` is excluded on purpose: one window watching one publisher channel is
+    // one server-side fan-out entry no matter how many plugins want it, and
+    // unsubscribe must therefore be subscriber-independent. Authorization is
+    // evaluated per asserted subscriber elsewhere (PluginRealtimeCoordinator).
+    const base = {
+      kind: "plugin-channel",
+      pluginId: "tasks",
+      channel: "task",
+      scope: "task_1",
+    } as const;
+    expect(realtimeSubscriptionTargetKey({ ...base, as: "board" })).toBe(
+      realtimeSubscriptionTargetKey({ ...base, as: "telemetry" }),
+    );
+    expect(realtimeSubscriptionTargetKey({ ...base, as: "board" })).toBe(
+      realtimeSubscriptionTargetKey(base),
+    );
+  });
+
+  it("round-trips through the subscribe message schema", () => {
+    const target = {
+      kind: "plugin-channel",
+      pluginId: "tasks",
+      channel: "task",
+      scope: "task_1",
+      as: "board",
+    } as const;
+    expect(
+      subscribeMessageSchema.parse({ type: "subscribe", target }).target,
+    ).toEqual(target);
+    // Strict object: an unknown field must not silently become part of a key.
+    expect(
+      subscribeMessageSchema.safeParse({
+        type: "subscribe",
+        target: { ...target, extra: 1 },
+      }).success,
+    ).toBe(false);
   });
 });
