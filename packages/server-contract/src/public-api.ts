@@ -173,6 +173,8 @@ import type {
   TerminalOutputResponse,
   TerminalResizeRequest,
   ThreadArchiveAllResponse,
+  SetThreadLineageRequest,
+  SwitchThreadProviderRequest,
   ThreadChildSummaryResponse,
   ThreadEventWaitQuery,
   ThreadEventsQuery,
@@ -315,6 +317,8 @@ import {
   updateTerminalRequestSchema,
   updateProjectRequestSchema,
   updateProjectSourceRequestSchema,
+  setThreadLineageRequestSchema,
+  switchThreadProviderRequestSchema,
   updateThreadRequestSchema,
 } from "./api-types.js";
 import type { ApiError } from "./errors.js";
@@ -1216,6 +1220,27 @@ export const publicApiRoutes = {
       method: "post",
       request: noRequest<PathId>(),
       response: jsonResponse<{ ok: true }>(),
+    }),
+    // In-place provider change. Distinct from PATCH /threads/:id, which still
+    // refuses a cross-provider model: this verb releases the thread's live
+    // provider session first, so it must be asked for explicitly.
+    switchProvider: defineRoute({
+      path: "/threads/:id/switch-provider",
+      method: "post",
+      request: jsonRequest<PathId, SwitchThreadProviderRequest>(
+        switchThreadProviderRequestSchema,
+      ),
+      response: jsonResponse<ThreadResponse>(),
+    }),
+    // The RETIRED disposition (charter D4). Setting it retires this thread into
+    // the named one; clearing it un-retires.
+    setLineage: defineRoute({
+      path: "/threads/:id/lineage",
+      method: "post",
+      request: jsonRequest<PathId, SetThreadLineageRequest>(
+        setThreadLineageRequestSchema,
+      ),
+      response: jsonResponse<ThreadResponse>(),
     }),
     read: defineRoute({
       path: "/threads/:id/read",

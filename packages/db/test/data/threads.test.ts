@@ -12,6 +12,8 @@ import {
   getThreadExecutionOverride,
   hasActiveThreadAttention,
   setThreadExecutionOverride,
+  setThreadProvider,
+  setThreadSupersededBy,
   hasPendingThreadShutdownInEnvironment,
   listHostThreadIds,
   listActiveVisiblePinnedThreadRoots,
@@ -1670,5 +1672,105 @@ describe("thread originKind", () => {
     });
 
     expect(own.map((thread) => thread.id)).toEqual([ownFork.id]);
+  });
+});
+
+describe("thread lineage disposition", () => {
+  it("keeps retired, archived and hidden as three independent dispositions", () => {
+    const { db, project } = setup();
+    const retired = createThread(db, noopNotifier, {
+      projectId: project.id,
+      providerId: "codex",
+    });
+    const successor = createThread(db, noopNotifier, {
+      projectId: project.id,
+      providerId: "codex",
+    });
+
+    setThreadSupersededBy(db, noopNotifier, {
+      threadId: retired.id,
+      supersededByThreadId: successor.id,
+    });
+
+    // Charter D4: retiring a thread must not archive it and must not hide it.
+    const stored = getThread(db, retired.id);
+    expect(stored?.supersededByThreadId).toBe(successor.id);
+    expect(stored?.archivedAt).toBeNull();
+    expect(stored?.visibility).toBe("visible");
+
+    expect(
+      listThreads(db, { projectId: project.id, retired: false }).map(
+        (thread) => thread.id,
+      ),
+    ).toEqual([successor.id]);
+    expect(
+      listThreads(db, { projectId: project.id, retired: true }).map(
+        (thread) => thread.id,
+      ),
+    ).toEqual([retired.id]);
+    // Omitting the option ignores the disposition entirely, so today's callers
+    // keep seeing exactly what they saw before.
+    expect(
+      listThreads(db, { projectId: project.id })
+        .map((thread) => thread.id)
+        .sort(),
+    ).toEqual([retired.id, successor.id].sort());
+
+    // A retired thread is still fully readable and navigable.
+    expect(getThread(db, retired.id)?.deletedAt).toBeNull();
+
+    setThreadSupersededBy(db, noopNotifier, {
+      threadId: retired.id,
+      supersededByThreadId: null,
+    });
+    expect(getThread(db, retired.id)?.supersededByThreadId).toBeNull();
+  });
+
+  it("clears the lineage edge when the successor is deleted", () => {
+    const { db, project } = setup();
+    const retired = createThread(db, noopNotifier, {
+      projectId: project.id,
+      providerId: "codex",
+    });
+    const successor = createThread(db, noopNotifier, {
+      projectId: project.id,
+      providerId: "codex",
+    });
+    setThreadSupersededBy(db, noopNotifier, {
+      threadId: retired.id,
+      supersededByThreadId: successor.id,
+    });
+
+    deleteThread(db, noopNotifier, successor.id);
+    // ON DELETE SET NULL: the retired thread comes back rather than dangling.
+    expect(getThread(db, retired.id)?.supersededByThreadId).toBeNull();
+  });
+});
+
+describe("setThreadProvider", () => {
+  it("is the only writer of provider_id and bumps the generation", () => {
+    const { db, project } = setup();
+    const thread = createThread(db, noopNotifier, {
+      projectId: project.id,
+      providerId: "codex",
+    });
+    expect(getThread(db, thread.id)?.providerGeneration).toBe(0);
+
+    // updateThread has no providerId field; a stray key must not sneak through.
+    updateThread(db, noopNotifier, thread.id, {
+      providerId: "claude-code",
+    } as never);
+    expect(getThread(db, thread.id)?.providerId).toBe("codex");
+    expect(getThread(db, thread.id)?.providerGeneration).toBe(0);
+
+    const updated = setThreadProvider(db, {
+      threadId: thread.id,
+      providerId: "claude-code",
+    });
+    expect(updated?.providerId).toBe("claude-code");
+    expect(updated?.providerGeneration).toBe(1);
+
+    setThreadProvider(db, { threadId: thread.id, providerId: "codex" });
+    expect(getThread(db, thread.id)?.providerGeneration).toBe(2);
   });
 });

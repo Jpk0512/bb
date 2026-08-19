@@ -49,6 +49,11 @@ import {
 } from "../../services/threads/timeline.js";
 import { createSlowThreadTimelineBuildLogger } from "../../services/threads/timeline-build-log.js";
 import {
+  buildLineageContinuationCursor,
+  buildLineageTimelinePage,
+  resolveLineageTimelinePage,
+} from "../../services/threads/timeline-lineage.js";
+import {
   buildThreadTimelineCacheKey,
   buildThreadTimelineParamsKey,
   createThreadTimelineCache,
@@ -331,6 +336,40 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
     // because the same `maxSeq` names a different set of rows under a
     // different budget and a client only echoes `afterSequence`.
     const eventBudget = deps.config.featureFlags.timelineWindowEventBudget;
+
+    // The cursor has walked past the start of this thread and into the thread
+    // it retired. Serve the predecessor's rows on this same request so they
+    // land in the same scroll container: the client never learns there are two
+    // threads, and its cursor/delta/dedupe logic is untouched.
+    const lineagePage = resolveLineageTimelinePage(deps.db, { page, thread });
+    if (lineagePage !== null) {
+      return context.json(
+        truncateTimelineResponseOutputs(
+          buildLineageTimelinePage(deps.db, {
+            eventBudget,
+            includeNestedRows,
+            includeProviderUnhandledOperations,
+            maxInlineOutputChars: DEFAULT_MAX_INLINE_OUTPUT_CHARS,
+            page: lineagePage.page,
+            // The predecessor's OWN provider labels. A thread that changed
+            // provider must not relabel its predecessor's turns.
+            planCommand: resolveProviderPlanCommand(
+              deps.providerRegistry,
+              lineagePage.thread.providerId,
+            ),
+            providerDisplayName: resolveThreadProviderDisplayName(
+              deps,
+              lineagePage.thread.providerId,
+            ),
+            requestedThreadMaxSeq: maxSeq,
+            summaryOnly,
+            thread: lineagePage.thread,
+          }),
+          DEFAULT_MAX_INLINE_OUTPUT_CHARS,
+        ),
+      );
+    }
+
     const keyArgs = {
       threadId: thread.id,
       status: thread.status,
@@ -388,8 +427,28 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
         : undefined;
     timelineLatestRowsCache.set(paramsKey, { maxSeq, rows: full.rows });
 
+    // This thread is exhausted but it retired an older one: hand back a cursor
+    // that continues into the predecessor instead of reporting the end of the
+    // conversation. Built outside the timeline cache because it depends on the
+    // lineage edge, which the cache key does not track.
+    const continuation =
+      full.timelinePage.olderCursor === null
+        ? buildLineageContinuationCursor(deps.db, thread)
+        : null;
+    const paged =
+      continuation === null
+        ? full
+        : {
+            ...full,
+            timelinePage: {
+              ...full.timelinePage,
+              hasOlderRows: true,
+              olderCursor: continuation,
+            },
+          };
+
     return context.json(
-      delta === undefined ? full : { ...full, rows: [], delta },
+      delta === undefined ? paged : { ...paged, rows: [], delta },
     );
   });
 

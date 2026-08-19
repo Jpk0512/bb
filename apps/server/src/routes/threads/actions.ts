@@ -72,6 +72,8 @@ import {
   archiveThreadAndChildren,
   archiveThreadAndHiddenSourceForks,
 } from "../../services/threads/thread-archive.js";
+import { setThreadLineage } from "../../services/threads/thread-lineage.js";
+import { switchThreadProvider } from "../../services/threads/thread-provider-switch.js";
 import {
   requireThreadCommandEnvironment,
   requireThreadHostCommandEnvironment,
@@ -742,6 +744,35 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
       });
     }
     return context.json({ ok: true });
+  });
+
+  // In-place provider change. The refusal this replaces read "changing
+  // providers requires starting a new thread" — it no longer does. The thread
+  // keeps its id, timeline, tabs and environment; only the native provider
+  // session is new.
+  post(routes.switchProvider, async (context, payload) => {
+    const thread = requirePublicThread(deps.db, context.req.param("id"));
+    const updated = await switchThreadProvider(deps, {
+      thread,
+      providerId: payload.providerId,
+      ...(payload.model === undefined ? {} : { model: payload.model }),
+      ...(payload.reasoningLevel === undefined
+        ? {}
+        : { reasoningLevel: payload.reasoningLevel }),
+    });
+    return context.json(toThreadResponseFromThread(deps, { thread: updated }));
+  });
+
+  // The RETIRED disposition (charter D4). Never conflated with archivedAt or
+  // visibility: setting this does not archive and does not hide, and clearing
+  // it is the one-click return a hidden thread never had.
+  post(routes.setLineage, (context, payload) => {
+    const thread = requirePublicThread(deps.db, context.req.param("id"));
+    const updated = setThreadLineage(deps, {
+      thread,
+      supersededByThreadId: payload.supersededByThreadId,
+    });
+    return context.json(toThreadResponseFromThread(deps, { thread: updated }));
   });
 
   post(routes.read, (context) => {

@@ -672,6 +672,37 @@ export type ThreadArchiveAllResponse = z.infer<
   typeof threadArchiveAllResponseSchema
 >;
 
+/**
+ * Rebinds a thread to a different provider in place. The thread keeps its id,
+ * its timeline, its tabs and its environment; only the native provider session
+ * is new. `model` is validated against the TARGET provider's catalog, so a
+ * cross-provider model is legal here and remains illegal on PATCH /threads/:id.
+ */
+export const switchThreadProviderRequestSchema = z
+  .object({
+    providerId: z.string().min(1),
+    model: z.string().min(1).optional(),
+    reasoningLevel: reasoningLevelSchema.optional(),
+  })
+  .strict();
+export type SwitchThreadProviderRequest = z.infer<
+  typeof switchThreadProviderRequestSchema
+>;
+
+/**
+ * Sets or clears the forward lineage edge (charter D4's RETIRED disposition).
+ * `null` un-retires the thread — the one-click return that
+ * `visibility: "hidden"` never had.
+ */
+export const setThreadLineageRequestSchema = z
+  .object({
+    supersededByThreadId: z.string().min(1).nullable(),
+  })
+  .strict();
+export type SetThreadLineageRequest = z.infer<
+  typeof setThreadLineageRequestSchema
+>;
+
 export const threadListQuerySchema = z.object({
   projectId: z.string().min(1).optional(),
   parentThreadId: z.string().min(1).optional(),
@@ -689,6 +720,12 @@ export const threadListQuerySchema = z.object({
   originPluginId: z.string().min(1).optional(),
   /** Include hidden threads; omitted/false keeps the default visible-only list. */
   includeHidden: z.enum(["true", "false"]).optional(),
+  /**
+   * Lineage disposition. "true" returns only threads a lineage retired,
+   * "false" excludes them, omitted ignores the disposition — which is what
+   * every pre-existing caller gets.
+   */
+  retired: z.enum(["true", "false"]).optional(),
   limit: z.string().regex(/^\d+$/).optional(),
   offset: z.string().regex(/^\d+$/).optional(),
 });

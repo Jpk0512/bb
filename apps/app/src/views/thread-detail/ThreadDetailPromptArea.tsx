@@ -78,7 +78,14 @@ import {
   useClearThreadGoal,
   useStopThread,
 } from "@/hooks/mutations/thread-runtime-mutations";
-import { useUnarchiveThread } from "@/hooks/mutations/thread-state-mutations";
+import {
+  useSwitchThreadProvider,
+  useUnarchiveThread,
+} from "@/hooks/mutations/thread-state-mutations";
+import {
+  ConfirmDeleteDialog,
+  ConfirmDeleteDialogContent,
+} from "@/components/dialogs/ConfirmDeleteDialog";
 import {
   getLatestPendingInteraction,
   useThreadQueuedMessages,
@@ -599,15 +606,67 @@ export function ThreadDetailPromptArea({
   const effectiveSelectedModel = isFallbackModelActive
     ? modelFallback.fallbackModel
     : (activeModel?.model ?? selectedModel);
+  // Provider tabs in thread detail PREVIEW another provider's catalog; they do
+  // not commit. Committing on a tab click would retire this thread's live
+  // provider session on a stray click. The switch is intended when the user
+  // then picks a model from that previewed catalog, which is the same gesture
+  // that commits a model on the current provider.
+  const [previewedProviderId, setPreviewedProviderId] = useState<string | null>(
+    null,
+  );
+  const [pendingProviderSwitch, setPendingProviderSwitch] = useState<{
+    model: string;
+    providerId: string;
+  } | null>(null);
+  const switchThreadProvider = useSwitchThreadProvider();
+  const handlePreviewProvider = useCallback(
+    (providerId: string) => {
+      setPreviewedProviderId(
+        providerId === thread.providerId ? null : providerId,
+      );
+    },
+    [thread.providerId],
+  );
   const handleModelChange = useCallback(
     (model: string) => {
+      if (
+        previewedProviderId !== null &&
+        previewedProviderId !== thread.providerId
+      ) {
+        setPendingProviderSwitch({ model, providerId: previewedProviderId });
+        return;
+      }
       if (fallbackIdentity !== null) {
         setOverriddenFallbackIdentity(fallbackIdentity);
       }
       setSelectedModel(model);
     },
-    [fallbackIdentity, setSelectedModel],
+    [fallbackIdentity, previewedProviderId, setSelectedModel, thread.providerId],
   );
+  const handleCancelProviderSwitch = useCallback(() => {
+    setPendingProviderSwitch(null);
+    setPreviewedProviderId(null);
+  }, []);
+  const handleConfirmProviderSwitch = useCallback(() => {
+    if (!pendingProviderSwitch) return;
+    switchThreadProvider.mutate(
+      {
+        id: thread.id,
+        model: pendingProviderSwitch.model,
+        providerId: pendingProviderSwitch.providerId,
+      },
+      {
+        onSettled: () => {
+          setPendingProviderSwitch(null);
+          setPreviewedProviderId(null);
+        },
+      },
+    );
+  }, [pendingProviderSwitch, switchThreadProvider, thread.id]);
+  const pendingProviderSwitchLabel =
+    providerOptions.find(
+      (option) => option.value === pendingProviderSwitch?.providerId,
+    )?.label ?? pendingProviderSwitch?.providerId;
   const { typeaheadConfig, promptActions } = useComposerTypeahead({
     projectId: thread.projectId,
     mentionsProjectId: projectId,
@@ -1051,6 +1110,10 @@ export function ThreadDetailPromptArea({
         selectedId: selectedProviderId,
         hasMultiple: hasMultipleProviders,
         displayName: selectedProviderDisplayName,
+        // Supplying onChange is what unlocks the picker's existing provider
+        // tabs and cross-provider preview in thread detail. It records the
+        // intent; the switch itself is confirmed on model selection.
+        onChange: handlePreviewProvider,
       },
       model: {
         active: effectiveSelectedModel
@@ -1086,6 +1149,7 @@ export function ThreadDetailPromptArea({
       hasMultipleProviders,
       handleHandoffToNewThread,
       handleModelChange,
+      handlePreviewProvider,
       isLoadingModels,
       modelLoadFailed,
       modelLoadError,
@@ -1630,6 +1694,25 @@ export function ThreadDetailPromptArea({
     <>
       {sentMessageEditorPortal}
       {bottomContent}
+      <ConfirmDeleteDialog
+        open={pendingProviderSwitch !== null}
+        onOpenChange={(open) => {
+          if (!open) handleCancelProviderSwitch();
+        }}
+      >
+        <ConfirmDeleteDialogContent
+          title={`Start a new ${pendingProviderSwitchLabel} session?`}
+          description={`This thread keeps its history, tabs and files. The new ${pendingProviderSwitchLabel} session starts fresh — it will not remember this conversation, so tell it what it needs to know.`}
+          confirmLabel={
+            switchThreadProvider.isPending
+              ? "Switching..."
+              : `Switch to ${pendingProviderSwitchLabel}`
+          }
+          pending={switchThreadProvider.isPending}
+          onConfirm={handleConfirmProviderSwitch}
+          onCancel={handleCancelProviderSwitch}
+        />
+      </ConfirmDeleteDialog>
     </>
   );
 }

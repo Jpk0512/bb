@@ -64,6 +64,8 @@ const mocks = vi.hoisted(() => ({
   stopThreadMutate: vi.fn(),
   toastError: vi.fn(),
   unarchiveThreadMutate: vi.fn(),
+  providerOptions: [] as { label: string; value: string }[],
+  switchThreadProviderMutate: vi.fn(),
   uploadPromptAttachmentMutateAsync: vi.fn(),
   updateQueuedMessageMutateAsync: vi.fn(),
   useThreadDefaultExecutionOptions: vi.fn(),
@@ -110,8 +112,15 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", () => ({
         label: string;
         onClick: () => void;
       };
+      provider?: {
+        options?: readonly { label: string; value: string }[];
+        selectedId?: string;
+        hasMultiple?: boolean;
+        onChange?: (value: string) => void;
+      };
       model: {
         active?: { model: string } | null;
+        onChange: (value: string) => void;
       };
       reasoning: { value: string };
       serviceTier?: { value?: string };
@@ -237,6 +246,27 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", () => ({
           {execution.footerAction.label}
         </button>
       ) : null}
+      <div data-testid="can-switch-providers">
+        {execution.provider?.onChange !== undefined &&
+        (execution.provider.hasMultiple ?? false)
+          ? "true"
+          : "false"}
+      </div>
+      {(execution.provider?.options ?? []).map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => execution.provider?.onChange?.(option.value)}
+        >
+          {`Preview ${option.label}`}
+        </button>
+      ))}
+      <button
+        type="button"
+        onClick={() => execution.model.onChange("target-provider-model")}
+      >
+        Pick model
+      </button>
     </div>
   ),
 }));
@@ -417,7 +447,7 @@ vi.mock("@/hooks/useThreadCreationOptions", () => ({
     return {
       activeModel: null,
       executionInputSources: {},
-      hasMultipleProviders: false,
+      hasMultipleProviders: mocks.providerOptions.length > 1,
       isLoadingModels: false,
       modelLoadError: null,
       modelLoadFailed: false,
@@ -425,7 +455,7 @@ vi.mock("@/hooks/useThreadCreationOptions", () => ({
       moreModelOptions: [],
       permissionMode: "auto",
       permissionModeOptions: [],
-      providerOptions: [],
+      providerOptions: mocks.providerOptions,
       reasoningLevel: "medium",
       reasoningOptions: [],
       selectedModel: "gpt-5",
@@ -495,6 +525,11 @@ vi.mock("@/hooks/mutations/thread-state-mutations", () => ({
   useUnarchiveThread: () => ({
     isPending: false,
     mutate: mocks.unarchiveThreadMutate,
+    variables: null,
+  }),
+  useSwitchThreadProvider: () => ({
+    isPending: false,
+    mutate: mocks.switchThreadProviderMutate,
     variables: null,
   }),
 }));
@@ -707,6 +742,7 @@ function deferred<T>() {
 
 beforeEach(() => {
   mocks.defaultExecutionOptions = null;
+  mocks.providerOptions = [];
   mocks.pluginComposerHost = null;
   mocks.promptDraft.text = "";
   mocks.promptDraft.getCurrent.mockImplementation(() => ({
@@ -1620,6 +1656,79 @@ describe("ThreadDetailPromptArea", () => {
       "claude-opus-4-8",
     );
     expect(screen.getByText("Model fallback")).toBeTruthy();
+  });
+
+  it("offers a real provider switch in the model picker", () => {
+    mocks.providerOptions = [
+      { label: "Codex", value: "codex" },
+      { label: "Claude Code", value: "claude-code" },
+    ];
+    renderPromptArea();
+
+    // Supplying provider.onChange is the whole unlock: the picker's existing
+    // cross-provider tabs were only gated off by its absence.
+    expect(screen.getByTestId("can-switch-providers").textContent).toBe("true");
+
+    // Previewing a provider must NOT commit — a stray tab click would retire
+    // this thread's live provider session.
+    fireEvent.click(screen.getByRole("button", { name: "Preview Claude Code" }));
+    expect(mocks.switchThreadProviderMutate).not.toHaveBeenCalled();
+
+    // Picking a model from the previewed catalog is the commit gesture, and it
+    // asks first.
+    fireEvent.click(screen.getByRole("button", { name: "Pick model" }));
+    expect(mocks.switchThreadProviderMutate).not.toHaveBeenCalled();
+    expect(
+      screen.getByText("Start a new Claude Code session?"),
+    ).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Switch to Claude Code" }),
+    );
+    expect(mocks.switchThreadProviderMutate).toHaveBeenCalledWith(
+      {
+        id: "thr_1",
+        model: "target-provider-model",
+        providerId: "claude-code",
+      },
+      expect.anything(),
+    );
+  });
+
+  it("cancels a provider switch without touching the thread", () => {
+    mocks.providerOptions = [
+      { label: "Codex", value: "codex" },
+      { label: "Claude Code", value: "claude-code" },
+    ];
+    renderPromptArea();
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview Claude Code" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pick model" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(mocks.switchThreadProviderMutate).not.toHaveBeenCalled();
+    expect(screen.queryByText("Start a new Claude Code session?")).toBeNull();
+  });
+
+  it("keeps picking a model on the current provider a plain model change", () => {
+    mocks.providerOptions = [
+      { label: "Codex", value: "codex" },
+      { label: "Claude Code", value: "claude-code" },
+    ];
+    renderPromptArea();
+
+    // Preview another provider, come back, then pick: no switch is intended.
+    fireEvent.click(screen.getByRole("button", { name: "Preview Claude Code" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview Codex" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pick model" }));
+
+    expect(mocks.switchThreadProviderMutate).not.toHaveBeenCalled();
+    expect(screen.queryByText("Start a new Claude Code session?")).toBeNull();
+    // Handoff stays a separate operation: branching to a NEW thread is not the
+    // same as rebinding this one.
+    expect(
+      screen.getByRole("button", { name: "Handoff to new thread" }),
+    ).toBeTruthy();
   });
 
   it("opens root compose with a handoff seed for the current thread", () => {

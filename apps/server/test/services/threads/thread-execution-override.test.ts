@@ -42,6 +42,24 @@ describe("resolveThreadExecutionOverrideUpdate", () => {
     ).toThrow(/not available in this thread's claude-code model catalog/);
   });
 
+  it("points a cross-provider model at the switch verb, not at starting over", () => {
+    // The guard is NOT weakened by in-place provider change: a metadata PATCH
+    // must never rebind a provider, because rebinding retires the thread's
+    // live session. The message text is asserted so it cannot drift back to
+    // "changing providers requires starting a new thread".
+    expect(() =>
+      resolveThreadExecutionOverrideUpdate(registry, {
+        existing: EMPTY,
+        patch: { model: "gpt-5" },
+        models: CATALOG,
+        providerId: "claude-code",
+        fallbackModel: null,
+      }),
+    ).toThrow(
+      'Model "gpt-5" is not available in this thread\'s claude-code model catalog. Choose a model offered by claude-code, or switch this thread to a different provider.',
+    );
+  });
+
   it("accepts an explicit reasoning level supported by the target model", () => {
     expect(
       resolveThreadExecutionOverrideUpdate(registry, {
