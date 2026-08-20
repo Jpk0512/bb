@@ -21,7 +21,11 @@ export function isWorkRowExpandable(row: TimelineViewWorkRow): boolean {
     case "web-search":
     case "web-fetch":
     case "approval":
-      return false;
+    case "child-session":
+      // The child transcript lives in the body, but it is never selected by
+      // the live-frontier auto-expand policy below. Opening it is manual so a
+      // parent with many workers cannot fan out subscriptions on load.
+      return true;
     case "image-view":
       return true;
     case "question":

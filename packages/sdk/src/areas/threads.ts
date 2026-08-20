@@ -72,6 +72,8 @@ export const DEFAULT_THREAD_WAIT_POLL_INTERVAL_MS = 250;
 
 export interface ThreadListArgs {
   archived?: boolean;
+  /** Restrict to one plugin-owned hierarchy child role. */
+  childKind?: string;
   sectionId?: string;
   hasParent?: boolean;
   includeHidden?: boolean;
@@ -537,6 +539,7 @@ function listQuery(args: ThreadListArgs | undefined): ThreadListQuery {
     ...(args?.sectionId ? { sectionId: args.sectionId } : {}),
     ...(args?.originKind ? { originKind: args.originKind } : {}),
     ...(args?.originPluginId ? { originPluginId: args.originPluginId } : {}),
+    ...(args?.childKind ? { childKind: args.childKind } : {}),
     ...(args?.archived === undefined
       ? {}
       : { archived: args.archived ? "true" : "false" }),

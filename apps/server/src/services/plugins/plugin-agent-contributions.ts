@@ -111,6 +111,8 @@ export function listPluginAgentTools(): PluginAgentToolContribution[] {
 
 export async function resolvePluginAgentConfiguration(args: {
   context: PluginAgentConfigurationContext;
+  /** Spawn-pinned values replace a plugin's configure() output for this thread. */
+  pinnedByPluginId?: ReadonlyMap<string, unknown>;
   skillIdsByPlugin: ReadonlyMap<string, readonly string[]>;
 }) {
   const active = contributions;

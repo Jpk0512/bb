@@ -54,6 +54,24 @@ function commandRow(output: string): TimelineRow {
   };
 }
 
+function childSessionRow(outputExcerpt: string): TimelineRow {
+  return {
+    ...base,
+    kind: "work",
+    status: "completed",
+    workKind: "child-session",
+    childThreadId: "thr_child",
+    childKind: "dispatch:worker",
+    title: "Worker",
+    providerId: "codex",
+    model: "gpt-5",
+    childStatus: "completed",
+    statusReason: null,
+    outputExcerpt,
+    completedAt: 1,
+  };
+}
+
 describe("truncateTimelineResponseOutputs", () => {
   it("truncates a command output above the cap and keeps a marker", () => {
     const big = "x".repeat(DEFAULT_MAX_INLINE_OUTPUT_CHARS + 5_000);
@@ -94,5 +112,19 @@ describe("truncateTimelineResponseOutputs", () => {
       { kind: "work"; workKind: "command" }
     >;
     expect(child.output).toContain("more characters truncated");
+  });
+
+  it("truncates a child-session output excerpt above the cap", () => {
+    const big = "z".repeat(DEFAULT_MAX_INLINE_OUTPUT_CHARS + 5_000);
+    const out = truncateTimelineResponseOutputs(
+      response([childSessionRow(big)]),
+    );
+    const row = out.rows[0] as Extract<
+      TimelineRow,
+      { kind: "work"; workKind: "child-session" }
+    >;
+
+    expect(row.outputExcerpt).toContain("more characters truncated");
+    expect(row.outputExcerpt!.length).toBeLessThan(big.length);
   });
 });

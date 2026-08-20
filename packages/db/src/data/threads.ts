@@ -40,6 +40,7 @@ import {
   pendingInteractions,
   projects,
   threadSearchSegments,
+  threadPluginAgentConfigs,
   threads,
 } from "../schema.js";
 import { createThreadId } from "../ids.js";
@@ -285,6 +286,15 @@ export interface CreateThreadInput {
   originKind?: ThreadOriginKind | null;
   /** Plugin attribution for create origin "plugin". */
   originPluginId?: string | null;
+  /** Plugin-owned role for a hierarchy child thread. */
+  childKind?: string | null;
+  /** Immutable plugin selection persisted with the thread atomically. */
+  pluginAgentConfiguration?: {
+    instructions: string | null;
+    pluginId: string;
+    skillsJson: string;
+    toolsJson: string;
+  };
   visibility?: ThreadVisibility;
 }
 
@@ -317,6 +327,7 @@ export function createThread(
             (originKind === null ? null : input.parentThreadId ?? null),
           originKind,
           originPluginId: input.originPluginId ?? null,
+          childKind: originKind === null ? input.childKind ?? null : null,
           visibility,
           lastReadAt: now,
           latestAttentionAt: now,
@@ -325,6 +336,18 @@ export function createThread(
         })
         .returning()
         .get();
+      if (input.pluginAgentConfiguration !== undefined) {
+        tx.insert(threadPluginAgentConfigs)
+          .values({
+            threadId: createdThread.id,
+            pluginId: input.pluginAgentConfiguration.pluginId,
+            toolsJson: input.pluginAgentConfiguration.toolsJson,
+            skillsJson: input.pluginAgentConfiguration.skillsJson,
+            instructions: input.pluginAgentConfiguration.instructions,
+            createdAt: now,
+          })
+          .run();
+      }
       upsertThreadTitleSearchSegments(tx, {
         threadId: createdThread.id,
         title: createdThread.title,
@@ -399,6 +422,8 @@ export interface ListThreadsOptions {
   originKind?: ThreadOriginKind;
   /** Restrict to threads spawned by this plugin. */
   originPluginId?: string;
+  /** Restrict to one plugin-owned hierarchy child role. */
+  childKind?: string;
   limit?: number;
   offset?: number;
   /** Hidden threads are excluded unless explicitly opted in. */
@@ -729,6 +754,7 @@ function buildListThreadsFilters(options: ListThreadsOptions) {
     options.originPluginId
       ? eq(threads.originPluginId, options.originPluginId)
       : undefined,
+    options.childKind ? eq(threads.childKind, options.childKind) : undefined,
     options.archived === true
       ? isNotNull(threads.archivedAt)
       : options.archived === false

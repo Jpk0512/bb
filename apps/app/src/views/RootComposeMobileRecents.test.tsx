@@ -16,6 +16,7 @@ function makeThread(overrides: Partial<ThreadListEntry> = {}): ThreadListEntry {
     titleFallback: "Mobile activity",
     sectionId: null,
     status: "active",
+    childKind: null,
     parentThreadId: null,
     sourceThreadId: null,
     originKind: null,

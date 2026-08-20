@@ -199,6 +199,7 @@ function threadWithRuntime(
     titleFallback: null,
     sectionId: null,
     status: "idle",
+    childKind: null,
     parentThreadId: null,
     sourceThreadId: null,
     originKind: null,

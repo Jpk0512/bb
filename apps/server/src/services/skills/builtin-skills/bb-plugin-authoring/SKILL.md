@@ -617,6 +617,36 @@ inputs) — never both. Attribution is auto-filled: `origin: "plugin"` and
 threadId, mode: "auto", input: [...] })` starts a turn on an idle thread or
 queues/steers a running one.
 
+### Plugin-owned child workers
+
+For a native worker nested in its parent's transcript, pass the parent id and
+a namespaced `childKind` (for example, `dispatch:worker`). `childKind` is
+valid only with `parentThreadId`; it does not have to share your plugin id
+prefix. Omit `visibility`: a `childKind` worker defaults to `"hidden"`, which
+keeps it out of the sidebar while its parent still receives lifecycle status.
+
+Plugins may pin their own session selection at spawn with
+`agentConfiguration`. It is valid only for a plugin-origin hierarchy child and
+is immutable after creation. The pin replaces that plugin's
+`bb.agents.configure` tool and skill selection on every turn, including an
+empty `tools: []`; other plugins continue to configure normally. `instructions`
+is optional.
+
+```ts
+const worker = await bb.sdk.threads.spawn({
+  projectId,
+  environment: { type: "project-default" },
+  parentThreadId,
+  childKind: "dispatch:worker",
+  agentConfiguration: {
+    tools: [],
+    skills: [],
+    instructions: "Report the result to the parent thread.",
+  },
+  prompt: "Review the current change.",
+});
+```
+
 Read and edit existing threads with the same area — you do not need a
 sidebar panel or a spawned thread to reach them:
 
@@ -638,9 +668,10 @@ Use `visibility: "hidden"` for background workers. Hidden threads stay
 out of sidebar organization and do not contribute unread/pending favicon
 attention. They otherwise retain ordinary
 list, search, prompt-history, section, lifecycle, parent-operation, direct-open,
-and direct-ID behavior. A thread you spawn with a `parentThreadId` inherits the
-parent's visibility when you omit `visibility`, and a hidden child still
-reports its turns and blockers to its parent. This is an organization contract, not a security
+and direct-ID behavior. A plain thread you spawn with a `parentThreadId`
+inherits the parent's visibility when you omit `visibility`; a `childKind`
+worker instead defaults to hidden. A hidden child still reports its turns and
+blockers to its parent. This is an organization contract, not a security
 boundary: plugins are full-trust server code.
 
 Hidden worker threads need explicit runtime cleanup. Stop each hidden thread
@@ -1108,7 +1139,12 @@ is truncated to 4096 characters.
 execution. Its context has required, plain-data `thread`, `project`,
 `environment`, `host`, and `provider: { id, model }` objects, plus `sideChat`
 and `origin: { kind, pluginId }`; genuinely absent values are `null`, not
-omitted. `tools` names and `skills` frontmatter names may select only this
+omitted. `context.thread` includes `id`, `title`, `parentThreadId`,
+`childKind`, and `sourceThreadId`; use `childKind` to identify a plugin-owned
+worker rather than inferring it from the title or origin. A child with
+spawn-pinned `agentConfiguration` bypasses this plugin's `configure` tool and
+skill selection, so configuration remains stable across every turn. `tools`
+names and `skills` frontmatter names may select only this
 plugin's static registrations. A `tools` entry may instead be
 `{ name, parameters }` to override the parameter schema advertised to the
 provider for that resolution only — `parameters` must be a JSON-serializable

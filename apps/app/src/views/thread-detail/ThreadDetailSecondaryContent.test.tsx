@@ -155,6 +155,7 @@ function makeThread(): ThreadDetailSecondaryContentProps["metadata"]["thread"] {
     id: "thread-1",
     lastReadAt: null,
     latestAttentionAt: 0,
+    childKind: null,
     parentThreadId: null,
     pinnedAt: null,
     projectId: "proj-test",

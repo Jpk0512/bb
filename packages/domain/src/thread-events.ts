@@ -27,6 +27,7 @@ export const systemEventTypeValues = [
   "system/permissionGrant/lifecycle",
   "system/userQuestion/lifecycle",
   "system/thread-provisioning",
+  "system/childSession/lifecycle",
   // Legacy persisted watchdog diagnostic; retained for read/decode/render
   // only, with no current producer.
   "system/provider-turn-watchdog",
@@ -318,6 +319,36 @@ export type SystemThreadProvisioningEventData = z.infer<
   typeof systemThreadProvisioningEventDataSchema
 >;
 
+/** Durable parent-side state for a native hierarchy child session. */
+export const systemChildSessionStatusValues = [
+  "started",
+  "running",
+  "needs-attention",
+  "completed",
+  "failed",
+  "interrupted",
+] as const;
+export const systemChildSessionStatusSchema = z.enum(
+  systemChildSessionStatusValues,
+);
+export type SystemChildSessionStatus = z.infer<
+  typeof systemChildSessionStatusSchema
+>;
+
+export const systemChildSessionLifecycleEventDataSchema = z.object({
+  childThreadId: z.string().min(1),
+  childKind: z.string().min(1),
+  title: z.string(),
+  providerId: z.string().min(1),
+  model: z.string().nullable(),
+  status: systemChildSessionStatusSchema,
+  statusReason: z.string().nullable(),
+  outputExcerpt: z.string().nullable(),
+});
+export type SystemChildSessionLifecycleEventData = z.infer<
+  typeof systemChildSessionLifecycleEventDataSchema
+>;
+
 export const systemLegacyUserMessageEventDataSchema = z.object({
   text: z.string(),
   toolCallId: z.string().optional(),
@@ -361,5 +392,6 @@ export type ThreadEventDataByType = {
   "system/permissionGrant/lifecycle": SystemPermissionGrantLifecycleEventData;
   "system/userQuestion/lifecycle": SystemUserQuestionLifecycleEventData;
   "system/thread-provisioning": SystemThreadProvisioningEventData;
+  "system/childSession/lifecycle": SystemChildSessionLifecycleEventData;
   "system/provider-turn-watchdog": SystemProviderTurnWatchdogEventData;
 };

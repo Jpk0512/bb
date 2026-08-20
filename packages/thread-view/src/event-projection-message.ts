@@ -9,6 +9,7 @@ import type {
   PromptTextMention,
   SystemMessageKind,
   SystemMessageSubject,
+  SystemChildSessionStatus,
   Thread,
   ThreadEventRow,
   ThreadEventScope,
@@ -346,6 +347,24 @@ export interface EventProjectionUserQuestionLifecycleMessage extends EventProjec
   statusReason: string | null;
 }
 
+/** Parent-side lifecycle state for a child that owns its own transcript. */
+export interface EventProjectionChildSessionLifecycleMessage extends EventProjectionMessageBase {
+  kind: "child-session-lifecycle";
+  childThreadId: string;
+  childKind: string;
+  title: string;
+  providerId: string;
+  model: string | null;
+  childStatus: SystemChildSessionStatus;
+  status: Extract<
+    EventProjectionMessageStatus,
+    "pending" | "completed" | "error" | "interrupted"
+  >;
+  statusReason: string | null;
+  outputExcerpt: string | null;
+  completedAt: number | null;
+}
+
 export interface EventProjectionDelegationMessage
   extends EventProjectionMessageBase, EventProjectionDelegationMetadata {
   kind: "delegation";
@@ -416,6 +435,7 @@ export type EventProjectionMessage =
   | EventProjectionOperationMessage
   | EventProjectionPermissionGrantLifecycleMessage
   | EventProjectionUserQuestionLifecycleMessage
+  | EventProjectionChildSessionLifecycleMessage
   | EventProjectionDelegationMessage
   | EventProjectionWorkflowMessage
   | EventProjectionErrorMessage

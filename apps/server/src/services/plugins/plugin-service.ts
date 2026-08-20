@@ -388,6 +388,7 @@ export interface PluginService {
    */
   resolveAgentConfiguration(args: {
     context: PluginAgentConfigurationContext;
+    pinnedByPluginId?: ReadonlyMap<string, unknown>;
     skillIdsByPlugin: ReadonlyMap<string, readonly string[]>;
   }): Promise<PluginResolvedAgentConfiguration>;
   /** Run preflight handlers by plugin id and registration order. */
@@ -2103,7 +2104,11 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
       }));
     },
 
-    async resolveAgentConfiguration({ context, skillIdsByPlugin }) {
+    async resolveAgentConfiguration({
+      context,
+      pinnedByPluginId = new Map(),
+      skillIdsByPlugin,
+    }) {
       const allTools = collectAgentTools();
       const tools: PluginAgentToolContribution[] = [];
       const selectedSkillIdsByPlugin = new Map<string, ReadonlySet<string>>();
@@ -2115,6 +2120,52 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
         const pluginTools = allTools.filter(
           (entry) => entry.pluginId === pluginId,
         );
+        const knownSkillIds = new Set(skillIdsByPlugin.get(pluginId) ?? []);
+        const knownToolIds = new Set(
+          pluginTools.map(({ record }) => record.name),
+        );
+        const pinned = pinnedByPluginId.get(pluginId);
+        if (pinned !== undefined) {
+          const outcome = await invokeWrapped(
+            pluginId,
+            "spawn-pinned agent configuration",
+            () =>
+              normalizePluginAgentConfiguration({
+                knownSkillIds,
+                knownToolIds,
+                pluginId,
+                value: pinned,
+              }),
+          );
+          if (!outcome.ok) {
+            selectedSkillIdsByPlugin.set(pluginId, new Set());
+            continue;
+          }
+          const selectedTools = new Set(outcome.value.toolIds);
+          const parameterOverrides = outcome.value.toolParameterOverrides;
+          tools.push(
+            ...pluginTools
+              .filter(({ record }) => selectedTools.has(record.name))
+              .map(({ record }) => ({
+                pluginId,
+                tool: {
+                  name: record.name,
+                  description: record.description,
+                  inputSchema:
+                    parameterOverrides.get(record.name) ?? record.inputSchema,
+                },
+                instructions: record.instructions,
+              })),
+          );
+          selectedSkillIdsByPlugin.set(pluginId, new Set(outcome.value.skillIds));
+          if (outcome.value.instructions !== null) {
+            dynamicInstructions.push({
+              pluginId,
+              text: outcome.value.instructions,
+            });
+          }
+          continue;
+        }
         const provider = plugin.handle.agentConfigurationProvider;
         if (provider === null) {
           tools.push(
@@ -2131,10 +2182,6 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
           continue;
         }
 
-        const knownSkillIds = new Set(skillIdsByPlugin.get(pluginId) ?? []);
-        const knownToolIds = new Set(
-          pluginTools.map(({ record }) => record.name),
-        );
         const outcome = await invokeWrapped(pluginId, "agent configure", () =>
           normalizePluginAgentConfiguration({
             knownSkillIds,

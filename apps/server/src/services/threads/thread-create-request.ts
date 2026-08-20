@@ -24,6 +24,8 @@ export interface ThreadCreateServiceRequestInput {
   origin: ThreadCreateOrigin | null;
   /** Plugin attribution; paired with origin "plugin". */
   originPluginId?: CreateThreadRequest["originPluginId"];
+  childKind?: CreateThreadRequest["childKind"];
+  agentConfiguration?: CreateThreadRequest["agentConfiguration"];
   originKind?: ThreadOriginKind | null;
   parentThreadId?: string;
   permissionMode?: CreateThreadRequest["permissionMode"];

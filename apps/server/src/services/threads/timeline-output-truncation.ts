@@ -101,6 +101,15 @@ function truncateRow(row: TimelineRow, max: number): TimelineRow {
       }
       return { ...row, output, childRows };
     }
+    case "child-session": {
+      const outputExcerpt =
+        row.outputExcerpt === null
+          ? null
+          : truncateString(row.outputExcerpt, max);
+      return outputExcerpt === row.outputExcerpt
+        ? row
+        : { ...row, outputExcerpt };
+    }
     default:
       return row;
   }

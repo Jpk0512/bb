@@ -16,6 +16,7 @@ export type {
   EventProjectionApprovalTarget,
   EventProjectionAssistantTextMessage,
   EventProjectionCommandMessage,
+  EventProjectionChildSessionLifecycleMessage,
   EventProjectionDebugRawEventMessage,
   EventProjectionDelegationMessage,
   EventProjectionErrorMessage,

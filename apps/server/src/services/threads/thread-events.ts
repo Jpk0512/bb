@@ -22,6 +22,7 @@ import {
   parseStoredThreadEvent,
   systemErrorEventDataSchema,
   threadScope,
+  turnScope,
   turnRequestEventDataSchema,
 } from "@bb/domain";
 import { randomBytes } from "node:crypto";
@@ -37,6 +38,7 @@ import type {
   ThreadEventType,
   ResolvedThreadExecutionOptions,
   SystemErrorEventData,
+  SystemChildSessionStatus,
   SystemThreadInterruptedReason,
   SystemMessageKind,
   SystemMessageSubject,
@@ -59,6 +61,8 @@ interface ThreadEventTransactionDeps {
   db: DbTransaction;
   hub: DbNotifier;
 }
+
+type ThreadEventAppendDeps = Pick<AppDeps, "db"> & { hub: DbNotifier };
 
 export interface ClientTurnRequestedEventArgs {
   continuationOfRequestId?: ClientTurnRequestId;
@@ -134,6 +138,20 @@ export interface AppendThreadProvisioningEventArgs {
   provisioningId: string;
   status: SystemThreadProvisioningStatus;
   threadId: string;
+}
+
+export interface AppendChildSessionLifecycleEventArgs {
+  childKind: string;
+  childThreadId: string;
+  model: string | null;
+  outputExcerpt: string | null;
+  parentThreadId: string;
+  providerId: string;
+  /** Spawn events attach to the active parent turn; later changes do not. */
+  scope: "spawn" | "thread";
+  status: SystemChildSessionStatus;
+  statusReason: string | null;
+  title: string;
 }
 
 export interface BuildCwdBranchEntriesArgs {
@@ -512,11 +530,11 @@ function assertStoredTurnStartedForEvents(
 }
 
 export function appendThreadEvent<TType extends ThreadEventType>(
-  deps: Pick<AppDeps, "db" | "hub">,
+  deps: ThreadEventAppendDeps,
   args: AppendThreadEventArgs<TType>,
 ): number;
 export function appendThreadEvent(
-  deps: Pick<AppDeps, "db" | "hub">,
+  deps: ThreadEventAppendDeps,
   args: AppendThreadEventArgs,
 ): number {
   const result = deps.db.transaction(
@@ -553,15 +571,15 @@ export function appendThreadEventsInTransaction(
 }
 
 export function appendClientTurnEvent(
-  deps: Pick<AppDeps, "db" | "hub">,
+  deps: ThreadEventAppendDeps,
   args: ClientTurnRequestedEventArgs,
 ): AppendedClientTurnRequest;
 export function appendClientTurnEvent(
-  deps: Pick<AppDeps, "db" | "hub">,
+  deps: ThreadEventAppendDeps,
   args: ClientTurnLifecycleEventArgs,
 ): number;
 export function appendClientTurnEvent(
-  deps: Pick<AppDeps, "db" | "hub">,
+  deps: ThreadEventAppendDeps,
   args: ClientTurnEventArgs,
 ): number | AppendedClientTurnRequest {
   return appendBuiltClientTurnEvent(
@@ -738,6 +756,42 @@ export function appendThreadProvisioningEventInTransaction(
       status: args.status,
       environmentId: args.environmentId,
       entries: args.entries,
+    },
+  });
+}
+
+/**
+ * Append one durable parent-side lifecycle update for a hierarchy child.
+ * Repeated updates are folded by the timeline projection using childThreadId.
+ */
+export function appendChildSessionLifecycleEvent(
+  deps: ThreadEventAppendDeps,
+  args: AppendChildSessionLifecycleEventArgs,
+): number {
+  const parentThread = getThread(deps.db, args.parentThreadId);
+  const activeTurnId =
+    args.scope === "spawn"
+      ? getActiveStoredTurnId(deps.db, args.parentThreadId)
+      : null;
+  // A plugin may create a worker from a schedule or lifecycle observer, when
+  // the parent has no active turn. There is then no valid turn scope to anchor
+  // the durable event, so retain the status surface at thread scope instead of
+  // failing after the child row has been created.
+  const scope = activeTurnId === null ? threadScope() : turnScope(activeTurnId);
+  return appendThreadEvent(deps, {
+    threadId: args.parentThreadId,
+    environmentId: parentThread?.environmentId ?? null,
+    type: "system/childSession/lifecycle",
+    scope,
+    data: {
+      childThreadId: args.childThreadId,
+      childKind: args.childKind,
+      title: args.title,
+      providerId: args.providerId,
+      model: args.model,
+      status: args.status,
+      statusReason: args.statusReason,
+      outputExcerpt: args.outputExcerpt,
     },
   });
 }

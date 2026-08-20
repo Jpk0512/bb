@@ -161,6 +161,19 @@ function timelineWorkRowRenderSignature(row: TimelineViewWorkRow): string {
         row.completedAt,
         timelineRowsSignature(row.childRows),
       ]);
+    case "child-session":
+      return joinSignatureParts([
+        ...baseParts,
+        row.childThreadId,
+        row.childKind,
+        row.title,
+        row.providerId,
+        row.model,
+        row.childStatus,
+        row.statusReason,
+        row.outputExcerpt?.length ?? 0,
+        row.completedAt,
+      ]);
     case "workflow":
       return joinSignatureParts([
         ...baseParts,

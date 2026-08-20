@@ -3,6 +3,7 @@ import type {
   TimelineActivityIntent,
   TimelineCommandWorkRow,
   TimelineConversationRow,
+  TimelineChildSessionWorkRow,
   TimelineDelegationWorkRow,
   TimelineFileChangeWorkRow,
   TimelineRowBase,
@@ -28,7 +29,10 @@ interface WorkRowOverrides {
   turnId?: string | null;
 }
 
-function baseRow(id: string, overrides: WorkRowOverrides = {}): TimelineRowBase {
+function baseRow(
+  id: string,
+  overrides: WorkRowOverrides = {},
+): TimelineRowBase {
   return {
     id,
     threadId: "thread-1",
@@ -84,11 +88,30 @@ function commandRow({
     source: null,
     output: "",
     exitCode: 0,
-    completedAt: durationMs === null
-      ? null
-      : (baseOverrides.startedAt ?? 1) + durationMs,
+    completedAt:
+      durationMs === null ? null : (baseOverrides.startedAt ?? 1) + durationMs,
     approvalStatus: null,
     activityIntents,
+  };
+}
+
+function childSessionRow(
+  overrides: WorkRowOverrides = {},
+): TimelineChildSessionWorkRow {
+  return {
+    ...baseRow("child-session-1", overrides),
+    kind: "work",
+    workKind: "child-session",
+    status: "completed",
+    childThreadId: "thr_worker",
+    childKind: "dispatch:worker",
+    title: "Review worker",
+    providerId: "codex",
+    model: "gpt-5",
+    childStatus: "completed",
+    statusReason: null,
+    outputExcerpt: "Review complete.",
+    completedAt: 2,
   };
 }
 
@@ -131,7 +154,9 @@ function commandRowReadingPaths(paths: readonly string[], seq: number) {
   });
 }
 
-function explorationIntents(row: ThreadTimelineViewRow): TimelineActivityIntent[] {
+function explorationIntents(
+  row: ThreadTimelineViewRow,
+): TimelineActivityIntent[] {
   if (row.kind !== "work") return [];
   if (row.workKind !== "command" && row.workKind !== "tool") return [];
   return [...row.activityIntents];
@@ -200,9 +225,8 @@ function toolRow({
     toolName,
     toolArgs,
     output,
-    completedAt: durationMs === null
-      ? null
-      : (baseOverrides.startedAt ?? 1) + durationMs,
+    completedAt:
+      durationMs === null ? null : (baseOverrides.startedAt ?? 1) + durationMs,
     approvalStatus: null,
     activityIntents,
   };
@@ -364,9 +388,7 @@ describe("buildTimelineViewRows", () => {
       workKind: "command",
       id: "command-1",
     });
-    expect(nextSummary.id).toBe(
-      "thread-1:turn-1:work-summary:command-1",
-    );
+    expect(nextSummary.id).toBe("thread-1:turn-1:work-summary:command-1");
     expect(nextSummary.status).toBe("completed");
     expect(nextSummary.sourceSeqStart).toBe(1);
     expect(nextSummary.sourceSeqEnd).toBe(2);
@@ -374,9 +396,7 @@ describe("buildTimelineViewRows", () => {
       "command-1",
       "command-2",
     ]);
-    expect(buildTimelineWorkSummaryLabel(nextSummary)).toBe(
-      "Ran 2 commands",
-    );
+    expect(buildTimelineWorkSummaryLabel(nextSummary)).toBe("Ran 2 commands");
   });
 
   it("keeps bundle row identity stable across activity transitions", () => {
@@ -412,9 +432,9 @@ describe("buildTimelineViewRows", () => {
     expect(completedSummary.id).toBe(pendingSummary.id);
     // Active-latest treatment is decided by list-level renderers, not by the
     // grouper. The label generator opts in to active wording only when asked.
-    expect(buildTimelineWorkSummaryLabel(pendingSummary, { active: true })).toBe(
-      "Running 2 commands",
-    );
+    expect(
+      buildTimelineWorkSummaryLabel(pendingSummary, { active: true }),
+    ).toBe("Running 2 commands");
     expect(buildTimelineWorkSummaryLabel(completedSummary)).toBe(
       "Ran 2 commands",
     );
@@ -560,6 +580,18 @@ describe("buildTimelineViewRows", () => {
     expect(rows[1]?.kind).toBe("conversation");
   });
 
+  it("keeps child-session status blocks inline instead of summarizing them", () => {
+    const child = childSessionRow();
+    const rows = buildTimelineViewRows([
+      child,
+      assistantRow({ id: "assistant-after-child", sourceSeqStart: 2 }),
+    ]);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toBe(child);
+    expect(rows[0]).toMatchObject({ workKind: "child-session" });
+  });
+
   it("uses active labels for tool-only bundle summaries", () => {
     const rows = buildTimelineViewRows([
       toolRow({
@@ -577,9 +609,9 @@ describe("buildTimelineViewRows", () => {
     ]);
     const summary = expectBundleSummaryRow(rows[0]);
 
-    expect(
-      buildTimelineWorkSummaryLabel(summary, { active: true }),
-    ).toBe("Running 2 tools");
+    expect(buildTimelineWorkSummaryLabel(summary, { active: true })).toBe(
+      "Running 2 tools",
+    );
   });
 
   it("collapses completed delegation children into a step-summary", () => {
@@ -611,9 +643,7 @@ describe("buildTimelineViewRows", () => {
 
     expect(rows).toHaveLength(1);
     expect(delegation.childRows).toHaveLength(1);
-    expect(buildTimelineWorkSummaryLabel(childSummary)).toBe(
-      "Ran 2 commands",
-    );
+    expect(buildTimelineWorkSummaryLabel(childSummary)).toBe("Ran 2 commands");
     expect(childSummary).toMatchObject({
       status: "completed",
       sourceSeqStart: 10,

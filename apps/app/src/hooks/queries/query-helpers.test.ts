@@ -159,6 +159,7 @@ function makeThreadWithRuntime(
     title: null,
     titleFallback: null,
     sectionId: null,
+    childKind: null,
     parentThreadId: null,
     sourceThreadId: null,
     originKind: null,

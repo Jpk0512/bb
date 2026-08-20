@@ -29,6 +29,7 @@ function makeThread(options: ThreadFixtureOptions): Thread {
     titleFallback: options.titleFallback ?? null,
     sectionId: null,
     status: "idle",
+    childKind: null,
     parentThreadId: options.parentThreadId ?? null,
     sourceThreadId: null,
     originKind: null,

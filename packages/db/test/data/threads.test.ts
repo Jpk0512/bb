@@ -144,6 +144,34 @@ describe("threads", () => {
     expect(fetched).toMatchObject({ id: thread.id });
   });
 
+  it("persists, filters, and null-round-trips a plugin child kind", () => {
+    const { db, project } = setup();
+    const parent = createThread(db, noopNotifier, {
+      projectId: project.id,
+      providerId: "codex",
+    });
+    const worker = createThread(db, noopNotifier, {
+      childKind: "dispatch:worker",
+      originPluginId: "dispatch",
+      parentThreadId: parent.id,
+      projectId: project.id,
+      providerId: "codex",
+      visibility: "hidden",
+    });
+    const ordinary = createThread(db, noopNotifier, {
+      projectId: project.id,
+      providerId: "codex",
+    });
+
+    expect(getThread(db, worker.id)?.childKind).toBe("dispatch:worker");
+    expect(getThread(db, ordinary.id)?.childKind).toBeNull();
+    expect(
+      listThreads(db, { childKind: "dispatch:worker", includeHidden: true }).map(
+        (thread) => thread.id,
+      ),
+    ).toEqual([worker.id]);
+  });
+
   it("reveals only explicitly requested thread dispositions", () => {
     const { db, project } = setup();
     const thread = createThread(db, noopNotifier, {

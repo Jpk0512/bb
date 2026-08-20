@@ -9,6 +9,7 @@ import {
 } from "./shared-types.js";
 import { threadStatusSchema, threadStatusValues } from "./thread-status.js";
 import { threadOriginKindSchema } from "./thread-origin-kind.js";
+import { threadChildKindSchema } from "./thread-child-kind.js";
 import { threadVisibilitySchema } from "./thread-visibility.js";
 export { threadStatusSchema, threadStatusValues } from "./thread-status.js";
 export type { ThreadStatus } from "./thread-status.js";
@@ -392,7 +393,7 @@ export const threadSchema = z.object({
    * role-tagged child". Optional so every existing thread mapper keeps
    * compiling until BBF-5 populates it. See docs/fork/phase-6-charter.md.
    */
-  childKind: z.string().nullable().optional(),
+  childKind: threadChildKindSchema.nullable(),
   /**
    * Forward lineage edge (BBF-3); non-null means this thread was RETIRED and
    * continues in the named thread. Per charter decision D4 this is a third

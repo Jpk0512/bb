@@ -4,6 +4,7 @@ import type {
   EventProjectionFileEditMessage,
   EventProjectionMessage,
   EventProjectionOperationMessage,
+  EventProjectionChildSessionLifecycleMessage,
   EventProjectionPermissionGrantLifecycleMessage,
   EventProjectionUserQuestionLifecycleMessage,
 } from "./event-projection-types.js";
@@ -50,6 +51,10 @@ export interface OperationProjectionState {
     string,
     EventProjectionUserQuestionLifecycleMessage
   >;
+  childSessionsByThreadId: Map<
+    string,
+    EventProjectionChildSessionLifecycleMessage
+  >;
   threadOperationsById: Map<string, EventProjectionOperationMessage>;
 }
 
@@ -63,6 +68,7 @@ export function createOperationProjectionState(
     provisioningOperationsByKey: new Map(),
     permissionGrantsByInteractionId: new Map(),
     userQuestionsByInteractionId: new Map(),
+    childSessionsByThreadId: new Map(),
     threadOperationsById: new Map(),
     fileEditsByCallId: new Map(),
     fileEditStdoutBuffersByScopedCallKey: new Map(),
@@ -288,6 +294,47 @@ export function upsertUserQuestionLifecycleMessage(
     mergeExisting: mergeUserQuestionLifecycleMessage,
     state,
   });
+}
+
+/**
+ * Child updates intentionally fold across scopes. The turn-scoped spawn holds
+ * placement at the delegation point; later thread-scoped updates must not be
+ * moved into a later parent turn merely because the child outlives its spawn.
+ */
+export function upsertChildSessionLifecycleMessage(
+  state: OperationProjectionState,
+  incoming: EventProjectionChildSessionLifecycleMessage,
+): void {
+  const existing = state.childSessionsByThreadId.get(incoming.childThreadId);
+  if (!existing) {
+    state.childSessionsByThreadId.set(incoming.childThreadId, incoming);
+    state.messages.push(incoming);
+    return;
+  }
+  existing.sourceSeqStart = Math.min(
+    existing.sourceSeqStart,
+    incoming.sourceSeqStart,
+  );
+  existing.sourceSeqEnd = Math.max(
+    existing.sourceSeqEnd,
+    incoming.sourceSeqEnd,
+  );
+  existing.createdAt = Math.max(existing.createdAt, incoming.createdAt);
+  existing.startedAt = Math.min(
+    existing.startedAt ?? existing.createdAt,
+    incoming.startedAt ?? incoming.createdAt,
+  );
+  if (existing.status === "pending") {
+    existing.status = incoming.status;
+    existing.childStatus = incoming.childStatus;
+    existing.statusReason = incoming.statusReason;
+    existing.outputExcerpt = incoming.outputExcerpt;
+    // Terminal and live-status emitters often know only the provider. Keep the
+    // spawn-time model rather than turning a useful collapsed preview blank.
+    existing.model = incoming.model ?? existing.model;
+    existing.title = incoming.title;
+    existing.completedAt = incoming.completedAt;
+  }
 }
 
 function mergeUserQuestionLifecycleMessage(

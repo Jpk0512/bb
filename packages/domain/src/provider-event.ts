@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  systemChildSessionLifecycleEventDataSchema,
   systemErrorEventDataSchema,
   systemPermissionGrantLifecycleEventDataSchema,
   systemLegacyUserMessageEventDataSchema,
@@ -704,6 +705,12 @@ const unscopedSystemEventSchema = z.union([
       threadId: z.string(),
     })
     .merge(systemThreadProvisioningEventDataSchema),
+  z
+    .object({
+      type: z.literal("system/childSession/lifecycle"),
+      threadId: z.string(),
+    })
+    .merge(systemChildSessionLifecycleEventDataSchema),
   z
     .object({
       type: z.literal("system/provider-turn-watchdog"),

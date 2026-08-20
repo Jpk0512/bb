@@ -21,6 +21,7 @@ import type {
   EventProjectionPermissionGrantLifecycle,
   EventProjectionUserQuestionLifecycle,
   EventProjectionUserQuestionLifecycleMessage,
+  EventProjectionChildSessionLifecycleMessage,
   EventProjectionOperationMessage,
   EventProjectionOwnershipChangeThreadOperationMetadata,
   EventProjectionThreadOperationMetadata,
@@ -427,6 +428,7 @@ export function parseOperationMessage(
   | EventProjectionOperationMessage
   | EventProjectionPermissionGrantLifecycleMessage
   | EventProjectionUserQuestionLifecycleMessage
+  | EventProjectionChildSessionLifecycleMessage
   | null {
   const threadName = options?.threadName ?? "";
   const modelFallback = getProviderModelFallbackData(decoded);
@@ -516,6 +518,36 @@ export function parseOperationMessage(
         ...(transcript ? { transcript } : {}),
       },
     });
+  }
+
+  if (decoded.type === "system/childSession/lifecycle") {
+    const status =
+      decoded.status === "completed"
+        ? "completed"
+        : decoded.status === "failed"
+          ? "error"
+          : decoded.status === "interrupted"
+            ? "interrupted"
+            : "pending";
+    return {
+      id: messageId(decoded.threadId, "child-session", decoded.childThreadId),
+      threadId: decoded.threadId,
+      sourceSeqStart: meta.seq,
+      sourceSeqEnd: meta.seq,
+      createdAt: meta.createdAt,
+      scope: decoded.scope,
+      kind: "child-session-lifecycle",
+      childThreadId: decoded.childThreadId,
+      childKind: decoded.childKind,
+      title: decoded.title,
+      providerId: decoded.providerId,
+      model: decoded.model,
+      childStatus: decoded.status,
+      status,
+      statusReason: decoded.statusReason,
+      outputExcerpt: decoded.outputExcerpt,
+      completedAt: status === "pending" ? null : meta.createdAt,
+    };
   }
 
   if (decoded.type === "thread/name/updated") {

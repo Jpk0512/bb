@@ -8,6 +8,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   appendClientTurnEvent,
+  appendChildSessionLifecycleEvent,
   appendThreadEvent,
   appendThreadEventInTransaction,
   appendThreadEventsInTransaction,
@@ -45,6 +46,103 @@ afterEach(() => {
 });
 
 describe("thread event appends", () => {
+  it("anchors a child spawn to the active parent turn and later status at thread scope", async () => {
+    const {
+      environment,
+      harness,
+      thread: parentThread,
+    } = await createThreadEventTestContext();
+    try {
+      appendThreadEvent(harness.deps, {
+        threadId: parentThread.id,
+        environmentId: environment.id,
+        type: "turn/started",
+        scope: turnScope("turn-parent"),
+        data: { providerThreadId: "provider-parent" },
+      });
+      appendChildSessionLifecycleEvent(harness.deps, {
+        childKind: "dispatch:worker",
+        childThreadId: "thr_child",
+        model: "gpt-5",
+        outputExcerpt: null,
+        parentThreadId: parentThread.id,
+        providerId: "codex",
+        scope: "spawn",
+        status: "started",
+        statusReason: null,
+        title: "Worker",
+      });
+      appendChildSessionLifecycleEvent(harness.deps, {
+        childKind: "dispatch:worker",
+        childThreadId: "thr_child",
+        model: null,
+        outputExcerpt: "Finished.",
+        parentThreadId: parentThread.id,
+        providerId: "codex",
+        scope: "thread",
+        status: "completed",
+        statusReason: null,
+        title: "Worker",
+      });
+
+      expect(
+        harness.db
+          .select({
+            scopeKind: events.scopeKind,
+            turnId: events.turnId,
+            type: events.type,
+          })
+          .from(events)
+          .where(eq(events.threadId, parentThread.id))
+          .orderBy(events.sequence)
+          .all(),
+      ).toEqual([
+        { scopeKind: "turn", turnId: "turn-parent", type: "turn/started" },
+        {
+          scopeKind: "turn",
+          turnId: "turn-parent",
+          type: "system/childSession/lifecycle",
+        },
+        {
+          scopeKind: "thread",
+          turnId: null,
+          type: "system/childSession/lifecycle",
+        },
+      ]);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it("uses thread scope for a plugin worker spawned outside a parent turn", async () => {
+    const { harness, thread: parentThread } =
+      await createThreadEventTestContext();
+    try {
+      appendChildSessionLifecycleEvent(harness.deps, {
+        childKind: "dispatch:worker",
+        childThreadId: "thr_child",
+        model: null,
+        outputExcerpt: null,
+        parentThreadId: parentThread.id,
+        providerId: "codex",
+        scope: "spawn",
+        status: "started",
+        statusReason: null,
+        title: "Worker",
+      });
+
+      expect(
+        harness.db
+          .select({ scopeKind: events.scopeKind, turnId: events.turnId })
+          .from(events)
+          .where(eq(events.threadId, parentThread.id))
+          .all(),
+      ).toEqual([{ scopeKind: "thread", turnId: null }]);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
   it("does not classify an accepted compact steer as manual compaction", async () => {
     const { environment, harness, thread } =
       await createThreadEventTestContext();
@@ -439,5 +537,4 @@ describe("thread event appends", () => {
       await harness.cleanup();
     }
   });
-
 });

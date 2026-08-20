@@ -209,6 +209,7 @@ function makeThread(args: MakeThreadArgs): ThreadListEntry {
     titleFallback: args.id,
     sectionId: null,
     status: "idle",
+    childKind: null,
     parentThreadId: null,
     sourceThreadId: null,
     originKind: null,

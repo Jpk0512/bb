@@ -165,6 +165,10 @@ export function WorkRowBody({
       // a delegation-tier scroll container. This branch is unreachable for
       // the App renderer; kept exhaustive for the type.
       return null;
+    case "child-session":
+      // Child sessions are mounted client-side by `TimelineExpandableBody` so
+      // their own thread remains independently pageable and realtime-backed.
+      return null;
     case "question":
       return <QuestionWorkRowBody row={row} />;
     case "workflow":
