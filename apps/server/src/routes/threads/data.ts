@@ -517,13 +517,16 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
     const includeSpans = query.includeSpans === "true";
     const includeMessages = query.include === "messages";
     return context.json({
-      turns: records.map((record) => ({
-        ...record,
-        ...(includeSpans ? { spans: record.spans } : {}),
-        ...(includeMessages
-          ? { messages: threadTurnMessages(deps, { threadId, turnId: record.turnId }) }
-          : {}),
-      })),
+      turns: records.map((record) => {
+        const { spans, ...withoutSpans } = record;
+        return {
+          ...withoutSpans,
+          ...(includeSpans ? { spans } : {}),
+          ...(includeMessages
+            ? { messages: threadTurnMessages(deps, { threadId, turnId: record.turnId }) }
+            : {}),
+        };
+      }),
     });
   });
 

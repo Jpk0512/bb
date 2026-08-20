@@ -66,7 +66,7 @@ describe("plugin runtime hooks", () => {
         bb.runtime.onTurnPreflight(() => ({ kind: "admit" }));
         bb.runtime.onTurnPreflight(() => ({ kind: "reject", code: "policy", message: "Blocked by policy" }));
         bb.runtime.onProviderEvent((event: any) => g.__runtimeHookEvents.push(["provider", event.sequence]), { eventTypes: ["provider/warning"] });
-        bb.runtime.onTurnSettled((signal: any) => g.__runtimeHookEvents.push(["settled", signal.outcome]));
+        bb.runtime.onTurnSettled((signal: any) => g.__runtimeHookEvents.push(["settled", signal.outcome, signal.turn]));
         bb.runtime.onBindingLifecycle((signal: any) => g.__runtimeHookEvents.push(["binding", signal.phase]));
       }`,
     );
@@ -121,6 +121,47 @@ describe("plugin runtime hooks", () => {
         },
       },
     ]);
+    const materializedTurn = {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      projectId: "project-1",
+      providerId: "codex",
+      model: "gpt-test",
+      modelSource: "turn-request" as const,
+      reasoningLevel: null,
+      serviceTier: null,
+      parentToolCallId: null,
+      isRoot: true,
+      initiator: "user",
+      startedAt: 1,
+      completedAt: 2,
+      durationMs: 1,
+      status: "completed" as const,
+      errorMessage: null,
+      counts: {
+        toolCalls: 0,
+        commands: 0,
+        fileChanges: 0,
+        delegations: 0,
+        subagentSpans: 0,
+        errors: 0,
+        interrupted: false,
+      },
+      usage: {
+        totalTokens: null,
+        inputTokens: null,
+        cachedInputTokens: null,
+        outputTokens: null,
+        reasoningOutputTokens: null,
+        modelContextWindow: null,
+        source: "none" as const,
+        costUsd: null,
+      },
+      sourceSeqStart: null,
+      sourceSeqEnd: null,
+      spans: [],
+      spansTruncated: false,
+    };
     service.dispatchTurnSettled({
       threadId: "thread-1",
       turnId: "turn-1",
@@ -132,6 +173,32 @@ describe("plugin runtime hooks", () => {
       providerCheckpointId: null,
       startedAt: null,
       settledAt: 1,
+      turn: materializedTurn,
+    });
+    service.dispatchTurnSettled({
+      threadId: "thread-1",
+      turnId: null,
+      providerThreadId: "provider-1",
+      providerId: "codex",
+      requestId: "creq_abcdefghjk",
+      outcome: "delivery-unknown",
+      error: "no response before deadline",
+      providerCheckpointId: null,
+      startedAt: null,
+      settledAt: 2,
+      turn: null,
+    });
+    service.dispatchTurnSettled({
+      threadId: "thread-1",
+      turnId: null,
+      providerThreadId: "provider-1",
+      providerId: "codex",
+      requestId: null,
+      outcome: "provider-session-lost",
+      error: "provider process exited",
+      providerCheckpointId: null,
+      startedAt: null,
+      settledAt: 3,
       turn: null,
     });
     service.dispatchBindingLifecycle({
@@ -148,7 +215,9 @@ describe("plugin runtime hooks", () => {
         (globalThis as Record<string, unknown>).__runtimeHookEvents,
       ).toEqual([
         ["provider", 7],
-        ["settled", "completed"],
+        ["settled", "completed", materializedTurn],
+        ["settled", "delivery-unknown", null],
+        ["settled", "provider-session-lost", null],
         ["binding", "start"],
       ]),
     );
