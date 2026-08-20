@@ -25,7 +25,23 @@ export type ThreadTurnSpanKind = z.infer<typeof threadTurnSpanKindSchema>;
 export const threadTurnSpanStatusSchema = threadEventItemStatusSchema.nullable();
 export type ThreadTurnSpanStatus = z.infer<typeof threadTurnSpanStatusSchema>;
 
-export const threadTurnSpanSchema = z.object({
+export interface ThreadTurnSpan {
+  id: string;
+  itemId: string | null;
+  parentItemId: string | null;
+  kind: ThreadTurnSpanKind;
+  name: string;
+  status: ThreadTurnSpanStatus;
+  startedAt: number;
+  completedAt: number | null;
+  durationMs: number | null;
+  durationSource: "provider" | "event-clock" | null;
+  detail: string | null;
+  error: string | null;
+  children: ThreadTurnSpan[];
+}
+
+export const threadTurnSpanSchema: z.ZodType<ThreadTurnSpan> = z.object({
   id: z.string().min(1),
   itemId: z.string().min(1).nullable(),
   parentItemId: z.string().min(1).nullable(),
@@ -40,7 +56,6 @@ export const threadTurnSpanSchema = z.object({
   error: z.string().nullable(),
   children: z.lazy(() => z.array(threadTurnSpanSchema)),
 });
-export type ThreadTurnSpan = z.infer<typeof threadTurnSpanSchema>;
 
 export const threadTurnUsageSchema = z.object({
   totalTokens: z.number().int().nonnegative().nullable(),

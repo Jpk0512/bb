@@ -7,14 +7,10 @@ import type {
   DbTransaction,
 } from "../connection.js";
 import { threadTurns } from "../schema.js";
+import type { ThreadTurnKey } from "./events.js";
 
 type ThreadTurnWriteConnection = DbConnection | DbTransaction;
 type ThreadTurnRow = typeof threadTurns.$inferSelect;
-
-export interface ThreadTurnKey {
-  threadId: string;
-  turnId: string;
-}
 
 export interface ListThreadTurnRecordsArgs {
   beforeCompletedAt?: number;

@@ -1,5 +1,6 @@
 import { and, desc, eq, gt, lt, sql } from "drizzle-orm";
 import {
+  getThreadTurnRecord,
   appendDaemonEventsInTransaction,
   deriveStoredEventItemFields,
   getThread,
@@ -442,7 +443,13 @@ function buildRuntimeSignals(
         providerCheckpointId: null,
         startedAt: null,
         settledAt: Date.now(),
-        turn: null,
+        turn: getThreadTurnRecord(deps.db, {
+          threadId: entry.threadId,
+          turnId: requireThreadEventScopeTurnId({
+            type: event.type,
+            scope: event.scope,
+          }),
+        }),
       });
       continue;
     }

@@ -3,16 +3,25 @@ import { formatCustomAcpAgentProviderId } from "@bb/config/bb-app-managed-config
 import {
   getAppSettings,
   getLatestThreadSequence,
+  listThreadTurnRecords,
+  listTurnConversationItemRows,
   listQueuedThreadMessages,
 } from "@bb/db";
 import type { Hono } from "hono";
-import { PROMPT_HISTORY_ENTRY_LIMIT, threadEventTypeSchema } from "@bb/domain";
+import {
+  parseStoredThreadEvent,
+  PROMPT_HISTORY_ENTRY_LIMIT,
+  threadEventTypeSchema,
+  threadScope,
+  turnScope,
+} from "@bb/domain";
 import {
   publicApiRoutes,
   typedRoutes,
   type PublicApiSchema,
   type ThreadConversationOutlineResponse,
   type ThreadTimelineQuery,
+  type ThreadTurnMessage,
 } from "@bb/server-contract";
 import type {
   AppDeps,
@@ -182,6 +191,42 @@ function parseThreadTimelinePage(
     kind,
     segmentLimit,
   };
+}
+
+function threadTurnMessages(
+  deps: Pick<AppDeps, "db">,
+  args: { threadId: string; turnId: string },
+): ThreadTurnMessage[] {
+  return listTurnConversationItemRows(deps.db, args).flatMap(
+    (row): ThreadTurnMessage[] => {
+    const event = parseStoredThreadEvent({
+      data: JSON.parse(row.data),
+      providerThreadId: row.providerThreadId,
+      scope:
+        row.scopeKind === "turn" && row.turnId !== null
+          ? turnScope(row.turnId)
+          : threadScope(),
+      threadId: row.threadId,
+      type: row.type,
+    });
+    if (event.type !== "item/completed") return [];
+    if (event.item.type === "agentMessage") {
+      return [
+        { itemId: event.item.id, role: "assistant" as const, text: event.item.text, createdAt: row.createdAt },
+      ];
+    }
+    if (event.item.type === "userMessage") {
+      const text = event.item.content
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n");
+      return [
+        { itemId: event.item.id, role: "user" as const, text, createdAt: row.createdAt },
+      ];
+    }
+      return [];
+    },
+  );
 }
 
 export async function requireThreadStorageTarget(
@@ -450,6 +495,36 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
     return context.json(
       delta === undefined ? paged : { ...paged, rows: [], delta },
     );
+  });
+
+  get(routes.turns, (context, query) => {
+    const threadId = context.req.param("id");
+    requirePublicThread(deps.db, threadId);
+    const limit = parseBoundedPositiveOptionalInteger({
+      defaultValue: 50,
+      max: 200,
+      name: "limit",
+      value: query.limit,
+    });
+    const records = listThreadTurnRecords(deps.db, {
+      threadId,
+      limit,
+      beforeCompletedAt: parseOptionalInteger(
+        query.beforeCompletedAt,
+        "beforeCompletedAt",
+      ),
+    }).filter((record) => query.turnId === undefined || record.turnId === query.turnId);
+    const includeSpans = query.includeSpans === "true";
+    const includeMessages = query.include === "messages";
+    return context.json({
+      turns: records.map((record) => ({
+        ...record,
+        ...(includeSpans ? { spans: record.spans } : {}),
+        ...(includeMessages
+          ? { messages: threadTurnMessages(deps, { threadId, turnId: record.turnId }) }
+          : {}),
+      })),
+    });
   });
 
   get(routes.conversationOutline, (context) => {

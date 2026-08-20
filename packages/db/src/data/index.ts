@@ -69,7 +69,6 @@ export {
 export type {
   GetPreviousRootTurnUsageArgs,
   ListThreadTurnRecordsArgs,
-  ThreadTurnKey,
 } from "./thread-turns.js";
 
 export {

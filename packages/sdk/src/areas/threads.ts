@@ -38,6 +38,8 @@ import type {
   ThreadStoragePathListResponse,
   ThreadTabsResponse,
   ThreadTimelineResponse,
+  ThreadTurnsQuery,
+  ThreadTurnsResponse,
   ThreadWithIncludesResponse,
   TimelineTurnSummaryDetailsResponse,
   ThreadOpenFile,
@@ -118,6 +120,7 @@ export type ThreadInteractionCancelResult = PendingInteraction;
 export type ThreadEventsListResult = ThreadEventRow[];
 export type ThreadEventWaitResult = ThreadEventRow | null;
 export type ThreadTimelineResult = ThreadTimelineResponse;
+export type ThreadTurnsResult = ThreadTurnsResponse;
 export type ThreadArchiveResult = ThreadArchiveAllResponse;
 export type ThreadOpenResult = ThreadOpenResponse;
 export type ThreadRevealResult = ThreadRevealResponse;
@@ -315,6 +318,11 @@ export interface ThreadTimelineArgs extends ThreadTimelineQuery {
   threadId: string;
 }
 
+export interface ThreadTurnsArgs extends ThreadTurnsQuery {
+  signal?: AbortSignal;
+  threadId: string;
+}
+
 export interface ThreadOutputArgs {
   signal?: AbortSignal;
   threadId: string;
@@ -499,6 +507,8 @@ export interface ThreadsArea {
   stop(args: ThreadActionArgs): Promise<ThreadStopResult>;
   tabs: ThreadTabsArea;
   timeline(args: ThreadTimelineArgs): Promise<ThreadTimelineResult>;
+  /** Materialized telemetry records, independent of presentation timeline paging. */
+  turns(args: ThreadTurnsArgs): Promise<ThreadTurnsResult>;
   timelineTurnSummaryDetails(
     args: ThreadTimelineTurnSummaryDetailsArgs,
   ): Promise<ThreadTimelineTurnSummaryDetailsResult>;
@@ -1186,6 +1196,23 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
           {
             param: { id: input.threadId },
             query: timelineQuery(input),
+          },
+          ...signalRequestArgs(input.signal),
+        ),
+      );
+    },
+    async turns(input) {
+      return transport.readJson(
+        transport.api.v1.threads[":id"].turns.$get(
+          {
+            param: { id: input.threadId },
+            query: {
+              beforeCompletedAt: input.beforeCompletedAt,
+              include: input.include,
+              includeSpans: input.includeSpans,
+              limit: input.limit,
+              turnId: input.turnId,
+            },
           },
           ...signalRequestArgs(input.signal),
         ),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { threadTurnRecordSchema } from "./thread-turn-telemetry.js";
+import { threadTurnRecordSchema } from "../src/thread-turn-telemetry.js";
 
 function recordFixture() {
   return {

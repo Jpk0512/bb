@@ -1,9 +1,14 @@
-import { getThread, hasRootStoredTurnStarted } from "@bb/db";
+import {
+  getThread,
+  hasRootStoredTurnStarted,
+  upsertThreadTurnRecord,
+} from "@bb/db";
 import {
   requireThreadEventScopeTurnId,
   type ThreadEvent,
   type ThreadLifecycleEvent,
   type ThreadStatus,
+  type ThreadTurnRecord,
 } from "@bb/domain";
 import type { AppDeps } from "../types.js";
 import {
@@ -11,11 +16,13 @@ import {
   resetActiveThreadEventPruningState,
 } from "../services/system/event-pruning.js";
 import { applyLoggedThreadLifecycleEvent } from "../services/threads/lifecycle-outcome.js";
+import { buildThreadTurnRecord } from "../services/threads/turn-telemetry.js";
 
 interface ApplyTurnCompletedEventResult {
   isRootTurnCompletion: boolean;
   nextStatus: ThreadStatus | null;
   thread: ReturnType<typeof getThread>;
+  turn: ThreadTurnRecord | null;
 }
 
 function lifecycleEventForTurnCompletion(
@@ -36,7 +43,12 @@ export function applyTurnCompletedEvent(
 ): ApplyTurnCompletedEventResult {
   const thread = getThread(deps.db, payload.threadId);
   if (!thread) {
-    return { isRootTurnCompletion: false, nextStatus: null, thread: null };
+    return {
+      isRootTurnCompletion: false,
+      nextStatus: null,
+      thread: null,
+      turn: null,
+    };
   }
 
   const turnId = requireThreadEventScopeTurnId({
@@ -47,8 +59,23 @@ export function applyTurnCompletedEvent(
     threadId: payload.threadId,
     turnId,
   });
+  // Telemetry is strictly observational. It must cover nested turns and be
+  // durable before idle pruning, but a malformed historical event must never
+  // prevent the completion lifecycle from settling.
+  let turn: ThreadTurnRecord | null = null;
+  try {
+    turn = upsertThreadTurnRecord(
+      deps.db,
+      buildThreadTurnRecord(deps.db, { threadId: payload.threadId, turnId }),
+    );
+  } catch (error) {
+    deps.logger.warn(
+      { err: error, threadId: payload.threadId, turnId },
+      "Failed to materialize turn telemetry",
+    );
+  }
   if (!isRootTurnCompletion) {
-    return { isRootTurnCompletion, nextStatus: null, thread };
+    return { isRootTurnCompletion, nextStatus: null, thread, turn };
   }
 
   const outcome = applyLoggedThreadLifecycleEvent(deps, {
@@ -68,5 +95,5 @@ export function applyTurnCompletedEvent(
     });
   }
 
-  return { isRootTurnCompletion, nextStatus, thread };
+  return { isRootTurnCompletion, nextStatus, thread, turn };
 }
