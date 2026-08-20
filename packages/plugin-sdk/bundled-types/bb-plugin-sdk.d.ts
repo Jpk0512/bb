@@ -154,7 +154,7 @@ declare const changedMessageSchema: z$1.ZodDiscriminatedUnion<[z$1.ZodObject<{
     id: z$1.ZodOptional<z$1.ZodString>;
     metadata: z$1.ZodOptional<z$1.ZodObject<{
         backgroundActivityChanged: z$1.ZodOptional<z$1.ZodBoolean>;
-        eventTypes: z$1.ZodOptional<z$1.ZodReadonly<z$1.ZodArray<z$1.ZodString & z$1.ZodType<"thread/started" | "thread/identity" | "turn/started" | "turn/completed" | "turn/input/accepted" | "thread/name/updated" | "thread/compacted" | "thread/context/cleared" | "thread/goal/updated" | "thread/goal/cleared" | "item/started" | "item/completed" | "item/agentMessage/delta" | "item/commandExecution/outputDelta" | "item/fileChange/outputDelta" | "item/reasoning/summaryTextDelta" | "item/reasoning/textDelta" | "item/plan/delta" | "item/mcpToolCall/progress" | "item/toolCall/progress" | "item/backgroundTask/progress" | "item/backgroundTask/completed" | "thread/tokenUsage/updated" | "thread/contextWindowUsage/updated" | "turn/plan/updated" | "turn/diff/updated" | "provider/error" | "provider/rateLimits/updated" | "provider/warning" | "provider/sessionReplaced" | "provider/modelFallback" | "provider/unhandled" | "client/thread/start" | "client/turn/requested" | "client/turn/start" | "client/turn/rejected" | "system/error" | "system/manager/user_message" | "system/thread/interrupted" | "system/operation" | "system/permissionGrant/lifecycle" | "system/userQuestion/lifecycle" | "system/thread-provisioning" | "system/provider-turn-watchdog", string, z$1.core.$ZodTypeInternals<"thread/started" | "thread/identity" | "turn/started" | "turn/completed" | "turn/input/accepted" | "thread/name/updated" | "thread/compacted" | "thread/context/cleared" | "thread/goal/updated" | "thread/goal/cleared" | "item/started" | "item/completed" | "item/agentMessage/delta" | "item/commandExecution/outputDelta" | "item/fileChange/outputDelta" | "item/reasoning/summaryTextDelta" | "item/reasoning/textDelta" | "item/plan/delta" | "item/mcpToolCall/progress" | "item/toolCall/progress" | "item/backgroundTask/progress" | "item/backgroundTask/completed" | "thread/tokenUsage/updated" | "thread/contextWindowUsage/updated" | "turn/plan/updated" | "turn/diff/updated" | "provider/error" | "provider/rateLimits/updated" | "provider/warning" | "provider/sessionReplaced" | "provider/modelFallback" | "provider/unhandled" | "client/thread/start" | "client/turn/requested" | "client/turn/start" | "client/turn/rejected" | "system/error" | "system/manager/user_message" | "system/thread/interrupted" | "system/operation" | "system/permissionGrant/lifecycle" | "system/userQuestion/lifecycle" | "system/thread-provisioning" | "system/provider-turn-watchdog", string>>>>>;
+        eventTypes: z$1.ZodOptional<z$1.ZodReadonly<z$1.ZodArray<z$1.ZodString & z$1.ZodType<"thread/started" | "thread/identity" | "turn/started" | "turn/completed" | "turn/input/accepted" | "thread/name/updated" | "thread/compacted" | "thread/context/cleared" | "thread/goal/updated" | "thread/goal/cleared" | "item/started" | "item/completed" | "item/agentMessage/delta" | "item/commandExecution/outputDelta" | "item/fileChange/outputDelta" | "item/reasoning/summaryTextDelta" | "item/reasoning/textDelta" | "item/plan/delta" | "item/mcpToolCall/progress" | "item/toolCall/progress" | "item/backgroundTask/progress" | "item/backgroundTask/completed" | "thread/tokenUsage/updated" | "thread/contextWindowUsage/updated" | "turn/plan/updated" | "turn/diff/updated" | "provider/error" | "provider/rateLimits/updated" | "provider/warning" | "provider/sessionReplaced" | "provider/modelFallback" | "provider/unhandled" | "client/thread/start" | "client/turn/requested" | "client/turn/start" | "client/turn/rejected" | "system/error" | "system/manager/user_message" | "system/thread/interrupted" | "system/operation" | "system/permissionGrant/lifecycle" | "system/userQuestion/lifecycle" | "system/thread-provisioning" | "system/childSession/lifecycle" | "system/provider-turn-watchdog", string, z$1.core.$ZodTypeInternals<"thread/started" | "thread/identity" | "turn/started" | "turn/completed" | "turn/input/accepted" | "thread/name/updated" | "thread/compacted" | "thread/context/cleared" | "thread/goal/updated" | "thread/goal/cleared" | "item/started" | "item/completed" | "item/agentMessage/delta" | "item/commandExecution/outputDelta" | "item/fileChange/outputDelta" | "item/reasoning/summaryTextDelta" | "item/reasoning/textDelta" | "item/plan/delta" | "item/mcpToolCall/progress" | "item/toolCall/progress" | "item/backgroundTask/progress" | "item/backgroundTask/completed" | "thread/tokenUsage/updated" | "thread/contextWindowUsage/updated" | "turn/plan/updated" | "turn/diff/updated" | "provider/error" | "provider/rateLimits/updated" | "provider/warning" | "provider/sessionReplaced" | "provider/modelFallback" | "provider/unhandled" | "client/thread/start" | "client/turn/requested" | "client/turn/start" | "client/turn/rejected" | "system/error" | "system/manager/user_message" | "system/thread/interrupted" | "system/operation" | "system/permissionGrant/lifecycle" | "system/userQuestion/lifecycle" | "system/thread-provisioning" | "system/childSession/lifecycle" | "system/provider-turn-watchdog", string>>>>>;
         hasPendingInteraction: z$1.ZodOptional<z$1.ZodBoolean>;
         projectId: z$1.ZodOptional<z$1.ZodString>;
     }, z$1.core.$strict>>;
@@ -2045,6 +2045,24 @@ declare const threadEventSchema: z$1.ZodPipe<z$1.ZodUnknown, z$1.ZodUnion<readon
         metadata: z$1.ZodOptional<z$1.ZodRecord<z$1.ZodString, z$1.ZodUnknown>>;
     }, z$1.core.$strip>>;
 }, z$1.core.$strip>, z$1.ZodObject<{
+    type: z$1.ZodLiteral<"system/childSession/lifecycle">;
+    threadId: z$1.ZodString;
+    childThreadId: z$1.ZodString;
+    childKind: z$1.ZodString;
+    title: z$1.ZodString;
+    providerId: z$1.ZodString;
+    model: z$1.ZodNullable<z$1.ZodString>;
+    status: z$1.ZodEnum<{
+        running: "running";
+        completed: "completed";
+        failed: "failed";
+        interrupted: "interrupted";
+        started: "started";
+        "needs-attention": "needs-attention";
+    }>;
+    statusReason: z$1.ZodNullable<z$1.ZodString>;
+    outputExcerpt: z$1.ZodNullable<z$1.ZodString>;
+}, z$1.core.$strip>, z$1.ZodObject<{
     type: z$1.ZodLiteral<"system/provider-turn-watchdog">;
     threadId: z$1.ZodString;
     reason: z$1.ZodLiteral<"provider-turn-idle">;
@@ -2206,6 +2224,112 @@ declare const threadTimelinePendingTodosSchema: z$1.ZodObject<{
     }, z$1.core.$strip>>;
 }, z$1.core.$strip>;
 type ThreadTimelinePendingTodos = z$1.infer<typeof threadTimelinePendingTodosSchema>;
+
+declare const threadTurnSpanKindSchema: z$1.ZodEnum<{
+    message: "message";
+    command: "command";
+    tool: "tool";
+    reasoning: "reasoning";
+    "file-change": "file-change";
+    delegation: "delegation";
+    "web-search": "web-search";
+    "web-fetch": "web-fetch";
+    "image-view": "image-view";
+    compaction: "compaction";
+    "background-task": "background-task";
+}>;
+type ThreadTurnSpanKind = z$1.infer<typeof threadTurnSpanKindSchema>;
+declare const threadTurnSpanStatusSchema: z$1.ZodNullable<z$1.ZodEnum<{
+    pending: "pending";
+    completed: "completed";
+    failed: "failed";
+    interrupted: "interrupted";
+}>>;
+type ThreadTurnSpanStatus = z$1.infer<typeof threadTurnSpanStatusSchema>;
+interface ThreadTurnSpan {
+    id: string;
+    itemId: string | null;
+    parentItemId: string | null;
+    kind: ThreadTurnSpanKind;
+    name: string;
+    status: ThreadTurnSpanStatus;
+    startedAt: number;
+    completedAt: number | null;
+    durationMs: number | null;
+    durationSource: "provider" | "event-clock" | null;
+    detail: string | null;
+    error: string | null;
+    children: ThreadTurnSpan[];
+}
+/**
+ * Durable telemetry for exactly one provider turn. It is materialized at
+ * turn completion before prunable usage events are discarded.
+ */
+declare const threadTurnRecordSchema: z$1.ZodObject<{
+    threadId: z$1.ZodString;
+    turnId: z$1.ZodString;
+    projectId: z$1.ZodString;
+    providerId: z$1.ZodString;
+    model: z$1.ZodNullable<z$1.ZodString>;
+    modelSource: z$1.ZodNullable<z$1.ZodEnum<{
+        "turn-request": "turn-request";
+        "thread-default": "thread-default";
+    }>>;
+    reasoningLevel: z$1.ZodNullable<z$1.ZodEnum<{
+        none: "none";
+        low: "low";
+        medium: "medium";
+        high: "high";
+        xhigh: "xhigh";
+        ultracode: "ultracode";
+        max: "max";
+        ultra: "ultra";
+    }>>;
+    serviceTier: z$1.ZodNullable<z$1.ZodEnum<{
+        default: "default";
+        fast: "fast";
+    }>>;
+    parentToolCallId: z$1.ZodNullable<z$1.ZodString>;
+    isRoot: z$1.ZodBoolean;
+    initiator: z$1.ZodNullable<z$1.ZodString>;
+    startedAt: z$1.ZodNumber;
+    completedAt: z$1.ZodNullable<z$1.ZodNumber>;
+    durationMs: z$1.ZodNullable<z$1.ZodNumber>;
+    status: z$1.ZodEnum<{
+        completed: "completed";
+        failed: "failed";
+        interrupted: "interrupted";
+    }>;
+    errorMessage: z$1.ZodNullable<z$1.ZodString>;
+    counts: z$1.ZodObject<{
+        toolCalls: z$1.ZodNumber;
+        commands: z$1.ZodNumber;
+        fileChanges: z$1.ZodNumber;
+        delegations: z$1.ZodNumber;
+        subagentSpans: z$1.ZodNumber;
+        errors: z$1.ZodNumber;
+        interrupted: z$1.ZodBoolean;
+    }, z$1.core.$strip>;
+    usage: z$1.ZodObject<{
+        totalTokens: z$1.ZodNullable<z$1.ZodNumber>;
+        inputTokens: z$1.ZodNullable<z$1.ZodNumber>;
+        cachedInputTokens: z$1.ZodNullable<z$1.ZodNumber>;
+        outputTokens: z$1.ZodNullable<z$1.ZodNumber>;
+        reasoningOutputTokens: z$1.ZodNullable<z$1.ZodNumber>;
+        modelContextWindow: z$1.ZodNullable<z$1.ZodNumber>;
+        source: z$1.ZodEnum<{
+            none: "none";
+            "provider-turn-delta": "provider-turn-delta";
+            "provider-last": "provider-last";
+        }>;
+        costUsd: z$1.ZodNull;
+    }, z$1.core.$strip>;
+    sourceSeqStart: z$1.ZodNullable<z$1.ZodNumber>;
+    sourceSeqEnd: z$1.ZodNullable<z$1.ZodNumber>;
+    spans: z$1.ZodArray<z$1.ZodType<ThreadTurnSpan, unknown, z$1.core.$ZodTypeInternals<ThreadTurnSpan, unknown>>>;
+    spansTruncated: z$1.ZodBoolean;
+}, z$1.core.$strip>;
+type ThreadTurnRecord = z$1.infer<typeof threadTurnRecordSchema>;
 
 declare const threadQueuedMessageSchema: z$1.ZodObject<{
     id: z$1.ZodString;
@@ -2744,7 +2868,7 @@ declare const projectWithThreadsResponseSchema: z$1.ZodObject<{
             fork: "fork";
         }>>;
         originPluginId: z$1.ZodNullable<z$1.ZodString>;
-        childKind: z$1.ZodOptional<z$1.ZodNullable<z$1.ZodString>>;
+        childKind: z$1.ZodNullable<z$1.ZodString>;
         supersededByThreadId: z$1.ZodOptional<z$1.ZodNullable<z$1.ZodString>>;
         visibility: z$1.ZodEnum<{
             visible: "visible";
@@ -2807,8 +2931,8 @@ declare const projectWithThreadsResponseSchema: z$1.ZodObject<{
             ultra: "ultra";
         }>;
         permissionMode: z$1.ZodEnum<{
-            "accept-edits": "accept-edits";
             auto: "auto";
+            "accept-edits": "accept-edits";
             full: "full";
         }>;
     }, z$1.core.$strip>>;
@@ -3021,8 +3145,8 @@ declare const environmentDiffFileResponseSchema: z$1.ZodObject<{
     path: z$1.ZodString;
     content: z$1.ZodString;
     contentEncoding: z$1.ZodEnum<{
-        utf8: "utf8";
         base64: "base64";
+        utf8: "utf8";
     }>;
     mimeType: z$1.ZodOptional<z$1.ZodString>;
     sizeBytes: z$1.ZodNumber;
@@ -3035,8 +3159,8 @@ declare const environmentArchiveThreadsResponseSchema: z$1.ZodObject<{
 type EnvironmentArchiveThreadsResponse = z$1.infer<typeof environmentArchiveThreadsResponseSchema>;
 declare const pullRequestMergeMethodSchema: z$1.ZodEnum<{
     merge: "merge";
-    rebase: "rebase";
     squash: "squash";
+    rebase: "rebase";
 }>;
 type PullRequestMergeMethod = z$1.infer<typeof pullRequestMergeMethodSchema>;
 declare const commitActionResponseSchema: z$1.ZodObject<{
@@ -3067,8 +3191,8 @@ declare const pullRequestMergeActionResponseSchema: z$1.ZodObject<{
     action: z$1.ZodLiteral<"pull_request_merge">;
     method: z$1.ZodEnum<{
         merge: "merge";
-        rebase: "rebase";
         squash: "squash";
+        rebase: "rebase";
     }>;
     message: z$1.ZodString;
 }, z$1.core.$strip>;
@@ -3196,9 +3320,9 @@ declare const environmentPullRequestResponseSchema: z$1.ZodDiscriminatedUnion<[z
         number: z$1.ZodNumber;
         title: z$1.ZodString;
         state: z$1.ZodEnum<{
-            open: "open";
             merged: "merged";
             draft: "draft";
+            open: "open";
             closed: "closed";
         }>;
         url: z$1.ZodString;
@@ -3220,11 +3344,11 @@ declare const environmentPullRequestResponseSchema: z$1.ZodDiscriminatedUnion<[z
         }, z$1.core.$strict>;
         review: z$1.ZodObject<{
             state: z$1.ZodEnum<{
-                none: "none";
                 approved: "approved";
                 changes_requested: "changes_requested";
                 review_required: "review_required";
                 review_requested: "review_requested";
+                none: "none";
             }>;
             reviewRequestCount: z$1.ZodNumber;
         }, z$1.core.$strict>;
@@ -3253,12 +3377,12 @@ declare const environmentPullRequestResponseSchema: z$1.ZodDiscriminatedUnion<[z
             }>>;
         }, z$1.core.$strict>;
         attention: z$1.ZodEnum<{
-            none: "none";
             merged: "merged";
             draft: "draft";
             closed: "closed";
             changes_requested: "changes_requested";
             review_requested: "review_requested";
+            none: "none";
             conflicts: "conflicts";
             blocked: "blocked";
             checks_failed: "checks_failed";
@@ -7297,8 +7421,8 @@ declare const systemExecutionOptionsResponseSchema: z$1.ZodObject<{
             supportsFork: z$1.ZodBoolean;
             supportsSessionRewind: z$1.ZodBoolean;
             permissionModes: z$1.ZodArray<z$1.ZodEnum<{
-                "accept-edits": "accept-edits";
                 auto: "auto";
+                "accept-edits": "accept-edits";
                 full: "full";
             }>>;
         }, z$1.core.$strip>;
@@ -7329,8 +7453,8 @@ declare const systemExecutionOptionsResponseSchema: z$1.ZodObject<{
         available: z$1.ZodBoolean;
     }, z$1.core.$strip>>;
     permissionCeiling: z$1.ZodEnum<{
-        "accept-edits": "accept-edits";
         auto: "auto";
+        "accept-edits": "accept-edits";
         full: "full";
     }>;
     models: z$1.ZodArray<z$1.ZodObject<{
@@ -7925,19 +8049,19 @@ declare const terminalSessionSchema: z$1.ZodObject<{
     cols: z$1.ZodNumber;
     rows: z$1.ZodNumber;
     status: z$1.ZodEnum<{
-        running: "running";
         starting: "starting";
         disconnected: "disconnected";
+        running: "running";
         exited: "exited";
     }>;
     exitCode: z$1.ZodNullable<z$1.ZodNumber>;
     closeReason: z$1.ZodNullable<z$1.ZodEnum<{
         user: "user";
+        "thread-deleted": "thread-deleted";
         "process-exit": "process-exit";
         "daemon-disconnect": "daemon-disconnect";
         "environment-destroyed": "environment-destroyed";
         "thread-archived": "thread-archived";
-        "thread-deleted": "thread-deleted";
         "open-timeout": "open-timeout";
     }>>;
     createdAt: z$1.ZodNumber;
@@ -7956,19 +8080,19 @@ declare const terminalListResponseSchema: z$1.ZodObject<{
         cols: z$1.ZodNumber;
         rows: z$1.ZodNumber;
         status: z$1.ZodEnum<{
-            running: "running";
             starting: "starting";
             disconnected: "disconnected";
+            running: "running";
             exited: "exited";
         }>;
         exitCode: z$1.ZodNullable<z$1.ZodNumber>;
         closeReason: z$1.ZodNullable<z$1.ZodEnum<{
             user: "user";
+            "thread-deleted": "thread-deleted";
             "process-exit": "process-exit";
             "daemon-disconnect": "daemon-disconnect";
             "environment-destroyed": "environment-destroyed";
             "thread-archived": "thread-archived";
-            "thread-deleted": "thread-deleted";
             "open-timeout": "open-timeout";
         }>>;
         createdAt: z$1.ZodNumber;
@@ -8564,6 +8688,41 @@ declare const timelineQuestionWorkRowSchema: z$1.ZodObject<{
     statusReason: z$1.ZodNullable<z$1.ZodString>;
 }, z$1.core.$strip>;
 type TimelineQuestionWorkRow = z$1.infer<typeof timelineQuestionWorkRowSchema>;
+/** A native, parent-timeline anchor for an independently streamed child. */
+declare const timelineChildSessionWorkRowSchema: z$1.ZodObject<{
+    id: z$1.ZodString;
+    threadId: z$1.ZodString;
+    turnId: z$1.ZodNullable<z$1.ZodString>;
+    sourceSeqStart: z$1.ZodNumber;
+    sourceSeqEnd: z$1.ZodNumber;
+    startedAt: z$1.ZodNumber;
+    createdAt: z$1.ZodNumber;
+    kind: z$1.ZodLiteral<"work">;
+    status: z$1.ZodEnum<{
+        error: "error";
+        pending: "pending";
+        completed: "completed";
+        interrupted: "interrupted";
+    }>;
+    workKind: z$1.ZodLiteral<"child-session">;
+    childThreadId: z$1.ZodString;
+    childKind: z$1.ZodString;
+    title: z$1.ZodString;
+    providerId: z$1.ZodString;
+    model: z$1.ZodNullable<z$1.ZodString>;
+    childStatus: z$1.ZodEnum<{
+        completed: "completed";
+        interrupted: "interrupted";
+        started: "started";
+        running: "running";
+        "needs-attention": "needs-attention";
+        failed: "failed";
+    }>;
+    statusReason: z$1.ZodNullable<z$1.ZodString>;
+    outputExcerpt: z$1.ZodNullable<z$1.ZodString>;
+    completedAt: z$1.ZodNullable<z$1.ZodNumber>;
+}, z$1.core.$strip>;
+type TimelineChildSessionWorkRow = z$1.infer<typeof timelineChildSessionWorkRowSchema>;
 interface TimelineDelegationWorkRow extends TimelineWorkRowBase {
     workKind: "delegation";
     callId: string;
@@ -8607,8 +8766,8 @@ declare const timelineWorkflowWorkRowSchema: z$1.ZodObject<{
         pending: "pending";
         completed: "completed";
         running: "running";
-        paused: "paused";
         failed: "failed";
+        paused: "paused";
         killed: "killed";
         stopped: "stopped";
     }>;
@@ -8658,7 +8817,7 @@ declare const timelineWorkflowWorkRowSchema: z$1.ZodObject<{
     completedAt: z$1.ZodNullable<z$1.ZodNumber>;
 }, z$1.core.$strip>;
 type TimelineWorkflowWorkRow = z$1.infer<typeof timelineWorkflowWorkRowSchema>;
-type TimelineWorkRow = TimelineCommandWorkRow | TimelineToolWorkRow | TimelineFileChangeWorkRow | TimelineWebSearchWorkRow | TimelineWebFetchWorkRow | TimelineImageViewWorkRow | TimelineApprovalWorkRow | TimelineQuestionWorkRow | TimelineDelegationWorkRow | TimelineWorkflowWorkRow;
+type TimelineWorkRow = TimelineCommandWorkRow | TimelineToolWorkRow | TimelineFileChangeWorkRow | TimelineWebSearchWorkRow | TimelineWebFetchWorkRow | TimelineImageViewWorkRow | TimelineApprovalWorkRow | TimelineQuestionWorkRow | TimelineChildSessionWorkRow | TimelineDelegationWorkRow | TimelineWorkflowWorkRow;
 interface TimelineTurnRow extends TimelineRowBase {
     kind: "turn";
     turnId: string;
@@ -8703,6 +8862,15 @@ declare const createThreadRequestSchema: z$1.ZodObject<{
         sdk: "sdk";
     }>;
     originPluginId: z$1.ZodOptional<z$1.ZodString>;
+    childKind: z$1.ZodOptional<z$1.ZodString>;
+    agentConfiguration: z$1.ZodOptional<z$1.ZodObject<{
+        tools: z$1.ZodArray<z$1.ZodUnion<readonly [z$1.ZodString, z$1.ZodObject<{
+            name: z$1.ZodString;
+            parameters: z$1.ZodRecord<z$1.ZodString, z$1.ZodType<JsonValue$1, unknown, z$1.core.$ZodTypeInternals<JsonValue$1, unknown>>>;
+        }, z$1.core.$strict>]>>;
+        skills: z$1.ZodArray<z$1.ZodString>;
+        instructions: z$1.ZodOptional<z$1.ZodString>;
+    }, z$1.core.$strict>>;
     visibility: z$1.ZodOptional<z$1.ZodEnum<{
         visible: "visible";
         hidden: "hidden";
@@ -8805,10 +8973,10 @@ declare const createThreadRequestSchema: z$1.ZodObject<{
         ultra: "ultra";
     }>>;
     permissionMode: z$1.ZodOptional<z$1.ZodPipe<z$1.ZodUnion<readonly [z$1.ZodEnum<{
-        "accept-edits": "accept-edits";
         auto: "auto";
+        "accept-edits": "accept-edits";
         full: "full";
-    }>, z$1.ZodLiteral<"workspace-write">]>, z$1.ZodTransform<"accept-edits" | "auto" | "full", "accept-edits" | "auto" | "full" | "workspace-write">>>;
+    }>, z$1.ZodLiteral<"workspace-write">]>, z$1.ZodTransform<"auto" | "accept-edits" | "full", "auto" | "accept-edits" | "full" | "workspace-write">>>;
     executionInputSources: z$1.ZodOptional<z$1.ZodObject<{
         providerId: z$1.ZodOptional<z$1.ZodEnum<{
             explicit: "explicit";
@@ -9046,10 +9214,10 @@ declare const forkThreadRequestSchema: z$1.ZodObject<{
     }, z$1.core.$strip>>>>;
     title: z$1.ZodOptional<z$1.ZodString>;
     permissionMode: z$1.ZodOptional<z$1.ZodPipe<z$1.ZodUnion<readonly [z$1.ZodEnum<{
-        "accept-edits": "accept-edits";
         auto: "auto";
+        "accept-edits": "accept-edits";
         full: "full";
-    }>, z$1.ZodLiteral<"workspace-write">]>, z$1.ZodTransform<"accept-edits" | "auto" | "full", "accept-edits" | "auto" | "full" | "workspace-write">>>;
+    }>, z$1.ZodLiteral<"workspace-write">]>, z$1.ZodTransform<"auto" | "accept-edits" | "full", "auto" | "accept-edits" | "full" | "workspace-write">>>;
     visibility: z$1.ZodDefault<z$1.ZodEnum<{
         visible: "visible";
         hidden: "hidden";
@@ -9165,10 +9333,10 @@ declare const sendMessageRequestSchema: z$1.ZodObject<{
         ultra: "ultra";
     }>>;
     permissionMode: z$1.ZodOptional<z$1.ZodPipe<z$1.ZodUnion<readonly [z$1.ZodEnum<{
-        "accept-edits": "accept-edits";
         auto: "auto";
+        "accept-edits": "accept-edits";
         full: "full";
-    }>, z$1.ZodLiteral<"workspace-write">]>, z$1.ZodTransform<"accept-edits" | "auto" | "full", "accept-edits" | "auto" | "full" | "workspace-write">>>;
+    }>, z$1.ZodLiteral<"workspace-write">]>, z$1.ZodTransform<"auto" | "accept-edits" | "full", "auto" | "accept-edits" | "full" | "workspace-write">>>;
     executionInputSources: z$1.ZodOptional<z$1.ZodObject<{
         model: z$1.ZodOptional<z$1.ZodEnum<{
             explicit: "explicit";
@@ -9401,10 +9569,10 @@ declare const editMessageRequestSchema: z$1.ZodObject<{
         ultra: "ultra";
     }>>;
     permissionMode: z$1.ZodOptional<z$1.ZodPipe<z$1.ZodUnion<readonly [z$1.ZodEnum<{
-        "accept-edits": "accept-edits";
         auto: "auto";
+        "accept-edits": "accept-edits";
         full: "full";
-    }>, z$1.ZodLiteral<"workspace-write">]>, z$1.ZodTransform<"accept-edits" | "auto" | "full", "accept-edits" | "auto" | "full" | "workspace-write">>>;
+    }>, z$1.ZodLiteral<"workspace-write">]>, z$1.ZodTransform<"auto" | "accept-edits" | "full", "auto" | "accept-edits" | "full" | "workspace-write">>>;
     executionInputSources: z$1.ZodOptional<z$1.ZodObject<{
         model: z$1.ZodOptional<z$1.ZodEnum<{
             explicit: "explicit";
@@ -9531,10 +9699,10 @@ declare const createQueuedMessageRequestSchema: z$1.ZodObject<{
         ultra: "ultra";
     }>>;
     permissionMode: z$1.ZodOptional<z$1.ZodPipe<z$1.ZodUnion<readonly [z$1.ZodEnum<{
-        "accept-edits": "accept-edits";
         auto: "auto";
+        "accept-edits": "accept-edits";
         full: "full";
-    }>, z$1.ZodLiteral<"workspace-write">]>, z$1.ZodTransform<"accept-edits" | "auto" | "full", "accept-edits" | "auto" | "full" | "workspace-write">>>;
+    }>, z$1.ZodLiteral<"workspace-write">]>, z$1.ZodTransform<"auto" | "accept-edits" | "full", "auto" | "accept-edits" | "full" | "workspace-write">>>;
     executionInputSources: z$1.ZodOptional<z$1.ZodObject<{
         model: z$1.ZodOptional<z$1.ZodEnum<{
             explicit: "explicit";
@@ -9756,8 +9924,8 @@ declare const sendQueuedMessageResponseSchema: z$1.ZodObject<{
             ultra: "ultra";
         }>;
         permissionMode: z$1.ZodEnum<{
-            "accept-edits": "accept-edits";
             auto: "auto";
+            "accept-edits": "accept-edits";
             full: "full";
         }>;
         serviceTier: z$1.ZodEnum<{
@@ -9791,7 +9959,7 @@ declare const threadListResponseSchema: z$1.ZodArray<z$1.ZodObject<{
         fork: "fork";
     }>>;
     originPluginId: z$1.ZodNullable<z$1.ZodString>;
-    childKind: z$1.ZodOptional<z$1.ZodNullable<z$1.ZodString>>;
+    childKind: z$1.ZodNullable<z$1.ZodString>;
     supersededByThreadId: z$1.ZodOptional<z$1.ZodNullable<z$1.ZodString>>;
     visibility: z$1.ZodEnum<{
         visible: "visible";
@@ -9872,7 +10040,7 @@ declare const threadSearchResponseSchema: z$1.ZodObject<{
                     fork: "fork";
                 }>>;
                 originPluginId: z$1.ZodNullable<z$1.ZodString>;
-                childKind: z$1.ZodOptional<z$1.ZodNullable<z$1.ZodString>>;
+                childKind: z$1.ZodNullable<z$1.ZodString>;
                 supersededByThreadId: z$1.ZodOptional<z$1.ZodNullable<z$1.ZodString>>;
                 visibility: z$1.ZodEnum<{
                     visible: "visible";
@@ -9958,7 +10126,7 @@ declare const threadSearchResponseSchema: z$1.ZodObject<{
                     fork: "fork";
                 }>>;
                 originPluginId: z$1.ZodNullable<z$1.ZodString>;
-                childKind: z$1.ZodOptional<z$1.ZodNullable<z$1.ZodString>>;
+                childKind: z$1.ZodNullable<z$1.ZodString>;
                 supersededByThreadId: z$1.ZodOptional<z$1.ZodNullable<z$1.ZodString>>;
                 visibility: z$1.ZodEnum<{
                     visible: "visible";
@@ -10043,7 +10211,7 @@ declare const threadResponseSchema: z$1.ZodObject<{
         fork: "fork";
     }>>;
     originPluginId: z$1.ZodNullable<z$1.ZodString>;
-    childKind: z$1.ZodOptional<z$1.ZodNullable<z$1.ZodString>>;
+    childKind: z$1.ZodNullable<z$1.ZodString>;
     supersededByThreadId: z$1.ZodOptional<z$1.ZodNullable<z$1.ZodString>>;
     visibility: z$1.ZodEnum<{
         visible: "visible";
@@ -10098,7 +10266,7 @@ declare const threadWithIncludesResponseSchema: z$1.ZodObject<{
         fork: "fork";
     }>>;
     originPluginId: z$1.ZodNullable<z$1.ZodString>;
-    childKind: z$1.ZodOptional<z$1.ZodNullable<z$1.ZodString>>;
+    childKind: z$1.ZodNullable<z$1.ZodString>;
     supersededByThreadId: z$1.ZodOptional<z$1.ZodNullable<z$1.ZodString>>;
     visibility: z$1.ZodEnum<{
         visible: "visible";
@@ -10166,8 +10334,8 @@ declare const threadWithIncludesResponseSchema: z$1.ZodObject<{
             connected: "connected";
         }>;
         maxPermissionMode: z$1.ZodEnum<{
-            "accept-edits": "accept-edits";
             auto: "auto";
+            "accept-edits": "accept-edits";
             full: "full";
         }>;
         lastSeenAt: z$1.ZodNullable<z$1.ZodNumber>;
@@ -10442,8 +10610,8 @@ declare const threadQueuedMessageListResponseSchema: z$1.ZodArray<z$1.ZodObject<
         ultra: "ultra";
     }>;
     permissionMode: z$1.ZodEnum<{
-        "accept-edits": "accept-edits";
         auto: "auto";
+        "accept-edits": "accept-edits";
         full: "full";
     }>;
     serviceTier: z$1.ZodEnum<{
@@ -10539,7 +10707,7 @@ declare const threadRevealResponseSchema: z$1.ZodObject<{
             fork: "fork";
         }>>;
         originPluginId: z$1.ZodNullable<z$1.ZodString>;
-        childKind: z$1.ZodOptional<z$1.ZodNullable<z$1.ZodString>>;
+        childKind: z$1.ZodNullable<z$1.ZodString>;
         supersededByThreadId: z$1.ZodOptional<z$1.ZodNullable<z$1.ZodString>>;
         visibility: z$1.ZodEnum<{
             visible: "visible";
@@ -10642,6 +10810,7 @@ declare const threadListQuerySchema: z$1.ZodObject<{
         fork: "fork";
     }>>;
     originPluginId: z$1.ZodOptional<z$1.ZodString>;
+    childKind: z$1.ZodOptional<z$1.ZodString>;
     includeHidden: z$1.ZodOptional<z$1.ZodEnum<{
         true: "true";
         false: "false";
@@ -10674,6 +10843,95 @@ declare const threadTimelineQuerySchema: z$1.ZodObject<{
     afterSequence: z$1.ZodOptional<z$1.ZodString>;
 }, z$1.core.$strip>;
 type ThreadTimelineQuery = z$1.infer<typeof threadTimelineQuerySchema>;
+declare const threadTurnsQuerySchema: z$1.ZodObject<{
+    beforeCompletedAt: z$1.ZodOptional<z$1.ZodString>;
+    include: z$1.ZodOptional<z$1.ZodEnum<{
+        messages: "messages";
+    }>>;
+    includeSpans: z$1.ZodOptional<z$1.ZodEnum<{
+        true: "true";
+        false: "false";
+    }>>;
+    limit: z$1.ZodOptional<z$1.ZodString>;
+    turnId: z$1.ZodOptional<z$1.ZodString>;
+}, z$1.core.$strip>;
+type ThreadTurnsQuery = z$1.infer<typeof threadTurnsQuerySchema>;
+declare const threadTurnsResponseSchema: z$1.ZodObject<{
+    turns: z$1.ZodArray<z$1.ZodObject<{
+        projectId: z$1.ZodString;
+        threadId: z$1.ZodString;
+        sourceSeqEnd: z$1.ZodNullable<z$1.ZodNumber>;
+        turnId: z$1.ZodString;
+        sourceSeqStart: z$1.ZodNullable<z$1.ZodNumber>;
+        startedAt: z$1.ZodNumber;
+        status: z$1.ZodEnum<{
+            completed: "completed";
+            interrupted: "interrupted";
+            failed: "failed";
+        }>;
+        initiator: z$1.ZodNullable<z$1.ZodString>;
+        completedAt: z$1.ZodNullable<z$1.ZodNumber>;
+        providerId: z$1.ZodString;
+        model: z$1.ZodNullable<z$1.ZodString>;
+        durationMs: z$1.ZodNullable<z$1.ZodNumber>;
+        usage: z$1.ZodObject<{
+            totalTokens: z$1.ZodNullable<z$1.ZodNumber>;
+            inputTokens: z$1.ZodNullable<z$1.ZodNumber>;
+            cachedInputTokens: z$1.ZodNullable<z$1.ZodNumber>;
+            outputTokens: z$1.ZodNullable<z$1.ZodNumber>;
+            reasoningOutputTokens: z$1.ZodNullable<z$1.ZodNumber>;
+            modelContextWindow: z$1.ZodNullable<z$1.ZodNumber>;
+            source: z$1.ZodEnum<{
+                none: "none";
+                "provider-turn-delta": "provider-turn-delta";
+                "provider-last": "provider-last";
+            }>;
+            costUsd: z$1.ZodNull;
+        }, z$1.core.$strip>;
+        errorMessage: z$1.ZodNullable<z$1.ZodString>;
+        serviceTier: z$1.ZodNullable<z$1.ZodEnum<{
+            default: "default";
+            fast: "fast";
+        }>>;
+        reasoningLevel: z$1.ZodNullable<z$1.ZodEnum<{
+            none: "none";
+            low: "low";
+            medium: "medium";
+            high: "high";
+            xhigh: "xhigh";
+            ultracode: "ultracode";
+            max: "max";
+            ultra: "ultra";
+        }>>;
+        parentToolCallId: z$1.ZodNullable<z$1.ZodString>;
+        counts: z$1.ZodObject<{
+            toolCalls: z$1.ZodNumber;
+            commands: z$1.ZodNumber;
+            fileChanges: z$1.ZodNumber;
+            delegations: z$1.ZodNumber;
+            subagentSpans: z$1.ZodNumber;
+            errors: z$1.ZodNumber;
+            interrupted: z$1.ZodBoolean;
+        }, z$1.core.$strip>;
+        modelSource: z$1.ZodNullable<z$1.ZodEnum<{
+            "turn-request": "turn-request";
+            "thread-default": "thread-default";
+        }>>;
+        isRoot: z$1.ZodBoolean;
+        spansTruncated: z$1.ZodBoolean;
+        messages: z$1.ZodOptional<z$1.ZodArray<z$1.ZodObject<{
+            createdAt: z$1.ZodNumber;
+            itemId: z$1.ZodString;
+            role: z$1.ZodEnum<{
+                user: "user";
+                assistant: "assistant";
+            }>;
+            text: z$1.ZodString;
+        }, z$1.core.$strict>>>;
+        spans: z$1.ZodOptional<z$1.ZodArray<z$1.ZodType<ThreadTurnSpan, unknown, z$1.core.$ZodTypeInternals<ThreadTurnSpan, unknown>>>>;
+    }, z$1.core.$strip>>;
+}, z$1.core.$strict>;
+type ThreadTurnsResponse = z$1.infer<typeof threadTurnsResponseSchema>;
 declare const timelineTurnSummaryDetailsQuerySchema: z$1.ZodObject<{
     turnId: z$1.ZodString;
     sourceSeqStart: z$1.ZodString;
@@ -10739,8 +10997,8 @@ declare const threadTimelineResponseSchema: z$1.ZodObject<{
             pending: "pending";
             completed: "completed";
             running: "running";
-            paused: "paused";
             failed: "failed";
+            paused: "paused";
             killed: "killed";
             stopped: "stopped";
         }>;
@@ -10813,8 +11071,8 @@ declare const threadTimelineResponseSchema: z$1.ZodObject<{
             pending: "pending";
             completed: "completed";
             running: "running";
-            paused: "paused";
             failed: "failed";
+            paused: "paused";
             killed: "killed";
             stopped: "stopped";
         }>;
@@ -10881,8 +11139,8 @@ declare const threadTimelineResponseSchema: z$1.ZodObject<{
         updatedAt: z$1.ZodNumber;
         objective: z$1.ZodString;
         status: z$1.ZodEnum<{
-            paused: "paused";
             active: "active";
+            paused: "paused";
             budgetLimited: "budgetLimited";
             complete: "complete";
         }>;
@@ -13617,6 +13875,8 @@ interface TerminalsArea {
 
 interface ThreadListArgs {
     archived?: boolean;
+    /** Restrict to one plugin-owned hierarchy child role. */
+    childKind?: string;
     sectionId?: string;
     hasParent?: boolean;
     includeHidden?: boolean;
@@ -13659,6 +13919,7 @@ type ThreadInteractionCancelResult = PendingInteraction;
 type ThreadEventsListResult = ThreadEventRow[];
 type ThreadEventWaitResult = ThreadEventRow | null;
 type ThreadTimelineResult = ThreadTimelineResponse;
+type ThreadTurnsResult = ThreadTurnsResponse;
 type ThreadArchiveResult = ThreadArchiveAllResponse;
 type ThreadOpenResult = ThreadOpenResponse;
 type ThreadRevealResult = ThreadRevealResponse;
@@ -13824,6 +14085,10 @@ interface ThreadTimelineArgs extends ThreadTimelineQuery {
     signal?: AbortSignal;
     threadId: string;
 }
+interface ThreadTurnsArgs extends ThreadTurnsQuery {
+    signal?: AbortSignal;
+    threadId: string;
+}
 interface ThreadOutputArgs {
     signal?: AbortSignal;
     threadId: string;
@@ -13938,6 +14203,8 @@ interface ThreadsArea {
     stop(args: ThreadActionArgs): Promise<ThreadStopResult>;
     tabs: ThreadTabsArea;
     timeline(args: ThreadTimelineArgs): Promise<ThreadTimelineResult>;
+    /** Materialized telemetry records, independent of presentation timeline paging. */
+    turns(args: ThreadTurnsArgs): Promise<ThreadTurnsResult>;
     timelineTurnSummaryDetails(args: ThreadTimelineTurnSummaryDetailsArgs): Promise<ThreadTimelineTurnSummaryDetailsResult>;
     storageFiles(args: ThreadStorageFilesArgs): Promise<ThreadStorageFilesResult>;
     storagePaths(args: ThreadStoragePathsArgs): Promise<ThreadStoragePathsResult>;
@@ -14458,6 +14725,8 @@ interface PluginAgentToolRegistrationBase {
 /** Stable, plain-data context resolved by the server for one agent session. */
 interface PluginAgentConfigurationContext {
     thread: {
+        /** Plugin-owned role for a hierarchy child, or null for ordinary threads. */
+        childKind: string | null;
         id: string;
         title: string | null;
         parentThreadId: string | null;
@@ -14829,8 +15098,8 @@ interface ProviderEventObservation {
 type ProviderEventHandler = (observation: ProviderEventObservation) => void | Promise<void>;
 type TurnSettledOutcome = "completed" | "failed" | "interrupted" | "delivery-unknown" | "provider-session-lost";
 /**
- * Durable turn settlement signal. BBF-6 will populate `turn`; BBF-8 owns the
- * event and deliberately emits null until the structured turn record exists.
+ * Durable turn settlement signal. BBF-8 owns this event; BBF-6 supplies the
+ * structured record when a durable `turn/completed` event was materialized.
  */
 interface TurnSettledSignal {
     threadId: string;
@@ -14843,7 +15112,12 @@ interface TurnSettledSignal {
     providerCheckpointId: string | null;
     startedAt: number | null;
     settledAt: number;
-    turn: null;
+    /**
+     * Null only when no durable completion event exists (for example provider
+     * session loss or delivery-unknown). Normal terminal turns carry the
+     * materialized record keyed by this signal's threadId/turnId.
+     */
+    turn: ThreadTurnRecord | null;
 }
 type TurnSettledHandler = (signal: TurnSettledSignal) => void | Promise<void>;
 type BindingLifecyclePhase = "start" | "resume" | "model-changed" | "session-replaced" | "health-degraded" | "archived" | "crashed";

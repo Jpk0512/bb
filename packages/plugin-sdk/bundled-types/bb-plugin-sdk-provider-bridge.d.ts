@@ -722,8 +722,8 @@ type ServiceTier = z.infer<typeof serviceTierSchema>;
  */
 declare const instructionModeValues: readonly ["append", "replace"];
 declare const instructionModeSchema: z.ZodEnum<{
-    append: "append";
     replace: "replace";
+    append: "append";
 }>;
 type InstructionMode = z.infer<typeof instructionModeSchema>;
 declare const permissionModeSchema: z.ZodEnum<{
@@ -3614,6 +3614,24 @@ declare const threadEventSchema: z.ZodPipe<z.ZodUnknown, z.ZodUnion<readonly [z.
         metadata: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
     }, z.core.$strip>>;
 }, z.core.$strip>, z.ZodObject<{
+    type: z.ZodLiteral<"system/childSession/lifecycle">;
+    threadId: z.ZodString;
+    childThreadId: z.ZodString;
+    childKind: z.ZodString;
+    title: z.ZodString;
+    providerId: z.ZodString;
+    model: z.ZodNullable<z.ZodString>;
+    status: z.ZodEnum<{
+        running: "running";
+        completed: "completed";
+        failed: "failed";
+        interrupted: "interrupted";
+        started: "started";
+        "needs-attention": "needs-attention";
+    }>;
+    statusReason: z.ZodNullable<z.ZodString>;
+    outputExcerpt: z.ZodNullable<z.ZodString>;
+}, z.core.$strip>, z.ZodObject<{
     type: z.ZodLiteral<"system/provider-turn-watchdog">;
     threadId: z.ZodString;
     reason: z.ZodLiteral<"provider-turn-idle">;
@@ -4368,8 +4386,8 @@ type InitializeResult = z.infer<typeof initializeResultSchema>;
 declare const bridgeExecutionOptionsSchema: z.ZodIntersection<z.ZodObject<{
     model: z.ZodOptional<z.ZodString>;
     serviceTier: z.ZodOptional<z.ZodEnum<{
-        default: "default";
         fast: "fast";
+        default: "default";
     }>>;
     reasoningLevel: z.ZodOptional<z.ZodEnum<{
         none: "none";
@@ -4521,8 +4539,8 @@ declare const threadStartParamsSchema: z.ZodObject<{
     options: z.ZodIntersection<z.ZodObject<{
         model: z.ZodOptional<z.ZodString>;
         serviceTier: z.ZodOptional<z.ZodEnum<{
-            default: "default";
             fast: "fast";
+            default: "default";
         }>>;
         reasoningLevel: z.ZodOptional<z.ZodEnum<{
             none: "none";
@@ -4577,8 +4595,8 @@ declare const threadResumeParamsSchema: z.ZodObject<{
     options: z.ZodIntersection<z.ZodObject<{
         model: z.ZodOptional<z.ZodString>;
         serviceTier: z.ZodOptional<z.ZodEnum<{
-            default: "default";
             fast: "fast";
+            default: "default";
         }>>;
         reasoningLevel: z.ZodOptional<z.ZodEnum<{
             none: "none";
@@ -4634,8 +4652,8 @@ declare const threadForkParamsSchema: z.ZodObject<{
     options: z.ZodIntersection<z.ZodObject<{
         model: z.ZodOptional<z.ZodString>;
         serviceTier: z.ZodOptional<z.ZodEnum<{
-            default: "default";
             fast: "fast";
+            default: "default";
         }>>;
         reasoningLevel: z.ZodOptional<z.ZodEnum<{
             none: "none";
@@ -4801,8 +4819,8 @@ declare const turnStartParamsSchema: z.ZodObject<{
     options: z.ZodIntersection<z.ZodObject<{
         model: z.ZodOptional<z.ZodString>;
         serviceTier: z.ZodOptional<z.ZodEnum<{
-            default: "default";
             fast: "fast";
+            default: "default";
         }>>;
         reasoningLevel: z.ZodOptional<z.ZodEnum<{
             none: "none";
@@ -4929,8 +4947,8 @@ declare const turnSteerParamsSchema: z.ZodObject<{
     options: z.ZodIntersection<z.ZodObject<{
         model: z.ZodOptional<z.ZodString>;
         serviceTier: z.ZodOptional<z.ZodEnum<{
-            default: "default";
             fast: "fast";
+            default: "default";
         }>>;
         reasoningLevel: z.ZodOptional<z.ZodEnum<{
             none: "none";
@@ -6140,8 +6158,8 @@ declare const threadEventNotificationSchema: z.ZodObject<{
             seq: z.ZodOptional<z.ZodNumber>;
             model: z.ZodString;
             serviceTier: z.ZodEnum<{
-                default: "default";
                 fast: "fast";
+                default: "default";
             }>;
             reasoningLevel: z.ZodEnum<{
                 none: "none";
@@ -6335,6 +6353,24 @@ declare const threadEventNotificationSchema: z.ZodObject<{
             }>>;
             metadata: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
         }, z.core.$strip>>;
+    }, z.core.$strip>, z.ZodObject<{
+        type: z.ZodLiteral<"system/childSession/lifecycle">;
+        threadId: z.ZodString;
+        childThreadId: z.ZodString;
+        childKind: z.ZodString;
+        title: z.ZodString;
+        providerId: z.ZodString;
+        model: z.ZodNullable<z.ZodString>;
+        status: z.ZodEnum<{
+            completed: "completed";
+            failed: "failed";
+            interrupted: "interrupted";
+            running: "running";
+            started: "started";
+            "needs-attention": "needs-attention";
+        }>;
+        statusReason: z.ZodNullable<z.ZodString>;
+        outputExcerpt: z.ZodNullable<z.ZodString>;
     }, z.core.$strip>, z.ZodObject<{
         type: z.ZodLiteral<"system/provider-turn-watchdog">;
         threadId: z.ZodString;
