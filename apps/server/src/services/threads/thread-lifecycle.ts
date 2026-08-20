@@ -26,6 +26,7 @@ import {
 import { assertNever } from "@bb/core-ui";
 import {
   type ProvisioningTranscriptEntry,
+  type ClientTurnRequestId,
   type SystemThreadInterruptedReason,
   type Thread,
   type ThreadEventScope,
@@ -99,6 +100,8 @@ import {
 import { hasProvisioningTimelineRow } from "./thread-provisioning-context.js";
 import { isPreStartThreadStatus } from "./thread-status.js";
 import { settleDanglingBackgroundTasksForStoppedThreadInTransaction } from "./background-task-reconciliation.js";
+import { TurnPreflightRejectedError } from "./turn-preflight.js";
+import { dispatchPluginTurnSettled } from "../plugins/plugin-agent-contributions.js";
 
 type ReadyThreadTurnDispatchKind = "thread.start" | "turn.submit";
 type ThreadStartCommand = Awaited<ReturnType<typeof buildThreadStartCommand>>;
@@ -801,16 +804,12 @@ function settleThreadCommandFailure(
     return emptyCommandResultSideEffects();
   }
   if (args.command.type === "turn.submit") {
-    appendThreadEventInTransaction(args.deps.db, {
+    appendTurnRejectedEventInTransaction(args.deps.db, {
       threadId: thread.id,
       environmentId: thread.environmentId,
-      type: "client/turn/rejected",
-      scope: threadScope(),
-      data: {
-        requestId: args.command.requestId,
-        reason: args.report.errorCode,
-        message: args.report.errorMessage,
-      },
+      requestId: args.command.requestId,
+      reason: args.report.errorCode,
+      message: args.report.errorMessage,
     });
   }
   if (hasExpectedTurnCompletedEvent(args.deps, args.command)) {
@@ -831,6 +830,38 @@ function settleThreadCommandFailure(
   if (outcome.applied) {
     args.deps.hub.notifyThread(thread.id, ["status-changed"]);
   }
+  const providerThreadId =
+    args.command.type === "turn.submit"
+      ? args.command.resumeContext.providerThreadId
+      : null;
+  const providerId =
+    args.command.type === "turn.submit"
+      ? args.command.resumeContext.providerId
+      : args.command.providerId;
+  const turnId =
+    args.command.type === "turn.submit" &&
+    "expectedTurnId" in args.command.target
+      ? (args.command.target.expectedTurnId ?? null)
+      : null;
+  postCommitActions.push({
+    name: "Plugin delivery-unknown turn settlement",
+    context: { threadId: thread.id },
+    run: () => {
+      dispatchPluginTurnSettled({
+        threadId: thread.id,
+        turnId,
+        providerThreadId,
+        providerId,
+        requestId: args.command.requestId,
+        outcome: "delivery-unknown",
+        error: args.report.errorMessage,
+        providerCheckpointId: null,
+        startedAt: null,
+        settledAt: Date.now(),
+        turn: null,
+      });
+    },
+  });
   // Forks / side chats are user-initiated branches, not agent-delegated
   // sub-tasks, so a failed turn must not notify their parent thread either.
   if (isParentNotifiableChildThread(thread)) {
@@ -849,6 +880,29 @@ function settleThreadCommandFailure(
     });
   }
   return { postCommitActions };
+}
+
+export function appendTurnRejectedEventInTransaction(
+  db: DbTransaction,
+  args: {
+    threadId: string;
+    environmentId: string | null;
+    requestId: ClientTurnRequestId;
+    reason: string;
+    message: string;
+  },
+): void {
+  appendThreadEventInTransaction(db, {
+    threadId: args.threadId,
+    environmentId: args.environmentId,
+    type: "client/turn/rejected",
+    scope: threadScope(),
+    data: {
+      requestId: args.requestId,
+      reason: args.reason,
+      message: args.message,
+    },
+  });
 }
 
 export function settleThreadStartCommandResult(
@@ -995,6 +1049,7 @@ export async function prepareReadyThreadTurnCommand(
       providerThreadId,
       target: { mode: "start" },
       thread: args.thread,
+      turnDispatch: args.turnDispatch,
     });
     return {
       command: addRequestIdToTurnSubmitCommandPayload({
@@ -1215,9 +1270,34 @@ async function requestThreadStartOnce(
     return;
   }
 
-  const command = await buildThreadStartCommand(deps, {
-    ...args,
-  });
+  let command: ThreadStartCommand;
+  try {
+    command = await buildThreadStartCommand(deps, { ...args });
+  } catch (error) {
+    if (!(error instanceof TurnPreflightRejectedError)) throw error;
+    const currentThread = getThread(deps.db, args.thread.id);
+    if (!currentThread || currentThread.deletedAt !== null) return;
+    deps.db.transaction((tx) => {
+      appendTurnRejectedEventInTransaction(tx, {
+        threadId: currentThread.id,
+        environmentId: currentThread.environmentId,
+        requestId: args.requestId,
+        reason: `plugin:${error.pluginId}:${error.code}`,
+        message: error.message,
+      });
+      applyLoggedThreadLifecycleEventInTransaction(
+        { db: tx, logger: deps.logger },
+        { event: { type: "run.failed" }, threadId: currentThread.id },
+      );
+    });
+    forgetActiveThreadProvisionContext(currentThread.id);
+    deps.hub.notifyThread(
+      currentThread.id,
+      ["events-appended", "status-changed"],
+      { eventTypes: ["client/turn/rejected"], projectId: currentThread.projectId },
+    );
+    return;
+  }
   if (hasLiveThreadStartInFlight(args.thread.id)) {
     return;
   }

@@ -240,11 +240,22 @@ async function startThreadIfEnvironmentReady(
     execution: args.context.request.execution,
     permissionEscalation: resolvePermissionEscalation({
       thread: args.thread,
-      initiator: "user",
+      initiator: args.context.request.initiator,
     }),
     projectId: args.thread.projectId,
     providerId: args.thread.providerId,
     syncGeneratedTitle: !args.context.request.titleProvided,
+    turnDispatch: {
+      requestId: args.context.request.clientRequestId,
+      initiator: args.context.request.initiator,
+      senderThreadId: args.context.request.senderThreadId,
+      trigger: args.context.request.trigger,
+      target: { kind: "thread-start" },
+      input: args.context.request.input,
+      ...(args.context.request.inputGroups !== undefined
+        ? { inputGroups: args.context.request.inputGroups }
+        : {}),
+    },
   });
 }
 
@@ -288,6 +299,8 @@ export function requestThreadProvision(
     ...args,
     clientRequestId: request.requestId,
     input: args.providerInput ?? args.input,
+    initiator,
+    senderThreadId,
     seedWithoutRun: args.startedOnBehalfOf !== null,
   });
   saveThreadProvisionContext({
@@ -357,6 +370,8 @@ export function requestThreadReprovision(
       ? { inputGroups: args.inputGroups }
       : {}),
     provisioningId: args.provisioningId,
+    initiator: args.initiator,
+    senderThreadId: args.senderThreadId,
   });
   saveThreadProvisionContext({
     threadId: args.thread.id,

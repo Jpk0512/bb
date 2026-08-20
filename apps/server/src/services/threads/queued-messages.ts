@@ -9,11 +9,12 @@ import {
   releaseQueuedMessageClaim,
   releaseStaleQueuedMessageClaims,
 } from "@bb/db";
-import type {
-  PromptInput,
-  Thread,
-  ThreadQueuedMessage,
-  ThreadTurnInitiator,
+import {
+  type ClientTurnRequestId,
+  type PromptInput,
+  type Thread,
+  type ThreadQueuedMessage,
+  type ThreadTurnInitiator,
 } from "@bb/domain";
 import type {
   SendMessageRequest,
@@ -41,13 +42,19 @@ import {
   prepareTurnSubmitCommandPayload,
 } from "./thread-commands.js";
 import { resolvePluginMentionContextInputs } from "../plugins/plugin-mentions.js";
-import { appendClientTurnEventInTransaction } from "./thread-events.js";
+import {
+  appendPreparedClientTurnRequestedEventInTransaction,
+  createClientTurnRequestId,
+} from "./thread-events.js";
 import {
   getLastProviderThreadId,
   isManualCompactionActive,
 } from "./thread-events.js";
 import { recoverThreadModelOverride } from "./thread-execution-override.js";
-import { ensureThreadCanStartRequest } from "./thread-lifecycle.js";
+import {
+  appendTurnRejectedEventInTransaction,
+  ensureThreadCanStartRequest,
+} from "./thread-lifecycle.js";
 import { requireReadyThreadEnvironment } from "./thread-turn-dispatch.js";
 import { resolvePermissionEscalation } from "./thread-runtime-config.js";
 import { formatAgentThreadInput, sendThreadMessage } from "./thread-send.js";
@@ -55,6 +62,7 @@ import { recordAcceptedPromptHistoryEntry } from "../prompt-history.js";
 import { requireThreadCommandEnvironment } from "./thread-command-environment.js";
 import { applyLoggedThreadLifecycleEventInTransaction } from "./lifecycle-outcome.js";
 import { applyLoggedEnvironmentLifecycleEvent } from "../environments/lifecycle-outcome.js";
+import { TurnPreflightRejectedError } from "./turn-preflight.js";
 
 interface SendQueuedMessageArgs {
   mode: SendQueuedMessageMode;
@@ -344,16 +352,46 @@ async function sendClaimedQueuedMessageForIdleProviderThread(
   await ensureHostSessionReadyForWork(deps, {
     hostId: environment.hostId,
   });
-  const preparedCommand = await prepareTurnSubmitCommandPayload(deps, {
-    environment,
-    execution,
-    input,
-    ...(inputGroups.length > 1 ? { inputGroups } : {}),
-    permissionEscalation,
-    providerThreadId,
-    target: { mode: "start" },
-    thread,
-  });
+  const requestId: ClientTurnRequestId = createClientTurnRequestId();
+  let preparedCommand: Awaited<
+    ReturnType<typeof prepareTurnSubmitCommandPayload>
+  >;
+  try {
+    preparedCommand = await prepareTurnSubmitCommandPayload(deps, {
+      environment,
+      execution,
+      input,
+      ...(inputGroups.length > 1 ? { inputGroups } : {}),
+      permissionEscalation,
+      providerThreadId,
+      target: { mode: "start" },
+      thread,
+      turnDispatch: {
+        requestId,
+        initiator,
+        senderThreadId,
+        trigger: "queued-auto-send",
+        target: { kind: "new-turn" },
+        input,
+        ...(inputGroups.length > 1 ? { inputGroups } : {}),
+      },
+    });
+  } catch (error) {
+    if (!(error instanceof TurnPreflightRejectedError)) throw error;
+    deps.db.transaction((tx) => {
+      appendTurnRejectedEventInTransaction(tx, {
+        threadId: thread.id,
+        environmentId: thread.environmentId,
+        requestId,
+        reason: `plugin:${error.pluginId}:${error.code}`,
+        message: error.message,
+      });
+    });
+    deps.hub.notifyThread(thread.id, ["events-appended"], {
+      eventTypes: ["client/turn/rejected"],
+    });
+    throw error;
+  }
 
   const command = deps.db.transaction(
     (tx) => {
@@ -363,7 +401,7 @@ async function sendClaimedQueuedMessageForIdleProviderThread(
       if (!consumed) {
         throw createQueuedMessageClaimLostError();
       }
-      const request = appendClientTurnEventInTransaction(tx, {
+      const request = appendPreparedClientTurnRequestedEventInTransaction(tx, {
         environmentId: thread.environmentId,
         execution,
         initiator,
@@ -375,6 +413,7 @@ async function sendClaimedQueuedMessageForIdleProviderThread(
         target: { kind: "new-turn" },
         threadId: thread.id,
         type: "client/turn/requested",
+        requestId,
       });
       recordAcceptedPromptHistoryEntry(
         { db: tx },

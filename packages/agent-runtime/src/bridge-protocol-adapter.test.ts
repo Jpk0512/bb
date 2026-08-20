@@ -317,7 +317,7 @@ describe("translateEvent", () => {
         contextLost: true,
       },
     });
-    expect(events).toHaveLength(1);
+    expect(events).toHaveLength(2);
     expect(events[0]).toMatchObject({
       type: "provider/warning",
       threadId: "thr_1",
@@ -327,6 +327,13 @@ describe("translateEvent", () => {
     expect((events[0] as { summary?: string }).summary).toContain(
       "context was lost",
     );
+    expect(events[1]).toMatchObject({
+      type: "provider/sessionReplaced",
+      threadId: "thr_1",
+      providerThreadId: "p_2",
+      reason: "model change required a session rebuild",
+      contextLost: true,
+    });
   });
 });
 

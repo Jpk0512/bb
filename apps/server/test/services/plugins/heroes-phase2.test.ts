@@ -92,6 +92,7 @@ describe("hero plugin: agent-enrichment (Phase 2 surfaces)", () => {
       requestId: encodeClientTurnRequestIdNumber({ value: 1 }),
       syncGeneratedTitle: false,
       thread,
+      turnDispatch: null,
     });
 
     // Native tool: listed in dynamicTools with the zod-derived JSON schema.

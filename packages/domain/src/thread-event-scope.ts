@@ -142,6 +142,11 @@ export const threadEventScopeDefinitionByType = {
     rationale:
       "Provider warnings use thread scope for config, deprecation, or global notices; turn-specific warnings use turn scope.",
   },
+  "provider/sessionReplaced": {
+    policy: "thread",
+    rationale:
+      "A session replacement changes provider binding state outside a turn transcript.",
+  },
   "provider/modelFallback": {
     policy: "thread-or-turn",
     rationale:

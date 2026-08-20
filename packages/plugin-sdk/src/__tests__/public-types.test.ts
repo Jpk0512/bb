@@ -14,6 +14,7 @@ type ExpectedBbPluginApiKey =
   | "pluginId"
   | "realtime"
   | "rpc"
+  | "runtime"
   | "sdk"
   | "server"
   | "settings"
@@ -23,6 +24,9 @@ type ExpectedBbPluginApiKey =
 
 const EXPECTED_BACKEND_ROOT_TYPE_EXPORTS = [
   "BbPluginApi",
+  "BindingLifecycleHandler",
+  "BindingLifecyclePhase",
+  "BindingLifecycleSignal",
   "PluginAgents",
   "PluginAgentConfiguration",
   "PluginAgentConfigurationContext",
@@ -61,6 +65,7 @@ const EXPECTED_BACKEND_ROOT_TYPE_EXPORTS = [
   "PluginProviderReasoningLevel",
   "PluginRealtime",
   "PluginRealtimeChannelDeclaration",
+  "PluginRuntime",
   "PluginRpc",
   "PluginServerApi",
   "PluginSettingDescriptor",
@@ -76,6 +81,15 @@ const EXPECTED_BACKEND_ROOT_TYPE_EXPORTS = [
   "PluginThreadEventName",
   "PluginThreadEventPayloads",
   "PluginUi",
+  "ProviderEventHandler",
+  "ProviderEventObservation",
+  "TurnPreflightContext",
+  "TurnPreflightDecision",
+  "TurnPreflightHandler",
+  "TurnPreflightTrigger",
+  "TurnSettledHandler",
+  "TurnSettledOutcome",
+  "TurnSettledSignal",
 ] as const;
 
 const EXPECTED_BACKEND_ROOT_VALUE_EXPORTS = [

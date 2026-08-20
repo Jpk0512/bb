@@ -274,6 +274,7 @@ describe("plugin agent contributions reach thread runtime config", () => {
         requestId: encodeClientTurnRequestIdNumber({ value: requestValue }),
         syncGeneratedTitle: false,
         thread,
+        turnDispatch: null,
       });
 
     const command = await buildCommand(1);

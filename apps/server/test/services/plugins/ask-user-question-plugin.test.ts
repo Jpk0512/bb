@@ -87,6 +87,7 @@ describe("ask-user-question builtin plugin", () => {
       }),
       syncGeneratedTitle: false,
       thread,
+      turnDispatch: null,
     });
     return command.dynamicTools;
   }

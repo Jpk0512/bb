@@ -1,3 +1,10 @@
+// Version 131 adds provider/sessionReplaced as a normalized daemon event.
+// It is emitted alongside the existing provider/warning for a bridge's
+// session/replaced notification, preserving structured context-loss facts for
+// server-side runtime hooks. An old daemon cannot emit that event, so the
+// mismatch must trigger its automatic update rather than silently omitting a
+// lifecycle transition.
+//
 // Version 130 makes every provider plugin-declared on the wire. Two changes,
 // both of which an older daemon rejects outright:
 //
@@ -22,7 +29,7 @@
 //
 // The version mismatch is what triggers the enrolled daemon's automatic update
 // instead of an `invalid-message` reconnect loop.
-export const HOST_DAEMON_PROTOCOL_VERSION = 130 as const;
+export const HOST_DAEMON_PROTOCOL_VERSION = 131 as const;
 
 /**
  * Absolute ceiling for any executable artifact delivered to a host daemon —

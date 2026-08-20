@@ -164,6 +164,9 @@ export async function resolveThreadRuntimeCommandConfig(
   deps: LoggedWorkSessionDeps,
   args: ResolveThreadRuntimeCommandConfigArgs,
 ): Promise<ResolvedThreadRuntimeCommandConfig> {
+  // Per-turn plugin preflight runs before this session-construction config.
+  // Tool and skill selection remains owned by configure/spawn-pinned config;
+  // preflight may only affect the current command's input and binding hints.
   const workspacePath = requireWorkspacePath(args.environment);
   const project = getProject(deps.db, args.thread.projectId);
   if (!project) {

@@ -60,6 +60,7 @@ import {
 } from "../lib/lifecycle-api-errors.js";
 import { validatePromptAttachmentReferences } from "../projects/attachments.js";
 import { resolvePluginMentionContextInputs } from "../plugins/plugin-mentions.js";
+import { toTurnPreflightApiError } from "./turn-preflight.js";
 
 type SendThreadMessageMode = SendMessageRequest["mode"];
 type TextPromptInput = Extract<PromptInput, { type: "text" }>;
@@ -514,6 +515,15 @@ export async function sendThreadMessage(
   }
 
   const requestId = createClientTurnRequestId();
+  const turnDispatch = {
+    requestId,
+    initiator,
+    senderThreadId,
+    trigger: args.historyReplacement ? "history-replacement" : args.trigger,
+    target,
+    input,
+    ...(inputGroups !== undefined ? { inputGroups } : {}),
+  } as const;
 
   if (mode === "start") {
     const commandArgs = {
@@ -536,23 +546,29 @@ export async function sendThreadMessage(
       projectId: thread.projectId,
       providerId: thread.providerId,
       syncGeneratedTitle: false,
+      turnDispatch,
     };
-    const command = args.historyReplacement
-      ? {
-          command: await buildThreadStartCommand(deps, {
-            ...commandArgs,
-            fork:
-              args.historyReplacement.forkSourceProviderThreadId === null
-                ? null
-                : {
-                    sourceProviderThreadId:
-                      args.historyReplacement.forkSourceProviderThreadId,
-                  },
-          }),
-          mode: "thread.start" as const,
-          sessionId: "history-replacement",
-        }
-      : await prepareReadyThreadTurnCommand(deps, commandArgs);
+    let command: Awaited<ReturnType<typeof prepareReadyThreadTurnCommand>>;
+    try {
+      command = args.historyReplacement
+        ? {
+            command: await buildThreadStartCommand(deps, {
+              ...commandArgs,
+              fork:
+                args.historyReplacement.forkSourceProviderThreadId === null
+                  ? null
+                  : {
+                      sourceProviderThreadId:
+                        args.historyReplacement.forkSourceProviderThreadId,
+                    },
+            }),
+            mode: "thread.start" as const,
+            sessionId: "history-replacement",
+          }
+        : await prepareReadyThreadTurnCommand(deps, commandArgs);
+    } catch (error) {
+      throw toTurnPreflightApiError(error) ?? error;
+    }
     const queuedRequest = appendAndQueueSendThreadMessageInTransaction({
       beforeAppendInTransaction: ({ tx }) => {
         args.beforeAppendInTransaction?.({ tx });
@@ -630,24 +646,32 @@ export async function sendThreadMessage(
   await ensureHostSessionReadyForWork(deps, {
     hostId: readyEnvironment.hostId,
   });
-  const preparedCommand = await prepareTurnSubmitCommandPayload(deps, {
-    thread,
-    input,
-    ...(inputGroups !== undefined ? { inputGroups } : {}),
-    execution,
-    permissionEscalation,
-    target: {
-      mode,
-      expectedTurnId: expectedSteerTurnId,
-    },
-    environment: {
-      id: readyEnvironment.id,
-      hostId: readyEnvironment.hostId,
-      path: readyEnvironment.path,
-      status: readyEnvironment.status,
-      workspaceProvisionType: readyEnvironment.workspaceProvisionType,
-    },
-  });
+  let preparedCommand: Awaited<
+    ReturnType<typeof prepareTurnSubmitCommandPayload>
+  >;
+  try {
+    preparedCommand = await prepareTurnSubmitCommandPayload(deps, {
+      thread,
+      input,
+      ...(inputGroups !== undefined ? { inputGroups } : {}),
+      execution,
+      permissionEscalation,
+      target: {
+        mode,
+        expectedTurnId: expectedSteerTurnId,
+      },
+      environment: {
+        id: readyEnvironment.id,
+        hostId: readyEnvironment.hostId,
+        path: readyEnvironment.path,
+        status: readyEnvironment.status,
+        workspaceProvisionType: readyEnvironment.workspaceProvisionType,
+      },
+      turnDispatch,
+    });
+  } catch (error) {
+    throw toTurnPreflightApiError(error) ?? error;
+  }
   const command = addRequestIdToTurnSubmitCommandPayload({
     preparedCommand,
     requestId,

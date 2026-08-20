@@ -95,6 +95,7 @@ async function startLiveThreadStartRpc(
     projectId: project.id,
     providerId: thread.providerId,
     syncGeneratedTitle: false,
+    turnDispatch: null,
   });
 
   const startCommand = await waitForQueuedCommand(

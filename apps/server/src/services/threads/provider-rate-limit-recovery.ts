@@ -353,6 +353,8 @@ export async function continueThreadAfterProviderRateLimit(
     projectId: args.thread.projectId,
     providerId: args.thread.providerId,
     syncGeneratedTitle: false,
+    // Recovery is a guarded system continuation, not a new turn decision.
+    turnDispatch: null,
   });
 
   deps.db.transaction(

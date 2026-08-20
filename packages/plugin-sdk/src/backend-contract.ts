@@ -1,6 +1,14 @@
 import type Database from "better-sqlite3";
 import type { Context } from "hono";
 import type * as z from "zod";
+import type {
+  ClientTurnRequestId,
+  PromptInput,
+  ThreadEvent,
+  ThreadEventType,
+  ThreadTurnInitiator,
+  TurnRequestTarget,
+} from "@bb/domain";
 import type { ProviderFork } from "@bb/domain/provider-fork";
 import type { BbSdk } from "@bb/sdk";
 import type { ThreadResponse } from "@bb/server-contract";
@@ -802,6 +810,142 @@ export interface PluginEvents {
 }
 
 // ---------------------------------------------------------------------------
+// Server runtime hooks (Phase 6 / BBF-8).
+// ---------------------------------------------------------------------------
+
+export type TurnPreflightTrigger =
+  | "user"
+  | "auto-dispatch"
+  | "queued-auto-send"
+  | "history-replacement";
+
+/** Server-owned context presented immediately before one provider turn. */
+export interface TurnPreflightContext {
+  threadId: string;
+  projectId: string;
+  environmentId: string;
+  requestId: ClientTurnRequestId;
+  initiator: ThreadTurnInitiator;
+  senderThreadId: string | null;
+  trigger: TurnPreflightTrigger;
+  target: TurnRequestTarget;
+  input: readonly PromptInput[];
+  inputGroups: readonly (readonly PromptInput[])[] | null;
+  binding: {
+    providerId: string;
+    model: string;
+  };
+}
+
+export type TurnPreflightDecision =
+  | { kind: "admit" }
+  | {
+      kind: "admit-with";
+      /** Agent-visible context appended in plugin order. */
+      contextItems?: PromptInput[];
+      /** Single-claim replacement; refused for user-triggered turns. */
+      replaceInput?: PromptInput[];
+      /** Advisory for this command only; does not migrate a provider session. */
+      binding?: { providerId?: string; model?: string };
+      /** Tool and skill selection are intentionally not part of preflight. */
+      tools?: string[];
+      skills?: string[];
+    }
+  | { kind: "reject"; code: string; message: string }
+  | {
+      kind: "require-approval";
+      rendererId: string;
+      title: string;
+      payload: JsonValue;
+      timeoutMs: number;
+    };
+
+export type TurnPreflightHandler = (
+  context: TurnPreflightContext,
+) => TurnPreflightDecision | Promise<TurnPreflightDecision>;
+
+/** One normalized provider event, delivered only after durable insertion. */
+export interface ProviderEventObservation {
+  threadId: string;
+  environmentId: string | null;
+  providerThreadId: string | null;
+  sequence: number;
+  turnId: string | null;
+  scope: ThreadEvent["scope"];
+  event: ThreadEvent;
+}
+
+export type ProviderEventHandler = (
+  observation: ProviderEventObservation,
+) => void | Promise<void>;
+
+export type TurnSettledOutcome =
+  | "completed"
+  | "failed"
+  | "interrupted"
+  | "delivery-unknown"
+  | "provider-session-lost";
+
+/**
+ * Durable turn settlement signal. BBF-6 will populate `turn`; BBF-8 owns the
+ * event and deliberately emits null until the structured turn record exists.
+ */
+export interface TurnSettledSignal {
+  threadId: string;
+  turnId: string | null;
+  providerThreadId: string | null;
+  providerId: string;
+  requestId: ClientTurnRequestId | null;
+  outcome: TurnSettledOutcome;
+  error: string | null;
+  providerCheckpointId: string | null;
+  startedAt: number | null;
+  settledAt: number;
+  turn: null;
+}
+
+export type TurnSettledHandler = (
+  signal: TurnSettledSignal,
+) => void | Promise<void>;
+
+export type BindingLifecyclePhase =
+  | "start"
+  | "resume"
+  | "model-changed"
+  | "session-replaced"
+  | "health-degraded"
+  | "archived"
+  | "crashed";
+
+/** `bindingId` is opaque; BBF-8 derives it without introducing a table. */
+export interface BindingLifecycleSignal {
+  threadId: string;
+  bindingId: string;
+  providerId: string;
+  providerThreadId: string;
+  phase: BindingLifecyclePhase;
+  detail: JsonValue | null;
+}
+
+export type BindingLifecycleHandler = (
+  signal: BindingLifecycleSignal,
+) => void | Promise<void>;
+
+export interface PluginRuntime {
+  /** Async, ordered decision waterfall before provider command construction. */
+  onTurnPreflight(handler: TurnPreflightHandler): void;
+  /** Observe normalized provider events after durable insertion. */
+  onProviderEvent(
+    handler: ProviderEventHandler,
+    options?: { eventTypes?: readonly ThreadEventType[] },
+  ): void;
+  /** Observe durable turn settlement without affecting thread execution. */
+  onTurnSettled(handler: TurnSettledHandler): void;
+  /** Observe provider binding lifecycle changes. */
+  onBindingLifecycle(handler: BindingLifecycleHandler): void;
+}
+
+// ---------------------------------------------------------------------------
 // Server info.
 // ---------------------------------------------------------------------------
 
@@ -900,6 +1044,8 @@ export interface BbPluginApi {
   readonly ui: PluginUi;
   /** Additive plugin lifecycle listeners (design §4.5). */
   readonly events: PluginEvents;
+  /** Server-owned provider runtime hooks (Phase 6 / BBF-8). */
+  readonly runtime: PluginRuntime;
   /** Plugin-reported status (needs-configuration). */
   readonly status: PluginStatusApi;
   /** Read-only facts about the running server (loopback base URL). */

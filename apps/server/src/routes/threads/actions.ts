@@ -579,6 +579,8 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
       permissionEscalation: "deny",
       target: { mode: "auto", expectedTurnId: null },
       thread,
+      // This helper supplies runtime options for thread.goal.clear only.
+      turnDispatch: null,
     });
     const result = await runLiveHostCommand(deps, {
       command: {
