@@ -67,6 +67,7 @@ import {
   onCompactionBegin,
   onCompactionEnd,
   upsertPermissionGrantLifecycleMessage,
+  upsertChildSessionLifecycleMessage,
   upsertUserQuestionLifecycleMessage,
   upsertFileEdit,
   upsertProvisioningOperation,
@@ -194,6 +195,7 @@ function isEventProjectionCallMessage(
     case "permission-grant-lifecycle":
     case "user":
     case "user-question-lifecycle":
+    case "child-session-lifecycle":
     case "workflow":
       return false;
   }
@@ -979,6 +981,10 @@ function buildFlatProjectionData(
       }
       if (operation.kind === "user-question-lifecycle") {
         upsertUserQuestionLifecycleMessage(state, operation);
+        continue;
+      }
+      if (operation.kind === "child-session-lifecycle") {
+        upsertChildSessionLifecycleMessage(state, operation);
         continue;
       }
       state.messages.push(operation);

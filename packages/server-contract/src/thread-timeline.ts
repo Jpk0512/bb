@@ -8,6 +8,7 @@ import {
   promptTextMentionSchema,
   systemMessageKindSchema,
   systemMessageSubjectSchema,
+  systemChildSessionStatusSchema,
   threadTurnInitiatorSchema,
   workflowProgressSnapshotSchema,
   type JsonObject,
@@ -411,6 +412,24 @@ export type TimelineQuestionWorkRow = z.infer<
   typeof timelineQuestionWorkRowSchema
 >;
 
+/** A native, parent-timeline anchor for an independently streamed child. */
+export const timelineChildSessionWorkRowSchema =
+  timelineWorkRowBaseSchema.extend({
+    workKind: z.literal("child-session"),
+    childThreadId: z.string(),
+    childKind: z.string(),
+    title: z.string(),
+    providerId: z.string(),
+    model: z.string().nullable(),
+    childStatus: systemChildSessionStatusSchema,
+    statusReason: z.string().nullable(),
+    outputExcerpt: z.string().nullable(),
+    completedAt: z.number().nullable(),
+  });
+export type TimelineChildSessionWorkRow = z.infer<
+  typeof timelineChildSessionWorkRowSchema
+>;
+
 export interface TimelineDelegationWorkRow extends TimelineWorkRowBase {
   workKind: "delegation";
   callId: string;
@@ -469,6 +488,7 @@ export type TimelineWorkRow =
   | TimelineImageViewWorkRow
   | TimelineApprovalWorkRow
   | TimelineQuestionWorkRow
+  | TimelineChildSessionWorkRow
   | TimelineDelegationWorkRow
   | TimelineWorkflowWorkRow;
 
@@ -481,6 +501,7 @@ export const timelineWorkRowSchema: z.ZodType<TimelineWorkRow> = z.union([
   timelineImageViewWorkRowSchema,
   timelineApprovalWorkRowSchema,
   timelineQuestionWorkRowSchema,
+  timelineChildSessionWorkRowSchema,
   timelineDelegationWorkRowSchema,
   timelineWorkflowWorkRowSchema,
 ]);

@@ -165,6 +165,49 @@ describe("timeline CLI rendering snapshots", () => {
     `);
   });
 
+  it("folds child lifecycle updates across spawn and thread scopes", () => {
+    const event = createTimelineEventFactory({ threadId: "thread-1" });
+    const timeline = renderIdleTimeline([
+      event.turnStarted({ createdAt: 0 }),
+      event.childSessionLifecycle({
+        model: "gpt-5",
+        status: "started",
+        turnId: "turn-1",
+      }),
+      event.turnCompleted({ createdAt: 2 }),
+      event.childSessionLifecycle({
+        outputExcerpt: "Review complete.",
+        status: "completed",
+      }),
+      // A repeated terminal delivery must not reopen or replace the completed
+      // block, even when it carries a conflicting later status.
+      event.childSessionLifecycle({
+        outputExcerpt: "Should not replace the completed result.",
+        status: "failed",
+      }),
+    ]);
+    const childRows = flattenTimelineRows(timeline.rows).filter(
+      (
+        row,
+      ): row is Extract<
+        TimelineRow,
+        { kind: "work"; workKind: "child-session" }
+      > => row.kind === "work" && row.workKind === "child-session",
+    );
+
+    expect(childRows).toHaveLength(1);
+    expect(childRows[0]).toMatchObject({
+      childStatus: "completed",
+      model: "gpt-5",
+      outputExcerpt: "Review complete.",
+      sourceSeqStart: 2,
+      sourceSeqEnd: 5,
+      status: "completed",
+      turnId: "turn-1",
+    });
+    expect(timeline.text).toContain("Review complete.");
+  });
+
   it("truncates audit output only inside conversation and leaf row bodies", () => {
     const event = createTimelineEventFactory({ threadId: "thread-1" });
     const longUserLine = `User message ${"body ".repeat(30).trimEnd()}`;

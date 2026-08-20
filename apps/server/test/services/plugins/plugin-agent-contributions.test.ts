@@ -2,7 +2,12 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createConnection, migrate, type DbConnection } from "@bb/db";
+import {
+  createConnection,
+  createThread,
+  migrate,
+  type DbConnection,
+} from "@bb/db";
 import { encodeClientTurnRequestIdNumber } from "@bb/domain";
 import type { Logger } from "@bb/logger";
 import {
@@ -292,5 +297,88 @@ describe("plugin agent contributions reach thread runtime config", () => {
     expect(
       reloaded.injectedSkillSources.map((source) => source.name),
     ).toContain("late-skill");
+  });
+
+  it("keeps an empty spawn pin authoritative across session resolutions", async () => {
+    const rootDir = await writePlugin(pluginsDir, {
+      name: "bb-plugin-pinned-worker",
+      serverSource: `
+        export default function plugin(bb) {
+          bb.agents.registerTool({
+            name: "pinned_worker_tool",
+            description: "Only present when configure selects it.",
+            parameters: { type: "object" },
+            execute() { return "ok"; },
+          });
+          bb.agents.configure(() => ({
+            tools: ["pinned_worker_tool"],
+            skills: [],
+            instructions: "CONFIGURE MUST NOT RUN FOR THIS WORKER",
+          }));
+        }
+      `,
+    });
+    expect((await harness.pluginService.installPath(rootDir)).status).toBe(
+      "running",
+    );
+    const { host } = seedHostSession(harness.deps, {
+      id: "host-pinned-worker",
+    });
+    const { project } = seedProjectWithSource(harness.deps, {
+      hostId: host.id,
+    });
+    const environment = seedEnvironment(harness.deps, {
+      hostId: host.id,
+      projectId: project.id,
+      path: join(harness.config.dataDir, "pinned-worker-workspace"),
+    });
+    const parent = seedThread(harness.deps, {
+      environmentId: environment.id,
+      projectId: project.id,
+      providerId: "codex",
+    });
+    const worker = createThread(harness.deps.db, harness.deps.hub, {
+      childKind: "dispatch:worker",
+      originPluginId: "pinned-worker",
+      parentThreadId: parent.id,
+      pluginAgentConfiguration: {
+        instructions: null,
+        pluginId: "pinned-worker",
+        skillsJson: "[]",
+        toolsJson: "[]",
+      },
+      projectId: project.id,
+      environmentId: environment.id,
+      providerId: "codex",
+      visibility: "hidden",
+    });
+    const execution = await resolveExecutionOptions(harness.deps, {
+      threadId: worker.id,
+      requestedExecution: { model: "gpt-5", source: "client/turn/requested" },
+    });
+    const buildCommand = (requestValue: number) =>
+      buildThreadStartCommand(harness.deps, {
+        environment,
+        execution,
+        fork: null,
+        permissionEscalation: "ask",
+        input: textInput("work"),
+        projectId: project.id,
+        providerId: "codex",
+        requestId: encodeClientTurnRequestIdNumber({ value: requestValue }),
+        syncGeneratedTitle: false,
+        thread: worker,
+        turnDispatch: null,
+      });
+
+    for (const requestValue of [1, 2]) {
+      const command = await buildCommand(requestValue);
+      expect(command.dynamicTools).not.toContainEqual(
+        expect.objectContaining({ name: "pinned_worker_tool" }),
+      );
+      expect(command.instructions).not.toContain(
+        "CONFIGURE MUST NOT RUN FOR THIS WORKER",
+      );
+    }
   });
 });

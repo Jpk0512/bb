@@ -279,6 +279,7 @@ export function summarizeTimelineWork(
       case "delegation":
         counts.delegations += 1;
         break;
+      case "child-session":
       case "question":
       case "approval":
       case "workflow":
@@ -355,6 +356,7 @@ function approvalStatusSummaryLabel(
         break;
       case "approval":
       case "question":
+      case "child-session":
       case "delegation":
       case "image-view":
       case "web-fetch":
@@ -405,6 +407,7 @@ function getTimelineWorkSummaryCategory(
       return "imageViews";
     case "delegation":
       return "delegations";
+    case "child-session":
     case "approval":
     case "question":
     case "workflow":
@@ -685,6 +688,7 @@ function isSummarizableWorkRow(
   return (
     row.kind === "work" &&
     row.workKind !== "approval" &&
+    row.workKind !== "child-session" &&
     row.workKind !== "question" &&
     row.workKind !== "workflow"
   );
@@ -727,8 +731,9 @@ function rowConcept(row: TimelineViewWorkRow): TimelineWorkSummaryCategory {
       return "imageViews";
     case "approval":
     case "question":
+    case "child-session":
     case "workflow":
-      // Approval, question, and workflow rows aren't summarizable; these branches are
+      // Approval, question, child-session, and workflow rows aren't summarizable; these branches are
       // unreachable in practice because callers filter via isSummarizableWorkRow.
       return "tools";
     default:

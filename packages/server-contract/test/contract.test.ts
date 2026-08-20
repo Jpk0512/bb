@@ -76,6 +76,15 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
   },
   {
     reason:
+      "Plugin child workers alone provide childKind and immutable agentConfiguration; the server validates their hierarchy and plugin-origin preconditions.",
+    fields: [
+      "createThreadRequestSchema.childKind",
+      "createThreadRequestSchema.agentConfiguration",
+      "createThreadRequestSchema.agentConfiguration.instructions",
+    ],
+  },
+  {
+    reason:
       "Fork creation requires only a source thread; all other fields either select an optional behavior or receive an explicit server-boundary default.",
     fields: [
       "forkThreadRequestSchema.agentContextSeed",
@@ -222,6 +231,7 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
       "Thread list queries may omit filters and pagination to include the corresponding unfiltered/default set.",
     fields: [
       "threadListQuerySchema.archived",
+      "threadListQuerySchema.childKind",
       "threadListQuerySchema.sectionId",
       "threadListQuerySchema.limit",
       "threadListQuerySchema.hasParent",
@@ -768,6 +778,45 @@ describe("server-contract canonical schemas", () => {
     });
 
     expect(
+      createThreadRequestSchema.parse({
+        projectId: "proj_123",
+        providerId: "codex",
+        origin: "plugin",
+        originPluginId: "dispatch",
+        parentThreadId: "thr_parent",
+        childKind: "dispatch:worker",
+        agentConfiguration: {
+          tools: [],
+          skills: [],
+        },
+        input: [{ type: "text", text: "Work independently" }],
+        environment: {
+          type: "host",
+          hostId: "host_abc",
+          workspace: { type: "unmanaged", path: null },
+        },
+      }),
+    ).toMatchObject({
+      agentConfiguration: { skills: [], tools: [] },
+      childKind: "dispatch:worker",
+    });
+
+    expect(() =>
+      createThreadRequestSchema.parse({
+        projectId: "proj_123",
+        providerId: "codex",
+        origin: "app",
+        childKind: "dispatch:worker",
+        input: [{ type: "text", text: "Invalid child" }],
+        environment: {
+          type: "host",
+          hostId: "host_abc",
+          workspace: { type: "unmanaged", path: null },
+        },
+      }),
+    ).toThrow();
+
+    expect(
       sendMessageRequestSchema.parse({
         input: [{ type: "text", text: "Follow up" }],
         mode: "queue-if-active",
@@ -835,6 +884,7 @@ describe("server-contract canonical schemas", () => {
           sourceThreadId: null,
           originKind: null,
           originPluginId: null,
+          childKind: null,
           visibility: "visible",
           archivedAt: null,
           pinnedAt: null,

@@ -45,6 +45,7 @@ import {
 } from "../services/system/event-pruning.js";
 import { queueChildThreadTurnNotificationBestEffort } from "../services/threads/child-thread-notifications.js";
 import { isParentNotifiableChildThread } from "../services/threads/thread-parent.js";
+import { getLastThreadOutput } from "../services/threads/thread-data.js";
 import { runQueuedMessageAutoSendForThread } from "../services/threads/queued-messages.js";
 import { deferAfterResponse } from "../services/lib/response-deferral.js";
 import {
@@ -59,7 +60,10 @@ import {
   dispatchPluginTurnSettled,
   findPluginAgentTool,
 } from "../services/plugins/plugin-agent-contributions.js";
-import { getLastProviderThreadId } from "../services/threads/thread-events.js";
+import {
+  appendChildSessionLifecycleEvent,
+  getLastProviderThreadId,
+} from "../services/threads/thread-events.js";
 import {
   getInactiveSessionLogFields,
   requireAuthenticatedDaemonSession,
@@ -91,6 +95,9 @@ interface RejectedDaemonEventSummary {
   count: number;
   threadIds: string[];
 }
+
+const CHILD_SESSION_OUTPUT_EXCERPT_CHAR_LIMIT = 4_000;
+const CHILD_SESSION_OUTPUT_TRUNCATION_MARKER = "\n\n[... output truncated ...]";
 
 interface ResolveEventsToApplyArgs {
   db: AppDeps["db"];
@@ -247,6 +254,7 @@ function resolveProviderIdentifiers(event: HostDaemonEventEnvelope["event"]): {
     case "system/permissionGrant/lifecycle":
     case "system/userQuestion/lifecycle":
     case "system/thread-provisioning":
+    case "system/childSession/lifecycle":
     case "system/provider-turn-watchdog":
       return { providerThreadId: null };
     case "thread/identity":
@@ -580,6 +588,52 @@ function addParentTurnNotificationFollowUp(
   });
 }
 
+function appendChildSessionLifecycleUpdate(
+  deps: Pick<LoggedPendingInteractionWorkSessionDeps, "db" | "hub">,
+  args: {
+    outputExcerpt?: string | null;
+    status: "running" | "completed" | "failed" | "interrupted";
+    statusReason?: string | null;
+    thread: NonNullable<ReturnType<typeof getThread>>;
+  },
+): void {
+  const { thread } = args;
+  if (thread.parentThreadId === null || thread.childKind === null) {
+    return;
+  }
+  appendChildSessionLifecycleEvent(deps, {
+    childKind: thread.childKind,
+    childThreadId: thread.id,
+    model: null,
+    outputExcerpt: args.outputExcerpt ?? null,
+    parentThreadId: thread.parentThreadId,
+    providerId: thread.providerId,
+    scope: "thread",
+    status: args.status,
+    statusReason: args.statusReason ?? null,
+    title: thread.title ?? thread.titleFallback ?? "Child session",
+  });
+}
+
+function childSessionOutputExcerpt(
+  deps: Pick<LoggedPendingInteractionWorkSessionDeps, "db">,
+  childThreadId: string,
+): string | null {
+  const output = getLastThreadOutput(deps.db, childThreadId)?.trim();
+  if (!output) {
+    return null;
+  }
+  if (output.length <= CHILD_SESSION_OUTPUT_EXCERPT_CHAR_LIMIT) {
+    return output;
+  }
+  const retainedLength = Math.max(
+    0,
+    CHILD_SESSION_OUTPUT_EXCERPT_CHAR_LIMIT -
+      CHILD_SESSION_OUTPUT_TRUNCATION_MARKER.length,
+  );
+  return `${output.slice(0, retainedLength).trimEnd()}${CHILD_SESSION_OUTPUT_TRUNCATION_MARKER}`;
+}
+
 async function applyEventEffects(
   deps: LoggedPendingInteractionWorkSessionDeps,
   events: HostDaemonEventEnvelope[],
@@ -617,6 +671,13 @@ async function applyEventEffects(
           event: { type: "run.started" },
           threadId: entry.threadId,
         });
+        const thread = getThread(deps.db, entry.threadId);
+        if (thread) {
+          appendChildSessionLifecycleUpdate(deps, {
+            status: "running",
+            thread,
+          });
+        }
         continue;
       }
 
@@ -638,6 +699,21 @@ async function applyEventEffects(
           ...event,
           threadId: entry.threadId,
         });
+        if (turnCompleted.thread && turnCompleted.isRootTurnCompletion) {
+          appendChildSessionLifecycleUpdate(deps, {
+            outputExcerpt: childSessionOutputExcerpt(
+              deps,
+              turnCompleted.thread.id,
+            ),
+            status:
+              event.status === "completed"
+                ? "completed"
+                : event.status === "failed"
+                  ? "failed"
+                  : "interrupted",
+            thread: turnCompleted.thread,
+          });
+        }
         if (
           turnCompleted.thread &&
           turnCompleted.isRootTurnCompletion &&
@@ -693,6 +769,12 @@ async function applyEventEffects(
           threadId: entry.threadId,
         });
         if (outcome.applied) {
+          appendChildSessionLifecycleUpdate(deps, {
+            outputExcerpt: childSessionOutputExcerpt(deps, thread.id),
+            status: "failed",
+            statusReason: event.message,
+            thread,
+          });
           addParentTurnNotificationFollowUp({
             failedParentNotificationThreadIds,
             followUps,

@@ -611,14 +611,18 @@ describe("@bb/sdk", () => {
     });
 
     await expect(
-      sdk.threads.list({ archived: true, projectId: "proj_123" }),
+      sdk.threads.list({
+        archived: true,
+        childKind: "dispatch:worker",
+        projectId: "proj_123",
+      }),
     ).resolves.toEqual([]);
 
     expect(queue.requests).toEqual([
       {
         bodyText: undefined,
         method: "GET",
-        url: "http://bb.test/api/v1/threads?projectId=proj_123&archived=true",
+        url: "http://bb.test/api/v1/threads?projectId=proj_123&childKind=dispatch%3Aworker&archived=true",
       },
     ]);
   });

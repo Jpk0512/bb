@@ -13,6 +13,7 @@ import type { BaseBranchSpec } from "@bb/server-contract";
 import type { AppDeps } from "../../types.js";
 import { ApiError } from "../../errors.js";
 import { emitPluginThreadCreated } from "../plugins/plugin-thread-events.js";
+import { appendChildSessionLifecycleEvent } from "./thread-events.js";
 import type { ThreadCreateServiceRequest } from "./thread-create-request.js";
 import { sanitizeGeneratedBranchSlug } from "./title-generation.js";
 
@@ -184,9 +185,12 @@ export function createThreadRecord(
       ...(args.request.agentConfiguration && args.request.originPluginId
         ? {
             pluginAgentConfiguration: {
-              instructions: args.request.agentConfiguration.instructions ?? null,
+              instructions:
+                args.request.agentConfiguration.instructions ?? null,
               pluginId: args.request.originPluginId,
-              skillsJson: JSON.stringify(args.request.agentConfiguration.skills),
+              skillsJson: JSON.stringify(
+                args.request.agentConfiguration.skills,
+              ),
               toolsJson: JSON.stringify(args.request.agentConfiguration.tools),
             },
           }
@@ -195,6 +199,20 @@ export function createThreadRecord(
       status: args.status ?? "starting",
     });
     emitPluginThreadCreated(thread);
+    if (thread.parentThreadId !== null && thread.childKind !== null) {
+      appendChildSessionLifecycleEvent(deps, {
+        childKind: thread.childKind,
+        childThreadId: thread.id,
+        model: args.request.model ?? null,
+        outputExcerpt: null,
+        parentThreadId: thread.parentThreadId,
+        providerId: thread.providerId,
+        scope: "spawn",
+        status: "started",
+        statusReason: null,
+        title: thread.title ?? thread.titleFallback ?? "Child session",
+      });
+    }
     return thread;
   } catch (error) {
     if (

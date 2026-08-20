@@ -204,6 +204,11 @@ export const threadEventScopeDefinitionByType = {
     rationale:
       "Workspace provisioning lifecycle event; environment setup belongs to the thread, not a turn.",
   },
+  "system/childSession/lifecycle": {
+    policy: "thread-or-turn",
+    rationale:
+      "The spawn is anchored to its delegation turn, while a child can outlive that turn and later status updates must remain thread-scoped.",
+  },
   "system/provider-turn-watchdog": {
     policy: "thread",
     rationale:

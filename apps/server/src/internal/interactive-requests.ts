@@ -15,6 +15,7 @@ import { ApiError } from "../errors.js";
 import { deferAfterResponse } from "../services/lib/response-deferral.js";
 import { requireThreadEnvironment } from "../services/lib/entity-lookup.js";
 import { queueChildThreadNeedsAttentionNotificationBestEffort } from "../services/threads/child-thread-notifications.js";
+import { appendChildSessionLifecycleEvent } from "../services/threads/thread-events.js";
 import { requireAuthenticatedDaemonSession } from "./session-state.js";
 
 interface RequestChildThreadNeedsAttentionNotificationArgs {
@@ -90,6 +91,21 @@ function requestChildThreadNeedsAttentionNotification(
     return;
   }
   const parentThreadId = childThread.parentThreadId;
+
+  if (childThread.childKind !== null) {
+    appendChildSessionLifecycleEvent(deps, {
+      childKind: childThread.childKind,
+      childThreadId: childThread.id,
+      model: null,
+      outputExcerpt: args.blockerSummary,
+      parentThreadId,
+      providerId: childThread.providerId,
+      scope: "thread",
+      status: "needs-attention",
+      statusReason: args.blockerSummary,
+      title: childThread.title ?? childThread.titleFallback ?? "Child session",
+    });
+  }
 
   deferAfterResponse({
     config: deps.config,

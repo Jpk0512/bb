@@ -240,6 +240,24 @@ interface SystemThreadInterruptedArgs extends EventFactoryRowOptions {
   reason?: SystemThreadInterruptedReason;
 }
 
+interface ChildSessionLifecycleArgs extends EventFactoryRowOptions {
+  childKind?: string;
+  childThreadId?: string;
+  model?: string | null;
+  outputExcerpt?: string | null;
+  providerId?: string;
+  status?:
+    | "started"
+    | "running"
+    | "needs-attention"
+    | "completed"
+    | "failed"
+    | "interrupted";
+  statusReason?: string | null;
+  title?: string;
+  turnId?: string;
+}
+
 interface PermissionGrantLifecycleArgs extends DefaultTurnEventOptions {
   interactionId?: string;
   itemId?: string;
@@ -269,6 +287,9 @@ interface WarningArgs extends EventFactoryRowOptions {
 }
 
 export interface TimelineEventFactory {
+  childSessionLifecycle(
+    args?: ChildSessionLifecycleArgs,
+  ): ThreadEventRowOfType<"system/childSession/lifecycle">;
   assistantDelta(
     args: AssistantDeltaArgs,
   ): ThreadEventRowOfType<"item/agentMessage/delta">;
@@ -515,6 +536,29 @@ export function createTimelineEventFactory(
   }
 
   return {
+    childSessionLifecycle(args = {}) {
+      const base =
+        args.turnId === undefined
+          ? nextThreadScopedRowBase("child-session-lifecycle", args)
+          : {
+              ...nextRowBase("child-session-lifecycle", args),
+              scope: turnScope(args.turnId),
+            };
+      return {
+        ...base,
+        type: "system/childSession/lifecycle",
+        data: {
+          childThreadId: args.childThreadId ?? "thr_child",
+          childKind: args.childKind ?? "dispatch:worker",
+          title: args.title ?? "Worker",
+          providerId: args.providerId ?? "codex",
+          model: args.model ?? null,
+          status: args.status ?? "started",
+          statusReason: args.statusReason ?? null,
+          outputExcerpt: args.outputExcerpt ?? null,
+        },
+      };
+    },
     assistantDelta(args) {
       const base = nextProviderTurnScopedRowBase("assistant-delta", args);
       return {

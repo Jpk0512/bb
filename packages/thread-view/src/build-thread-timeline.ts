@@ -749,6 +749,24 @@ function convertMessage(
           statusReason: message.statusReason,
         },
       ];
+    case "child-session-lifecycle":
+      return [
+        {
+          ...buildTimelineRowBase(message, options.rowIdPrefix),
+          kind: "work",
+          workKind: "child-session",
+          status: message.status,
+          childThreadId: message.childThreadId,
+          childKind: message.childKind,
+          title: message.title,
+          providerId: message.providerId,
+          model: message.model,
+          childStatus: message.childStatus,
+          statusReason: message.statusReason,
+          outputExcerpt: message.outputExcerpt,
+          completedAt: message.completedAt,
+        },
+      ];
     case "operation": {
       const parentChange = parentChangeForMessage(message);
       const operationKind = operationKindForMessage(message, parentChange);

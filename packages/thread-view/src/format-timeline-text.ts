@@ -319,6 +319,13 @@ function formatWorkBody(
     case "question":
     case "workflow":
       return lines;
+    case "child-session":
+      if (row.outputExcerpt) {
+        lines.push(formatWorkOutput(row.outputExcerpt, context.color));
+      } else if (row.statusReason) {
+        lines.push(formatWorkOutput(row.statusReason, context.color));
+      }
+      return lines;
     case "delegation":
       if (row.childRows.length > 0) {
         lines.push(

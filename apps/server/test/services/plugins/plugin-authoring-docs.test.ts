@@ -83,6 +83,45 @@ const _assertAllApiKeysListed: MissingApiKey extends never ? true : never =
 void _assertAllApiKeysListed;
 
 /**
+ * BBF-5 child workers are created through the existing plugin SDK spawn
+ * method. Keep their additive request contract and configure context pinned
+ * to the authoring skill even though neither is a new top-level API member.
+ */
+type PluginThreadSpawnRequest = Parameters<
+  BbPluginApi["sdk"]["threads"]["spawn"]
+>[0];
+type PluginChildAgentConfiguration = NonNullable<
+  PluginThreadSpawnRequest["agentConfiguration"]
+>;
+type PluginAgentConfigurationThread = Parameters<
+  BbPluginApi["agents"]["configure"]
+>[0] extends (context: infer Context) => unknown
+  ? Context extends { thread: infer Thread }
+    ? Thread
+    : never
+  : never;
+
+const CHILD_SESSION_SPAWN_FIELDS = [
+  "parentThreadId",
+  "childKind",
+  "agentConfiguration",
+] as const satisfies readonly (keyof PluginThreadSpawnRequest)[];
+
+const CHILD_AGENT_CONFIGURATION_FIELDS = [
+  "tools",
+  "skills",
+  "instructions",
+] as const satisfies readonly (keyof PluginChildAgentConfiguration)[];
+
+const AGENT_CONFIGURATION_THREAD_FIELDS = [
+  "id",
+  "title",
+  "parentThreadId",
+  "childKind",
+  "sourceThreadId",
+] as const satisfies readonly (keyof PluginAgentConfigurationThread)[];
+
+/**
  * Mirrors PluginSettingDescriptor["type"]
  * (packages/plugin-sdk/src/backend-contract.ts) — types only, so the union is
  * mirrored here and compile-time checked in both directions like
@@ -375,6 +414,25 @@ describe("bb-plugin-authoring skill", () => {
       expect(skill, `bb.${key} is not documented in the skill`).toContain(
         `bb.${key}`,
       );
+    }
+  });
+
+  it("documents child-session spawning and configuration contracts", () => {
+    for (const field of CHILD_SESSION_SPAWN_FIELDS) {
+      expect(skill, `threads.spawn.${field} is not documented`).toContain(
+        field,
+      );
+    }
+    for (const field of CHILD_AGENT_CONFIGURATION_FIELDS) {
+      expect(skill, `agentConfiguration.${field} is not documented`).toContain(
+        field,
+      );
+    }
+    for (const field of AGENT_CONFIGURATION_THREAD_FIELDS) {
+      expect(
+        skill,
+        `agents.configure context.thread.${field} is not documented`,
+      ).toContain(field);
     }
   });
 
