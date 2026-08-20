@@ -199,7 +199,7 @@ registration record so fields without a registry consumer yet
    (`experimental_providerBridge`), built into `dist/host.js`, recorded in the
    one live-host-artifact registry, served by the one host artifact route, and
    cached once per plugin on the daemon. Thread commands carry `bridgeLaunch
-   {pluginId, source: {kind: "artifact", digest, byteLength}}`. Pi is the one
+{pluginId, source: {kind: "artifact", digest, byteLength}}`. Pi is the one
    provider whose bridge stays daemon-bundled
    (`DAEMON_BUNDLED_PROVIDER_BRIDGE_IDS`); every other provider, first-party or
    not, arrives as an artifact. Before stabilizing: confirm one artifact per
@@ -559,6 +559,26 @@ reimplementing it, and `indicatorLabel` carries the matching accessible string.
    forward-compatible shape, or it should narrow to a named handler; and
    exposing the full `panes` array does not leak more layout state than a row
    needs.
+
+## `app.slots.experimental_notificationBody` (`@get-bb/plugin-sdk/app`)
+
+**What it does.** Lets a plugin render structured, read-only detail inside its
+own native Inbox row. The host still owns notification title, thread target,
+Open, Dismiss, unread state, navigation, and crash containment. Register
+`{ id, component }`; `id` must equal the notification's `rendererId`.
+
+**Audit before stabilizing.**
+
+1. **Payload boundary.** Confirm the limited notification view (identity,
+   title/body, category, timestamps, and JSON payload) remains sufficient
+   without exposing the entire target thread or an SDK handle to the renderer.
+2. **Row budget.** A plugin body is embedded in a grouped inbox list. Decide
+   whether the host should impose height limits or progressive disclosure for
+   many large findings.
+3. **Ownership.** Confirm `pluginId` plus `rendererId` is enough to prevent
+   one plugin from claiming another plugin's notification body.
+4. **Failures.** Each body is isolated with `PluginSlotMount`; verify that the
+   fallback remains useful while Open and Dismiss continue to work.
 
 ## `app.slots.experimental_threadHeaderAction` (`@get-bb/plugin-sdk/app`)
 

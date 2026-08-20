@@ -223,6 +223,7 @@ type ExpectedBbSdkKey =
   | "files"
   | "guide"
   | "hosts"
+  | "notifications"
   | "plugins"
   | "projects"
   | "providers"
@@ -236,6 +237,8 @@ type ExpectedBbSdkKey =
   | "threads";
 
 type ExpectedRealtimeKey = "subscribe";
+
+type ExpectedNotificationsKey = "create" | "dismiss" | "list" | "open" | "read";
 
 type ExpectedEnvironmentsKey =
   | "archiveThreads"
@@ -299,11 +302,7 @@ type ExpectedPluginsKey =
   | "token"
   | "updateSettings";
 
-type ExpectedPluginCatalogKey =
-  | "install"
-  | "installPlan"
-  | "search"
-  | "status";
+type ExpectedPluginCatalogKey = "install" | "installPlan" | "search" | "status";
 
 type ExpectedPluginMarketplacesKey = "add" | "list" | "refresh" | "remove";
 
@@ -378,6 +377,7 @@ type ExpectedThreadsKey =
   | "promptHistory"
   | "queuedMessages"
   | "rateLimitRecovery"
+  | "reveal"
   | "reorderPinned"
   | "resolveMentions"
   | "search"
@@ -506,6 +506,9 @@ describe("SDK public type entrypoints", () => {
     expectTypeOf<
       keyof RootBbSdk["plugins"]["marketplaces"]
     >().toEqualTypeOf<ExpectedPluginMarketplacesKey>();
+    expectTypeOf<
+      keyof RootBbSdk["notifications"]
+    >().toEqualTypeOf<ExpectedNotificationsKey>();
     expectTypeOf<
       keyof RootBbSdk["projects"]
     >().toEqualTypeOf<ExpectedProjectsKey>();

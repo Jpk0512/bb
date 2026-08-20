@@ -27,6 +27,7 @@ import {
   archiveThread,
   markThreadDeleted,
   markThreadAttentionRequested,
+  revealThread,
   pinThread,
   reorderPinnedThread,
   unpinThread,
@@ -141,6 +142,42 @@ describe("threads", () => {
     const fetched = getThread(db, thread.id);
     expect(fetched?.visibility).toBe("visible");
     expect(fetched).toMatchObject({ id: thread.id });
+  });
+
+  it("reveals only explicitly requested thread dispositions", () => {
+    const { db, project } = setup();
+    const thread = createThread(db, noopNotifier, {
+      projectId: project.id,
+      providerId: "codex",
+      visibility: "hidden",
+    });
+    archiveThread(db, noopNotifier, thread.id);
+
+    const noOptions = revealThread(db, noopNotifier, {
+      threadId: thread.id,
+    });
+    expect(noOptions).toMatchObject({
+      restored: { unarchived: false, unhidden: false },
+      thread: { archivedAt: expect.any(Number), visibility: "hidden" },
+    });
+
+    const unarchiveOnly = revealThread(db, noopNotifier, {
+      threadId: thread.id,
+      unarchive: true,
+    });
+    expect(unarchiveOnly).toMatchObject({
+      restored: { unarchived: true, unhidden: false },
+      thread: { archivedAt: null, visibility: "hidden" },
+    });
+
+    const unhideOnly = revealThread(db, noopNotifier, {
+      threadId: thread.id,
+      unhide: true,
+    });
+    expect(unhideOnly).toMatchObject({
+      restored: { unarchived: false, unhidden: true },
+      thread: { archivedAt: null, visibility: "visible" },
+    });
   });
 
   it("resolves only exact non-deleted mention thread rows", () => {

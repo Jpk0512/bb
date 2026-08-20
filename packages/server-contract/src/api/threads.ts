@@ -617,6 +617,28 @@ export const threadOpenResponseSchema = z.object({
 });
 export type ThreadOpenResponse = z.infer<typeof threadOpenResponseSchema>;
 
+/** Request body for POST /threads/:id/reveal. Both repairs are opt-in. */
+export const threadRevealRequestSchema = z
+  .object({
+    unhide: z.boolean().optional(),
+    unarchive: z.boolean().optional(),
+  })
+  .strict();
+export type ThreadRevealRequest = z.infer<typeof threadRevealRequestSchema>;
+
+export const threadRevealResponseSchema = z
+  .object({
+    thread: threadWithRuntimeSchema,
+    restored: z
+      .object({
+        unhidden: z.boolean(),
+        unarchived: z.boolean(),
+      })
+      .strict(),
+  })
+  .strict();
+export type ThreadRevealResponse = z.infer<typeof threadRevealResponseSchema>;
+
 /** Presentation action for one thread pane in each connected app window. */
 export const threadPaneActionSchema = z.enum([
   "maximize",

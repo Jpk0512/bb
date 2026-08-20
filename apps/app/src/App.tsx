@@ -27,6 +27,7 @@ import {
   LEGACY_TOOLS_PREFIX_ROUTE_PATH,
   LEGACY_TOOLS_SKILL_DETAIL_ROUTE_PATH,
   LEGACY_TOOLS_SPLAT_ROUTE_PATH,
+  INBOX_ROUTE_PATH,
   PROJECT_ARCHIVED_ROUTE_PATH,
   PROJECTLESS_ARCHIVED_ROUTE_PATH,
   PROJECT_SETTINGS_ROUTE_PATH,
@@ -63,6 +64,11 @@ const SettingsView = lazy(() =>
 const ToolsView = lazy(() =>
   import("./views/ToolsView").then((m) => ({
     default: m.ToolsView,
+  })),
+);
+const InboxView = lazy(() =>
+  import("./views/InboxView").then((m) => ({
+    default: m.InboxView,
   })),
 );
 const MachineSettingsView = lazy(() =>
@@ -287,6 +293,7 @@ function AppRoutes() {
             path={TOOLS_ROUTE_PATH}
             element={<ExtensionsLandingRedirect />}
           />
+          <Route path={INBOX_ROUTE_PATH} element={<InboxView />} />
           <Route
             path={LEGACY_TOOLS_PREFIX_ROUTE_PATH}
             element={<LegacyToolsPathRedirect />}

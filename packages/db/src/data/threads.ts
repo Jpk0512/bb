@@ -36,6 +36,7 @@ import type { DbQueryConnection } from "../connection.js";
 import type { DbNotifier } from "../notifier.js";
 import {
   environments,
+  notifications,
   pendingInteractions,
   projects,
   threadSearchSegments,
@@ -555,6 +556,7 @@ function threadWithPendingInteractionBaseQuery(db: DbConnection) {
       environmentName: environments.name,
       environmentWorkspaceProvisionType: environments.workspaceProvisionType,
       hasPendingInteraction: sql<number>`EXISTS (SELECT 1 FROM ${pendingInteractions} WHERE ${pendingInteractions.threadId} = ${threads.id} AND ${pendingInteractions.status} = 'pending')`,
+      unreadNotificationCount: sql<number>`(SELECT COUNT(*) FROM ${notifications} WHERE ${notifications.threadId} = ${threads.id} AND ${notifications.readAt} IS NULL AND ${notifications.dismissedAt} IS NULL)`,
     })
     .from(threads)
     .leftJoin(environments, eq(threads.environmentId, environments.id));
@@ -593,6 +595,7 @@ export interface ThreadWithPendingInteractionState extends ThreadRow {
   environmentHostId: string | null;
   environmentName: string | null;
   hasPendingInteraction: boolean;
+  unreadNotificationCount: number;
   environmentWorkspaceDisplayKind: EnvironmentWorkspaceDisplayKind;
 }
 
@@ -603,6 +606,7 @@ interface ThreadWithPendingInteractionStateRow extends ThreadRow {
   environmentName: string | null;
   environmentWorkspaceProvisionType: WorkspaceProvisionType | null;
   hasPendingInteraction: number;
+  unreadNotificationCount: number;
 }
 
 export interface CountLiveThreadsInEnvironmentArgs {
@@ -642,6 +646,20 @@ export interface MarkThreadDeletedArgs {
 
 export interface MarkThreadAttentionRequestedArgs {
   threadId: string;
+}
+
+export interface RevealThreadArgs {
+  threadId: string;
+  unarchive?: boolean;
+  unhide?: boolean;
+}
+
+export interface RevealThreadResult {
+  restored: {
+    unarchived: boolean;
+    unhidden: boolean;
+  };
+  thread: ThreadRow;
 }
 
 export interface ListThreadEnvironmentAssignmentsOnHostArgs {
@@ -794,6 +812,7 @@ function toThreadWithPendingInteractionState(
     environmentHostId,
     environmentName,
     hasPendingInteraction,
+    unreadNotificationCount,
     ...thread
   } = row;
   return {
@@ -808,6 +827,7 @@ function toThreadWithPendingInteractionState(
       },
     }),
     hasPendingInteraction: hasPendingInteraction > 0,
+    unreadNotificationCount,
   };
 }
 
@@ -1896,6 +1916,57 @@ export function markThreadAttentionRequested(
     });
   }
   return updated ?? null;
+}
+
+/**
+ * Restores only the dispositions the caller explicitly requests. Hidden
+ * plugin workers stay hidden unless `unhide` is true; archived user threads
+ * stay archived unless `unarchive` is true.
+ */
+export function revealThread(
+  db: ThreadWriteConnection,
+  notifier: DbNotifier,
+  args: RevealThreadArgs,
+): RevealThreadResult | null {
+  const existing = db
+    .select()
+    .from(threads)
+    .where(eq(threads.id, args.threadId))
+    .get();
+  if (!existing) {
+    return null;
+  }
+
+  const unhidden = args.unhide === true && existing.visibility === "hidden";
+  const unarchived =
+    args.unarchive === true && existing.archivedAt !== null;
+  if (!unhidden && !unarchived) {
+    return {
+      restored: { unarchived: false, unhidden: false },
+      thread: existing,
+    };
+  }
+
+  const changes: ThreadChangeKind[] = [];
+  if (unhidden) changes.push("title-changed");
+  if (unarchived) changes.push("archived-changed");
+  const updated = db
+    .update(threads)
+    .set({
+      ...(unhidden ? { visibility: "visible" as const } : {}),
+      ...(unarchived ? { archivedAt: null } : {}),
+      updatedAt: Date.now(),
+    })
+    .where(eq(threads.id, args.threadId))
+    .returning()
+    .get();
+  if (!updated) {
+    return null;
+  }
+  notifier.notifyThread(args.threadId, changes, {
+    projectId: existing.projectId,
+  });
+  return { restored: { unarchived, unhidden }, thread: updated };
 }
 
 export function deleteThread(

@@ -16,6 +16,7 @@ import { ApiError, errorToResponse } from "./errors.js";
 import { registerEnvironmentRoutes } from "./routes/environments.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerHostRoutes } from "./routes/hosts.js";
+import { registerNotificationRoutes } from "./routes/notifications.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerThreadSectionRoutes } from "./routes/thread-sections.js";
 import { registerSystemRoutes } from "./routes/system.js";
@@ -477,6 +478,7 @@ export function createApp(
     warn: (message) => deps.logger.warn(message),
   });
   registerProjectRoutes(publicApi, deps);
+  registerNotificationRoutes(publicApi, deps);
   registerThreadSectionRoutes(publicApi, deps);
   registerFileRoutes(publicApi, deps);
   registerHostRoutes(publicApi, deps, pluginService);

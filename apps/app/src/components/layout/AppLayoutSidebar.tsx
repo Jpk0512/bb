@@ -2,9 +2,10 @@ import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import { AppSidebar } from "@/components/sidebar/AppSidebar";
 import { SettingsSidebar } from "@/components/settings/SettingsSidebar";
 import { ToolsSidebar } from "@/components/tools/ToolsSidebar";
+import { InboxSidebar } from "@/components/inbox/InboxSidebar";
 import { useSidebar } from "@/components/ui/sidebar.js";
 
-export type AppLayoutSidebarMode = "app" | "settings" | "tools";
+export type AppLayoutSidebarMode = "app" | "settings" | "tools" | "inbox";
 
 interface AppLayoutSidebarProps {
   mode: AppLayoutSidebarMode;
@@ -13,6 +14,7 @@ interface AppLayoutSidebarProps {
   appRoutePath: string;
   settingsRoutePath: string;
   toolsBackRoutePath: string;
+  inboxBackRoutePath?: string;
   toolsRoutePath?: string;
 }
 
@@ -31,6 +33,7 @@ export function AppLayoutSidebar({
   appRoutePath,
   settingsRoutePath,
   toolsBackRoutePath,
+  inboxBackRoutePath,
   toolsRoutePath,
 }: AppLayoutSidebarProps) {
   const { isCompactViewport, isMobileSidebarClosing } = useSidebar();
@@ -61,6 +64,17 @@ export function AppLayoutSidebar({
         isResizing={isResizing}
         showTopReserve={true}
         appRoutePath={toolsBackRoutePath}
+      />
+    );
+  }
+
+  if (renderedMode === "inbox") {
+    return (
+      <InboxSidebar
+        onResizeMouseDown={onResizeMouseDown}
+        isResizing={isResizing}
+        showTopReserve={true}
+        appRoutePath={inboxBackRoutePath ?? appRoutePath}
       />
     );
   }

@@ -62,6 +62,7 @@ import {
 } from "./thread-list-cache-data";
 import {
   allHostQueryKeyPrefix,
+  allNotificationListQueryKeyPrefix,
   allPluginCatalogSearchQueryKeyPrefix,
   allPluginContributionsQueryKeyPrefix,
   allPluginListQueryKeyPrefix,
@@ -416,7 +417,7 @@ export const REALTIME_THREAD_CHANGE_REGISTRY = {
   // See docs/fork/phase-6-charter.md.
   "notifications-changed": {
     flush: "debounced",
-    dirty: [], // BBF-7 (Wave 2) wires the inbox + per-thread badge queries.
+    dirty: [dirtyNotificationListQueries, dirtyThreadListQueries],
   },
 } satisfies ThreadChangeRegistry;
 
@@ -544,7 +545,7 @@ export const REALTIME_SYSTEM_CHANGE_REGISTRY = {
   // PHASE 6 CHARTER — reserved, deliberately unwired. See the thread registry
   // above and docs/fork/phase-6-charter.md.
   "notifications-changed": {
-    dirty: [], // BBF-7 (Wave 2) wires the global inbox badge query.
+    dirty: [dirtyNotificationListQueries],
   },
 } satisfies SystemChangeRegistry;
 
@@ -681,6 +682,10 @@ function dirtyThreadListQueries({
     }
   }
   return getThreadListInvalidationQueryKeys({ projectId, queryClient });
+}
+
+function dirtyNotificationListQueries(): QueryKey[] {
+  return [allNotificationListQueryKeyPrefix()];
 }
 
 function dirtyThreadListQueriesForBackgroundActivity(

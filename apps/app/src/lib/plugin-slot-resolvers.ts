@@ -8,6 +8,7 @@ import type {
   PluginFileOpenerSlot,
   PluginMessageDirectiveSlot,
   PluginPendingInteractionSlot,
+  PluginNotificationBodySlot,
   PluginThreadListSlot,
 } from "./plugin-slots";
 
@@ -183,6 +184,19 @@ export function resolvePendingInteraction(
   pluginId: string,
   rendererId: string,
 ): PluginPendingInteractionSlot | null {
+  return (
+    registrations.find(
+      (registration) =>
+        registration.pluginId === pluginId && registration.id === rendererId,
+    ) ?? null
+  );
+}
+
+export function resolveNotificationBody(
+  registrations: readonly PluginNotificationBodySlot[],
+  pluginId: string,
+  rendererId: string,
+): PluginNotificationBodySlot | null {
   return (
     registrations.find(
       (registration) =>

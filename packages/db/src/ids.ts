@@ -62,6 +62,10 @@ export function createPendingInteractionId(): string {
   return createId("pint");
 }
 
+export function createNotificationId(): string {
+  return createId("notif");
+}
+
 export function createHostDaemonSessionId(): string {
   return createId("hses");
 }

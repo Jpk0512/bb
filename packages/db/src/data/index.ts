@@ -24,6 +24,24 @@ export type {
 } from "./projects.js";
 
 export {
+  countUnreadNotifications,
+  countUnreadNotificationsByThread,
+  createNotification,
+  dismissNotification,
+  getNotification,
+  getNotificationWithTarget,
+  listNotifications,
+  markNotificationRead,
+} from "./notifications.js";
+export type {
+  CreateNotificationInput,
+  CreateNotificationResult,
+  ListNotificationsArgs,
+  NotificationListRow,
+  NotificationRow,
+} from "./notifications.js";
+
+export {
   createThreadSection,
   deleteThreadSection,
   getThreadSectionById,
@@ -116,6 +134,7 @@ export {
   archiveThread,
   markThreadDeleted,
   markThreadAttentionRequested,
+  revealThread,
   unpinThread,
   unarchiveThread,
   applyThreadLifecycleEvent,
@@ -146,6 +165,8 @@ export type {
   ListThreadsForProjectsOptions,
   MarkThreadDeletedArgs,
   MarkThreadAttentionRequestedArgs,
+  RevealThreadArgs,
+  RevealThreadResult,
   PinThreadArgs,
   ReorderPinnedThreadArgs,
   ReorderPinnedThreadResult,

@@ -17,6 +17,7 @@ import {
   type PluginNavPanelProps,
   type PluginNavPanelRegistration,
   type PluginNewThreadPanelProps,
+  type PluginNotificationBodyProps,
   type PluginPendingInteractionProps,
   type PluginProviderIconRegistration,
   type PluginTranscriptPreludeProps,
@@ -159,6 +160,7 @@ type SlotPropsByName = {
   threadPanelAction: PluginThreadPanelProps;
   experimental_newThreadPanelAction: PluginNewThreadPanelProps;
   pendingInteraction: PluginPendingInteractionProps;
+  experimental_notificationBody: PluginNotificationBodyProps;
   sidebarFooterAction: PluginSidebarFooterActionProps;
   experimental_threadList: PluginThreadListProps;
   experimental_threadHeaderAction: PluginThreadHeaderActionProps;
@@ -227,6 +229,7 @@ const FRONTEND_SLOT_PROP_FIELDS = {
   threadPanelAction: ["threadId", "params"],
   experimental_newThreadPanelAction: ["projectId", "params"],
   pendingInteraction: ["interaction", "submit", "cancel"],
+  experimental_notificationBody: ["notification"],
   sidebarFooterAction: [],
   experimental_threadList: [
     "activeThreadId",

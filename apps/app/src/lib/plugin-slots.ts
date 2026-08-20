@@ -8,6 +8,7 @@ import type {
   PluginMessageDirectiveRegistration,
   PluginNavPanelRegistration,
   PluginNewThreadPanelActionRegistration,
+  PluginNotificationBodyRegistration,
   PluginProviderIconRegistration,
   PluginSettingsSectionRegistration,
   PluginSidebarFooterActionRegistration,
@@ -34,6 +35,8 @@ export interface PluginRegistrationSet {
   newThreadPanelActions?: readonly PluginNewThreadPanelActionRegistration[];
   composerCustomizations?: readonly ComposerCustomization[];
   pendingInteractions?: readonly PluginPendingInteractionRegistration[];
+  /** Optional for frontend bundles built before notification bodies existed. */
+  notificationBodies?: readonly PluginNotificationBodyRegistration[];
   sidebarFooterActions: readonly PluginSidebarFooterActionRegistration[];
   /**
    * Optional so a frontend bundle built against an older SDK — which never
@@ -76,6 +79,8 @@ export interface PluginComposerCustomizationSlot
   extends ComposerCustomization, PluginSlotBase {}
 export interface PluginPendingInteractionSlot
   extends PluginPendingInteractionRegistration, PluginSlotBase {}
+export interface PluginNotificationBodySlot
+  extends PluginNotificationBodyRegistration, PluginSlotBase {}
 export interface PluginSidebarFooterActionSlot
   extends PluginSidebarFooterActionRegistration, PluginSlotBase {}
 export interface PluginThreadListSlot
@@ -102,6 +107,7 @@ export interface PluginSlotSnapshot {
   newThreadPanelActions: readonly PluginNewThreadPanelActionSlot[];
   composerCustomizations: readonly PluginComposerCustomizationSlot[];
   pendingInteractions: readonly PluginPendingInteractionSlot[];
+  notificationBodies: readonly PluginNotificationBodySlot[];
   sidebarFooterActions: readonly PluginSidebarFooterActionSlot[];
   threadLists: readonly PluginThreadListSlot[];
   threadHeaderActions: readonly PluginThreadHeaderActionSlot[];
@@ -120,6 +126,7 @@ export const EMPTY_PLUGIN_SLOT_SNAPSHOT: PluginSlotSnapshot = {
   newThreadPanelActions: [],
   composerCustomizations: [],
   pendingInteractions: [],
+  notificationBodies: [],
   sidebarFooterActions: [],
   threadLists: [],
   threadHeaderActions: [],
@@ -145,6 +152,7 @@ function buildSnapshot(): PluginSlotSnapshot {
     newThreadPanelActions: PluginNewThreadPanelActionSlot[];
     composerCustomizations: PluginComposerCustomizationSlot[];
     pendingInteractions: PluginPendingInteractionSlot[];
+    notificationBodies: PluginNotificationBodySlot[];
     sidebarFooterActions: PluginSidebarFooterActionSlot[];
     threadLists: PluginThreadListSlot[];
     threadHeaderActions: PluginThreadHeaderActionSlot[];
@@ -161,6 +169,7 @@ function buildSnapshot(): PluginSlotSnapshot {
     newThreadPanelActions: [],
     composerCustomizations: [],
     pendingInteractions: [],
+    notificationBodies: [],
     sidebarFooterActions: [],
     threadLists: [],
     threadHeaderActions: [],
@@ -202,6 +211,9 @@ function buildSnapshot(): PluginSlotSnapshot {
     }
     for (const registration of set.pendingInteractions ?? []) {
       next.pendingInteractions.push({ ...registration, pluginId, generation });
+    }
+    for (const registration of set.notificationBodies ?? []) {
+      next.notificationBodies.push({ ...registration, pluginId, generation });
     }
     for (const registration of set.sidebarFooterActions) {
       next.sidebarFooterActions.push({
