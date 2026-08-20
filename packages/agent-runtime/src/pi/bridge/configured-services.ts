@@ -9,6 +9,7 @@ import {
   type CreateAgentSessionServicesOptions,
   type ResourceDiagnostic,
 } from "@earendil-works/pi-coding-agent";
+import { hydratePiAnthropicFromClaude } from "./claude-oauth-hydrate.js";
 
 export type CreateConfiguredPiServicesOptions = Omit<
   CreateAgentSessionServicesOptions,
@@ -123,6 +124,14 @@ export async function loadConfiguredPiServices(
 ): Promise<LoadedPiServices> {
   const cwd = resolve(options.cwd);
   const agentDir = resolve(options.agentDir ?? getAgentDir());
+  try {
+    await hydratePiAnthropicFromClaude({ agentDir });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(
+      `pi bridge: failed to copy Claude Code OAuth into Pi: ${message}\n`,
+    );
+  }
   const settingsManager = createConfiguredPiSettingsManager(cwd, agentDir);
 
   const services = await createAgentSessionServices({

@@ -54,6 +54,8 @@ export interface OnboardingFlowProps {
 
   /** Starts the managed CLI install; resolves when the job is queued. */
   onInstallAgent: (agent: OnboardingAgent) => void;
+  /** Opens the provider's own login CLI in a bb terminal. */
+  onOpenLogin?: (agent: OnboardingAgent) => void;
   /** Set of provider ids with an install running or queued. */
   installing: ReadonlySet<string>;
 }
@@ -120,6 +122,7 @@ function agentStateOf(
 function AgentRows({
   agents,
   onInstall,
+  onOpenLogin,
   installing,
   expandedSignIn,
   onToggleSignIn,
@@ -127,6 +130,7 @@ function AgentRows({
 }: {
   agents: readonly OnboardingAgent[];
   onInstall: (agent: OnboardingAgent) => void;
+  onOpenLogin?: (agent: OnboardingAgent) => void;
   installing: ReadonlySet<string>;
   expandedSignIn: string | null;
   onToggleSignIn: (providerId: string | null) => void;
@@ -205,9 +209,10 @@ function AgentRows({
                   <Button
                     size="sm"
                     className="w-full"
-                    onClick={() =>
-                      onToggleSignIn(expanded ? null : agent.providerId)
-                    }
+                    onClick={() => {
+                      onOpenLogin?.(agent);
+                      onToggleSignIn(expanded ? null : agent.providerId);
+                    }}
                   >
                     Sign in
                   </Button>
@@ -226,12 +231,11 @@ function AgentRows({
               </div>
             </div>
             {expanded && agent.loginCommand !== null ? (
-              /* bb deliberately does not drive another tool's login: it shows
-                 the agent's own command and re-checks, so credentials never
-                 pass through bb. */
+              /* Login runs in a bb terminal as the provider's own CLI. Tokens
+                 still land in that CLI's store, not in bb. */
               <div className="space-y-2 border-b border-border-hairline bg-surface-recessed px-4 py-3">
                 <p className="text-xs text-subtle-foreground">
-                  Run this in a terminal, then come back:
+                  Complete sign-in in the terminal that opened, then come back:
                 </p>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 truncate rounded-md border border-border bg-card px-2.5 py-1.5 font-mono text-xs">
@@ -267,6 +271,7 @@ export function OnboardingFlow({
   onClose,
   onEvent,
   onInstallAgent,
+  onOpenLogin,
   installing,
 }: OnboardingFlowProps) {
   const [step, setStep] = useState<0 | 1>(0);
@@ -465,6 +470,7 @@ export function OnboardingFlow({
                 expandedSignIn={expandedSignIn}
                 installing={installing}
                 onInstall={onInstallAgent}
+                onOpenLogin={onOpenLogin}
                 onRecheck={recheck}
                 onToggleSignIn={setExpandedSignIn}
               />

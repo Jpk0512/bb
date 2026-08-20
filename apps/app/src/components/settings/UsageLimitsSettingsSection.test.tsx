@@ -97,7 +97,7 @@ describe("UsageLimitsSettingsSectionContent", () => {
     });
 
     const heading = screen.getByRole("heading", { name: "Codex" });
-    const status = screen.getByText(/Run `codex` to sign in/u);
+    const status = screen.getByText(/Your Codex session is not signed in/u);
     expect(heading.parentElement?.contains(status)).toBe(true);
   });
 
@@ -121,6 +121,25 @@ describe("UsageLimitsSettingsSectionContent", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: /Build machine/u }));
 
     expect(onSelectHost).toHaveBeenCalledWith(remoteHost.id);
+  });
+
+  it("reauthenticates an expired Claude session from the usage row", () => {
+    const onReauthenticate = vi.fn();
+    renderContent({
+      usage: { claudeCode: { status: "expired" } },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      onRefresh: vi.fn(),
+      onReauthenticate,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reauthenticate" }));
+    expect(onReauthenticate).toHaveBeenCalledTimes(1);
+    expect(onReauthenticate.mock.calls[0]?.[0]).toMatchObject({
+      key: "claudeCode",
+      loginCommand: "claude auth login",
+    });
   });
 
   it("does not show a machine selector when there is only one machine", () => {
