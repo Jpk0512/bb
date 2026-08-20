@@ -54,5 +54,6 @@ export * from "./thread-timeline-active-prompt-mode.js";
 export * from "./thread-timeline-goal.js";
 export * from "./thread-timeline-model-fallback.js";
 export * from "./thread-timeline-pending-todos.js";
+export * from "./thread-turn-telemetry.js";
 export * from "./thread-visibility.js";
 export * from "./thread.js";
