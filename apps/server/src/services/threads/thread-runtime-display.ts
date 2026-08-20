@@ -166,6 +166,7 @@ function toPublicThread(thread: Thread): Thread {
     sourceThreadId: thread.sourceThreadId,
     originKind: thread.originKind,
     originPluginId: thread.originPluginId,
+    childKind: thread.childKind,
     // Charter D4: the RETIRED disposition. Surfaced separately from
     // `archivedAt` and `visibility` because clients must be able to tell
     // "lineage retired this" from "the user archived this".

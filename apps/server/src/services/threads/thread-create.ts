@@ -566,6 +566,7 @@ async function createProvisioningThread(
 }
 
 interface ResolveCreateThreadVisibilityArgs {
+  childKind: string | undefined;
   /** Resolved hierarchy parent; null for roots and forks. */
   parentThread: Pick<Thread, "visibility"> | null;
   requestedVisibility: ThreadVisibility | undefined;
@@ -582,6 +583,9 @@ function resolveCreateThreadVisibility(
 ): ThreadVisibility {
   if (args.requestedVisibility !== undefined) {
     return args.requestedVisibility;
+  }
+  if (args.childKind !== undefined) {
+    return "hidden";
   }
   return args.parentThread?.visibility ?? "visible";
 }
@@ -613,6 +617,29 @@ export async function createThreadFromRequest(
       400,
       "invalid_request",
       'originPluginId requires origin "plugin"',
+    );
+  }
+  if (
+    rawRequestInput.childKind !== undefined &&
+    (rawRequestInput.parentThreadId === undefined ||
+      (rawRequestInput.originKind ?? null) !== null)
+  ) {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "childKind requires a hierarchy parentThreadId",
+    );
+  }
+  if (
+    rawRequestInput.agentConfiguration !== undefined &&
+    (rawRequestInput.origin !== "plugin" ||
+      rawRequestInput.parentThreadId === undefined ||
+      (rawRequestInput.originKind ?? null) !== null)
+  ) {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      'agentConfiguration requires origin "plugin" and a hierarchy parentThreadId',
     );
   }
   // Resolve the server-owned "project-default" environment marker into a
@@ -756,6 +783,7 @@ export async function createThreadFromRequest(
     ...(sourceThread ? { sourceThreadId: sourceThread.id } : {}),
     originKind,
     visibility: resolveCreateThreadVisibility({
+      childKind: requestInput.childKind,
       parentThread,
       requestedVisibility: requestInput.visibility,
     }),

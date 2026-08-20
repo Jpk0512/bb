@@ -15,6 +15,7 @@ import {
   rawThreadIdSchema,
   serviceTierSchema,
   threadOriginKindSchema,
+  threadChildKindSchema,
   threadListEntrySchema,
   threadQueuedMessageSchema,
   threadSearchSourceKindSchema,
@@ -97,6 +98,27 @@ export const startedOnBehalfOfSchema = z.object({
 });
 export type StartedOnBehalfOf = z.infer<typeof startedOnBehalfOfSchema>;
 
+export const pluginAgentToolSelectionSchema = z
+  .object({
+    name: z.string().min(1),
+    parameters: z.record(z.string(), jsonValueSchema),
+  })
+  .strict();
+
+/** Immutable plugin-owned agent selection pinned at thread spawn. */
+export const threadPluginAgentConfigurationSchema = z
+  .object({
+    tools: z
+      .array(z.union([z.string().min(1), pluginAgentToolSelectionSchema]))
+      .max(256),
+    skills: z.array(z.string().min(1)).max(256),
+    instructions: z.string().max(4096).optional(),
+  })
+  .strict();
+export type ThreadPluginAgentConfiguration = z.infer<
+  typeof threadPluginAgentConfigurationSchema
+>;
+
 export const createThreadRequestSchema = z
   .object({
     projectId: z.string().min(1),
@@ -107,6 +129,10 @@ export const createThreadRequestSchema = z
      * origin is "plugin" (enforced below); persisted for attribution.
      */
     originPluginId: z.string().min(1).optional(),
+    /** Plugin-owned role on a hierarchy child. */
+    childKind: threadChildKindSchema.optional(),
+    /** Immutable plugin configuration applied at every session boundary. */
+    agentConfiguration: threadPluginAgentConfigurationSchema.optional(),
     /**
      * Hidden threads stay out of sidebar organization and attention surfaces.
      * Omitted, a child inherits parentThreadId's visibility and a root is
@@ -145,6 +171,29 @@ export const createThreadRequestSchema = z
         code: "custom",
         message: 'originPluginId requires origin "plugin"',
         path: ["originPluginId"],
+      });
+    }
+    if (
+      value.childKind !== undefined &&
+      (value.parentThreadId === undefined || value.originKind !== null)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: "childKind requires a hierarchy parentThreadId",
+        path: ["childKind"],
+      });
+    }
+    if (
+      value.agentConfiguration !== undefined &&
+      (value.origin !== "plugin" ||
+        value.parentThreadId === undefined ||
+        value.originKind !== null)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          'agentConfiguration requires origin "plugin" and a hierarchy parentThreadId',
+        path: ["agentConfiguration"],
       });
     }
     if (value.originKind === null && value.input.length === 0) {
@@ -740,6 +789,8 @@ export const threadListQuerySchema = z.object({
   originKind: threadOriginKindSchema.optional(),
   /** Restrict to threads spawned by this plugin. */
   originPluginId: z.string().min(1).optional(),
+  /** Restrict to a plugin-owned hierarchy child role. */
+  childKind: threadChildKindSchema.optional(),
   /** Include hidden threads; omitted/false keeps the default visible-only list. */
   includeHidden: z.enum(["true", "false"]).optional(),
   /**

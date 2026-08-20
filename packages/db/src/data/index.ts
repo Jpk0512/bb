@@ -201,6 +201,8 @@ export type {
   ReplaceThreadTabsResult,
   StoredThreadTabs,
 } from "./thread-tabs.js";
+export { listThreadPluginAgentConfigRows } from "./thread-plugin-agent-configs.js";
+export type { ThreadPluginAgentConfigRow } from "./thread-plugin-agent-configs.js";
 export { getExperiments, setExperiments } from "./experiments.js";
 export {
   deleteInstalledPlugin,

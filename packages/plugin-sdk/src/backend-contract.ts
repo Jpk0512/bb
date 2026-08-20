@@ -451,6 +451,8 @@ export interface PluginAgentToolRegistrationBase {
 /** Stable, plain-data context resolved by the server for one agent session. */
 export interface PluginAgentConfigurationContext {
   thread: {
+    /** Plugin-owned role for a hierarchy child, or null for ordinary threads. */
+    childKind: string | null;
     id: string;
     title: string | null;
     parentThreadId: string | null;

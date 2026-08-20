@@ -246,6 +246,7 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
         query.archived === undefined ? undefined : query.archived === "true",
       hasParent:
         query.hasParent === undefined ? undefined : query.hasParent === "true",
+      childKind: query.childKind,
       retired:
         query.retired === undefined ? undefined : query.retired === "true",
       ...(limit !== undefined ? { limit } : {}),

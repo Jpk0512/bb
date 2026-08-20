@@ -180,6 +180,17 @@ export function createThreadRecord(
       sourceThreadId: args.request.sourceThreadId ?? null,
       originKind: args.request.originKind,
       originPluginId: args.request.originPluginId ?? null,
+      childKind: args.request.childKind ?? null,
+      ...(args.request.agentConfiguration && args.request.originPluginId
+        ? {
+            pluginAgentConfiguration: {
+              instructions: args.request.agentConfiguration.instructions ?? null,
+              pluginId: args.request.originPluginId,
+              skillsJson: JSON.stringify(args.request.agentConfiguration.skills),
+              toolsJson: JSON.stringify(args.request.agentConfiguration.tools),
+            },
+          }
+        : {}),
       visibility: args.request.visibility,
       status: args.status ?? "starting",
     });
