@@ -5,7 +5,7 @@
 // Confused by the API, or need a symbol that isn't here? Clone the BB repo
 // and read the real source: https://github.com/get-bb/bb
 
-import { BbPluginApi, PluginSettingValue, PluginSharedPortTunnelIdentity, PluginAgentToolExperimentalStatusLabels, PluginAgentToolContext, PluginAgentToolResult, PluginCliCommandInfo, PluginCliContext, PluginCliResult, PluginHttpAuthMode, PluginHttpHandler, PluginMentionTrigger, PluginMentionSearchContext, PluginMentionItem, JsonValue, PluginCliExecutionResult, PluginThreadEventName, PluginThreadEventPayloads, PluginAgentConfigurationContext, PluginSettingDescriptors, PluginAgentConfiguration, PluginProviderDeclaration, PluginInteractionRequest } from '@get-bb/plugin-sdk';
+import { BbPluginApi, PluginSettingValue, PluginSharedPortTunnelIdentity, PluginAgentToolExperimentalStatusLabels, PluginAgentToolContext, PluginAgentToolResult, PluginCliCommandInfo, PluginCliContext, PluginCliResult, PluginHttpAuthMode, PluginHttpHandler, PluginMentionTrigger, PluginMentionSearchContext, PluginMentionItem, JsonValue, PluginCliExecutionResult, PluginThreadEventName, PluginThreadEventPayloads, TurnPreflightContext, TurnPreflightDecision, ProviderEventObservation, TurnSettledSignal, BindingLifecycleSignal, PluginAgentConfigurationContext, PluginSettingDescriptors, PluginAgentConfiguration, PluginProviderDeclaration, PluginInteractionRequest } from '@get-bb/plugin-sdk';
 
 type BbSdk = BbPluginApi["sdk"];
 /**
@@ -168,6 +168,12 @@ interface FakePluginRegistrations {
         projectId: string;
     }) => string | null) | null;
     threadEventHandlers: Record<PluginThreadEventName, number>;
+    runtimeHooks: {
+        turnPreflight: number;
+        providerEvent: number;
+        turnSettled: number;
+        bindingLifecycle: number;
+    };
     mentionProviders: FakeMentionProviderRecord[];
     /** Live provider registrations from `experimental_registerProvider`
      * (normalized declarations, registration order; dispose removes). */
@@ -250,6 +256,17 @@ interface FakePluginBehaviorDrivers {
      * fire-and-forget dispatch, and returned for assertions.
      */
     emitThreadEvent<E extends PluginThreadEventName>(event: E, payload: PluginThreadEventPayloads[E]): Promise<{
+        errors: unknown[];
+    }>;
+    /** Run this plugin's preflight handlers with production waterfall rules. */
+    runTurnPreflight(context: TurnPreflightContext): Promise<TurnPreflightDecision>;
+    emitProviderEvent(observation: ProviderEventObservation): Promise<{
+        errors: unknown[];
+    }>;
+    emitTurnSettled(signal: TurnSettledSignal): Promise<{
+        errors: unknown[];
+    }>;
+    emitBindingLifecycle(signal: BindingLifecycleSignal): Promise<{
         errors: unknown[];
     }>;
     /**
