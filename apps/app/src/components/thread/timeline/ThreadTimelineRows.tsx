@@ -82,6 +82,10 @@ import {
 import { WorkRowBody } from "./TimelineRowDetails.js";
 import { TimelineDetailScroll } from "./TimelineDetailScroll.js";
 import { Button } from "@bb/shared-ui/button";
+import {
+  ChildSessionCollapsedPreview,
+  ChildSessionRowBody,
+} from "./rows/ChildSession.js";
 import { AutoHeightContainer } from "../../ui/height-transition.js";
 import { Icon, type IconName } from "@bb/shared-ui/icon";
 import type { PromptMentionLinkResolver } from "@/components/promptbox/editor/prompt-mention-link";
@@ -1261,6 +1265,9 @@ function TimelineExpandableBody({
         />
       );
     case "work":
+      if (row.workKind === "child-session") {
+        return <ChildSessionRowBody row={row} />;
+      }
       if (row.workKind === "delegation") {
         const delegationActive = row.status === "pending";
         return (
@@ -1555,6 +1562,8 @@ function leadingIconForWorkRow(
       return "File";
     case "delegation":
       return "UserRoundPlus";
+    case "child-session":
+      return "UserRoundPlus";
     case "workflow":
       // Background tasks reuse the workflow row shape but read by task type.
       if (isBackgroundCommandTaskType(row.taskType)) {
@@ -1801,6 +1810,11 @@ function TimelineExpandableRowView({
       }
       forceExpanded={searchExpandedRowIds.has(row.id)}
       terminalAutoExpanded={terminalAutoExpandedRowIds.has(row.id)}
+      collapsedPreview={
+        row.kind === "work" && row.workKind === "child-session" ? (
+          <ChildSessionCollapsedPreview row={row} />
+        ) : undefined
+      }
       onTitleAction={onTitleAction}
       resolveSegmentLinkHref={resolveSegmentLinkHref}
       renderBody={renderBody}

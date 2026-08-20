@@ -4,11 +4,35 @@ import { Profiler, type ProfilerOnRenderCallback } from "react";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { TimelineChildSessionWorkRow } from "@bb/server-contract";
 import { threadsQueryKey } from "@/hooks/queries/query-keys";
 import { makeThreadListEntry } from "@/test/fixtures/thread-list-entries";
 import { conversationRow } from "@/test/fixtures/thread-timeline-rows";
 import { ThreadTimelineRows } from "./ThreadTimelineRows";
+
+vi.mock("@/hooks/queries/thread-queries", () => ({
+  useThread: () => ({
+    data: {
+      hasPendingInteraction: false,
+      runtime: { displayStatus: "active" },
+      status: "active",
+    },
+  }),
+  useThreadTimelineTurnSummaryDetails: () => ({
+    data: undefined,
+    isError: false,
+    refetch: vi.fn(),
+  }),
+}));
+
+vi.mock("@/hooks/mutations/thread-runtime-mutations", () => ({
+  useStopThread: () => ({
+    isPending: false,
+    mutate: vi.fn(),
+    variables: undefined,
+  }),
+}));
 
 // The query cache notifies through notifyManager's scheduler (a macrotask),
 // so cache writes only reach subscribers after a timer tick.
@@ -42,6 +66,30 @@ function timelineRowsFixture() {
     );
   }
   return rows;
+}
+
+function childSessionRow(): TimelineChildSessionWorkRow {
+  return {
+    id: "child-session-1",
+    threadId: "thr_main",
+    turnId: null,
+    sourceSeqStart: 1,
+    sourceSeqEnd: 1,
+    startedAt: 1,
+    createdAt: 1,
+    kind: "work",
+    status: "pending",
+    workKind: "child-session",
+    childThreadId: "thr_child",
+    childKind: "dispatch:worker",
+    title: "Worker",
+    providerId: "codex",
+    model: null,
+    childStatus: "running",
+    statusReason: null,
+    outputExcerpt: null,
+    completedAt: null,
+  };
 }
 
 function renderProfiledTimeline(queryClient: QueryClient) {
@@ -114,5 +162,48 @@ describe("ThreadTimelineRows render stability", () => {
     await waitFor(() => {
       expect(view.getByText("Sender thread")).toBeTruthy();
     });
+  });
+
+  it("does not remount an unchanged child session when the parent timeline updates", () => {
+    const queryClient = new QueryClient();
+    const childSession = childSessionRow();
+    const { getByTestId, rerender } = render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <ThreadTimelineRows
+            threadId="thr_main"
+            timelineRows={[childSession]}
+            threadRuntimeDisplayStatus="idle"
+            workspaceRootPath={undefined}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    const beforeUpdate = getByTestId("child-session-preview-thr_child");
+
+    rerender(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <ThreadTimelineRows
+            threadId="thr_main"
+            timelineRows={[
+              childSession,
+              conversationRow({
+                id: "parent-update",
+                role: "assistant",
+                text: "Parent timeline updated.",
+                sourceSeqStart: 2,
+                sourceSeqEnd: 2,
+                threadId: "thr_main",
+              }),
+            ]}
+            threadRuntimeDisplayStatus="idle"
+            workspaceRootPath={undefined}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    expect(getByTestId("child-session-preview-thr_child")).toBe(beforeUpdate);
   });
 });

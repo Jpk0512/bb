@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildTimelineViewRows } from "@bb/thread-view";
+import type { TimelineChildSessionWorkRow } from "@bb/server-contract";
 import {
   commandRow,
   conversationRow,
@@ -31,6 +32,42 @@ function collectAutoExpandedIds({
 }
 
 describe("isWorkRowExpandable", () => {
+  it("keeps child sessions manually expandable without making them auto-expandable", () => {
+    const childSession: TimelineChildSessionWorkRow = {
+      id: "child-session-1",
+      threadId: "parent",
+      turnId: null,
+      sourceSeqStart: 1,
+      sourceSeqEnd: 1,
+      startedAt: 1,
+      createdAt: 1,
+      kind: "work",
+      status: "pending",
+      workKind: "child-session",
+      childThreadId: "child",
+      childKind: "dispatch:worker",
+      title: "Worker",
+      providerId: "codex",
+      model: null,
+      childStatus: "running",
+      statusReason: null,
+      outputExcerpt: null,
+      completedAt: null,
+    };
+    const rows = buildTimelineViewRows([childSession]);
+    const [row] = rows;
+
+    if (!row || row.kind !== "work" || row.workKind !== "child-session") {
+      throw new Error("expected a child-session work row");
+    }
+
+    expect(isWorkRowExpandable(row)).toBe(true);
+    const { liveFrontierRowIds, terminalFrontierRowIds } =
+      collectTimelineAutoExpansionRowIds({ rows, scopeActive: true });
+    expect(Array.from(liveFrontierRowIds)).toEqual([]);
+    expect(Array.from(terminalFrontierRowIds)).toEqual([]);
+  });
+
   it("marks an error-only degraded workflow row expandable so the error is reachable", () => {
     // A workflow that fails before any workflow_progress arrives carries only
     // an error: WorkflowWorkRowBody renders it, so the row must expand.
