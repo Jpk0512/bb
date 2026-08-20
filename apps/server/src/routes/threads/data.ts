@@ -3,6 +3,7 @@ import { formatCustomAcpAgentProviderId } from "@bb/config/bb-app-managed-config
 import {
   getAppSettings,
   getLatestThreadSequence,
+  getThreadTurnRecord,
   listThreadTurnRecords,
   listTurnConversationItemRows,
   listQueuedThreadMessages,
@@ -506,14 +507,23 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
       name: "limit",
       value: query.limit,
     });
-    const records = listThreadTurnRecords(deps.db, {
-      threadId,
-      limit,
-      beforeCompletedAt: parseOptionalInteger(
-        query.beforeCompletedAt,
-        "beforeCompletedAt",
-      ),
-    }).filter((record) => query.turnId === undefined || record.turnId === query.turnId);
+    const records =
+      query.turnId !== undefined
+        ? (() => {
+            const record = getThreadTurnRecord(deps.db, {
+              threadId,
+              turnId: query.turnId,
+            });
+            return record ? [record] : [];
+          })()
+        : listThreadTurnRecords(deps.db, {
+            threadId,
+            limit,
+            beforeCompletedAt: parseOptionalInteger(
+              query.beforeCompletedAt,
+              "beforeCompletedAt",
+            ),
+          });
     const includeSpans = query.includeSpans === "true";
     const includeMessages = query.include === "messages";
     return context.json({

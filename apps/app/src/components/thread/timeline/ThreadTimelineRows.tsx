@@ -100,7 +100,10 @@ import { NESTED_TIMELINE_GROUP_LINE_CLASS_NAME } from "./timeline-nested-group-l
 import { getThreadRoutePath } from "@/lib/route-paths";
 import { useThreadTimelineTurnSummaryDetails } from "@/hooks/queries/thread-queries";
 import { type ThreadTimelineTurnSummaryDetailsQueryIdentity } from "@/hooks/queries/query-keys";
-import { TurnTelemetryStrip } from "./TurnTelemetryStrip.js";
+import {
+  TurnTelemetryExpandedBody,
+  TurnTelemetryStrip,
+} from "./TurnTelemetryStrip.js";
 import {
   useSenderThreadMetadataById,
   type SenderThreadMetadata,
@@ -310,12 +313,14 @@ interface TimelineExpandableBodyProps {
   compactActivityIntents: boolean;
   row: ThreadTimelineViewRow;
   showAssistantMessageActions: boolean;
+  showTurnTelemetry?: boolean;
 }
 
 interface TurnRowBodyProps {
   compactActivityIntents: boolean;
   row: TimelineViewTurnRow;
   showAssistantMessageActions: boolean;
+  showTurnTelemetry?: boolean;
 }
 
 type LazyTurnRowBodyProps = TurnRowBodyProps;
@@ -1222,6 +1227,7 @@ function TimelineExpandableBody({
   compactActivityIntents,
   row,
   showAssistantMessageActions,
+  showTurnTelemetry = false,
 }: TimelineExpandableBodyProps) {
   const {
     onOpenLink,
@@ -1285,6 +1291,7 @@ function TimelineExpandableBody({
           showAssistantMessageActions={
             showAssistantMessageActions && row.status === "pending"
           }
+          showTurnTelemetry={showTurnTelemetry}
         />
       );
     case "work":
@@ -1359,18 +1366,15 @@ function TurnRowBody({
   compactActivityIntents,
   row,
   showAssistantMessageActions,
+  showTurnTelemetry = false,
 }: TurnRowBodyProps) {
-  if (row.children === null) {
-    return (
-      <LazyTurnRowBody
-        compactActivityIntents={compactActivityIntents}
-        row={row}
-        showAssistantMessageActions={showAssistantMessageActions}
-      />
-    );
-  }
-
-  return (
+  const details = row.children === null ? (
+    <LazyTurnRowBody
+      compactActivityIntents={compactActivityIntents}
+      row={row}
+      showAssistantMessageActions={showAssistantMessageActions}
+    />
+  ) : (
     <TimelineRowsList
       rows={row.children}
       scopeActive={false}
@@ -1381,6 +1385,18 @@ function TurnRowBody({
       unreadDividerAutoScroll={false}
       unreadDividerPlacement={null}
     />
+  );
+  if (!showTurnTelemetry) {
+    return details;
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      <TurnTelemetryExpandedBody
+        threadId={row.threadId}
+        turnId={row.turnId}
+      />
+      {details}
+    </div>
   );
 }
 
@@ -1793,6 +1809,8 @@ function TimelineExpandableRowView({
   const lastTurnSegmentRowIds = useContext(
     TimelineLastTurnSegmentRowIdsContext,
   );
+  const showTurnTelemetry =
+    row.kind === "turn" && lastTurnSegmentRowIds.has(row.id);
   const renderBody = useCallback(
     () => (
       <TimelineExpandableBody
@@ -1800,6 +1818,7 @@ function TimelineExpandableRowView({
         row={row}
         compactActivityIntents={compactActivityIntents}
         showAssistantMessageActions={showAssistantMessageActions}
+        showTurnTelemetry={showTurnTelemetry}
       />
     ),
     [
@@ -1807,6 +1826,7 @@ function TimelineExpandableRowView({
       compactActivityIntents,
       row,
       showAssistantMessageActions,
+      showTurnTelemetry,
     ],
   );
 

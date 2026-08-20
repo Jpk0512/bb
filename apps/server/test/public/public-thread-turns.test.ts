@@ -206,6 +206,38 @@ describe("public thread turns route", () => {
     });
   });
 
+  it("returns a historical turn by turnId even when limit would otherwise keep only the newest", async () => {
+    await withTestHarness(async (harness) => {
+      const { thread, project } = await seedTelemetryThread(harness);
+      upsertThreadTurnRecord(
+        harness.db,
+        turnRecordFixture({
+          threadId: thread.id,
+          turnId: "turn-older",
+          projectId: project.id,
+          completedAt: 1_000,
+        }),
+      );
+      upsertThreadTurnRecord(
+        harness.db,
+        turnRecordFixture({
+          threadId: thread.id,
+          turnId: "turn-newest",
+          projectId: project.id,
+          completedAt: 2_000,
+        }),
+      );
+
+      const response = await harness.app.request(
+        `/api/v1/threads/${thread.id}/turns?turnId=turn-older&limit=1`,
+      );
+      expect(response.status).toBe(200);
+      const body = threadTurnsResponseSchema.parse(await readJson(response));
+      expect(body.turns).toHaveLength(1);
+      expect(body.turns[0]?.turnId).toBe("turn-older");
+    });
+  });
+
   it("404s for a thread whose project no longer exists", async () => {
     await withTestHarness(async (harness) => {
       const { thread, project } = await seedTelemetryThread(harness);
