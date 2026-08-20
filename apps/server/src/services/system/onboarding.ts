@@ -59,7 +59,7 @@ const PLAN_CAPABLE_BY_PROVIDER_ID = new Map<string, PlanCapableAgentConfig>([
     "claude-code",
     {
       cliKey: "claudeCode",
-      loginCommand: "claude /login",
+      loginCommand: "claude auth login",
     },
   ],
   [

@@ -14,6 +14,8 @@ import {
 } from "@/components/provider-cli/provider-cli-install";
 import { providerCliJobKey } from "@/components/provider-cli/provider-cli-install-store";
 import { sdk } from "@/lib/sdk";
+import { appToast } from "@/components/ui/app-toast";
+import { useProviderLoginTerminal } from "@/hooks/useProviderLoginTerminal";
 
 /**
  * Collapse the two spellings of one remote so SSH and HTTPS clones of the same
@@ -62,6 +64,7 @@ export function OnboardingHost() {
   const primaryHost = usePrimaryHost();
   const navigationQuery = useSidebarNavigation();
   const installRunner = useProviderCliInstallRunner();
+  const loginTerminal = useProviderLoginTerminal();
   // Stamped in an effect rather than during render: `Date.now()` in a render
   // body is impure and would drift on every re-render.
   const startedAt = useRef<number | null>(null);
@@ -114,6 +117,22 @@ export function OnboardingHost() {
       installRunner.startInstall({ hostId: primaryHostId, issue });
     },
     [cliStatusQuery.data, installRunner, primaryHostId],
+  );
+
+  const openLogin = useCallback(
+    (agent: { providerId: string; loginCommand: string | null; displayName: string }) => {
+      if (primaryHostId === null || agent.loginCommand === null) return;
+      void loginTerminal
+        .openLogin({
+          hostId: primaryHostId,
+          command: agent.loginCommand,
+          title: `${agent.displayName} login`,
+        })
+        .catch(() => {
+          appToast.error(`Could not open ${agent.displayName} login`);
+        });
+    },
+    [loginTerminal, primaryHostId],
   );
 
   // Stamp when the flow actually opens, so a re-trigger hours into a session
@@ -208,6 +227,7 @@ export function OnboardingHost() {
       onClose={close}
       onEvent={report}
       onInstallAgent={installAgent}
+      onOpenLogin={openLogin}
     />
   );
 }

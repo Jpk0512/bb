@@ -24,6 +24,8 @@ import {
   useSystemUsageLimits,
 } from "@/hooks/queries/system-queries";
 import { selectPrimaryHost, useHosts } from "@/hooks/queries/host-queries";
+import { useProviderLoginTerminal } from "@/hooks/useProviderLoginTerminal";
+import { appToast } from "@/components/ui/app-toast";
 import {
   getProviderIconColorClass,
   getProviderIconInfo,
@@ -36,6 +38,8 @@ interface ProviderConfig {
   providerId: "codex" | "claude-code" | "acp-cursor";
   signInHint: string;
   expiredHint: string;
+  loginCommand: string;
+  loginTitle: string;
 }
 
 const PROVIDERS: ProviderConfig[] = [
@@ -43,24 +47,28 @@ const PROVIDERS: ProviderConfig[] = [
     key: "codex",
     name: "Codex",
     providerId: "codex",
-    signInHint: "Run `codex` to sign in and see your usage.",
-    expiredHint: "Your Codex session expired. Run `codex`, then reload usage.",
+    signInHint: "Your Codex session is not signed in.",
+    expiredHint: "Your Codex session expired.",
+    loginCommand: "codex login",
+    loginTitle: "Codex login",
   },
   {
     key: "claudeCode",
     name: "Claude Code",
     providerId: "claude-code",
-    signInHint: "Run `claude` to sign in and see your usage.",
-    expiredHint:
-      "Your Claude session expired. Run `claude`, then reload usage.",
+    signInHint: "Your Claude session is not signed in.",
+    expiredHint: "Your Claude session expired.",
+    loginCommand: "claude auth login",
+    loginTitle: "Claude login",
   },
   {
     key: "cursor",
     name: "Cursor",
     providerId: "acp-cursor",
-    signInHint: "Run `cursor-agent login` to sign in and see your usage.",
-    expiredHint:
-      "Your Cursor session expired. Run `cursor-agent login`, then reload usage.",
+    signInHint: "Your Cursor session is not signed in.",
+    expiredHint: "Your Cursor session expired.",
+    loginCommand: "cursor-agent login",
+    loginTitle: "Cursor login",
   },
 ];
 
@@ -157,6 +165,8 @@ interface ProviderUsageBlockProps {
   usage: ProviderUsage | undefined;
   isLoading: boolean;
   isError: boolean;
+  onReauthenticate?: (config: ProviderConfig) => void;
+  reauthenticatePending?: boolean;
 }
 
 export interface UsageLimitsSettingsSectionContentProps {
@@ -172,6 +182,8 @@ export interface UsageLimitsSettingsSectionContentProps {
   hosts?: readonly Host[];
   selectedHostId?: string | null;
   onSelectHost?: (hostId: string) => void;
+  onReauthenticate?: (config: ProviderConfig) => void;
+  reauthenticatePending?: boolean;
 }
 
 function UsageMachinePicker({
@@ -231,6 +243,8 @@ function ProviderUsageBlock({
   usage,
   isLoading,
   isError,
+  onReauthenticate,
+  reauthenticatePending,
 }: ProviderUsageBlockProps) {
   const planLabel = usage?.status === "ok" ? usage.planLabel : null;
   const accountEmail = usage?.status === "ok" ? usage.accountEmail : null;
@@ -276,6 +290,8 @@ function ProviderUsageBlock({
                   usage={usage}
                   isLoading={isLoading}
                   isError={isError}
+                  onReauthenticate={onReauthenticate}
+                  reauthenticatePending={reauthenticatePending}
                 />
               </div>
             ) : null}
@@ -290,6 +306,8 @@ function ProviderUsageBlock({
             usage={usage}
             isLoading={isLoading}
             isError={isError}
+            onReauthenticate={onReauthenticate}
+            reauthenticatePending={reauthenticatePending}
           />
         </div>
       ) : null}
@@ -302,6 +320,8 @@ function ProviderUsageBody({
   usage,
   isLoading,
   isError,
+  onReauthenticate,
+  reauthenticatePending,
 }: ProviderUsageBlockProps) {
   if (isError) {
     return (
@@ -337,12 +357,29 @@ function ProviderUsageBody({
     case "not_installed":
       return null;
     case "unauthenticated":
-      return (
-        <p className="text-xs text-muted-foreground">{config.signInHint}</p>
-      );
     case "expired":
       return (
-        <p className="text-xs text-muted-foreground">{config.expiredHint}</p>
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            {usage.status === "expired"
+              ? config.expiredHint
+              : config.signInHint}
+          </p>
+          {onReauthenticate ? (
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => onReauthenticate(config)}
+              disabled={reauthenticatePending}
+            >
+              Reauthenticate
+            </Button>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Run `{config.loginCommand}`, then reload usage.
+            </p>
+          )}
+        </div>
       );
     case "error":
       return <p className="text-xs text-muted-foreground">{usage.message}</p>;
@@ -360,6 +397,8 @@ export function UsageLimitsSettingsSectionContent({
   hosts = [],
   selectedHostId = null,
   onSelectHost,
+  onReauthenticate,
+  reauthenticatePending,
 }: UsageLimitsSettingsSectionContentProps) {
   const showMachinePicker = hosts.length > 1 && onSelectHost !== undefined;
   const visibleProviders = PROVIDERS.filter(
@@ -409,6 +448,8 @@ export function UsageLimitsSettingsSectionContent({
             usage={usage[config.key]}
             isLoading={isLoading}
             isError={isError}
+            onReauthenticate={onReauthenticate}
+            reauthenticatePending={reauthenticatePending}
           />
         ))}
       </SettingsRowList>
@@ -433,6 +474,7 @@ export function UsageLimitsSettingsSection() {
     hostId: usageHostId,
     enabled: systemConfigQuery.data !== undefined,
   });
+  const loginTerminal = useProviderLoginTerminal();
 
   return (
     <UsageLimitsSettingsSectionContent
@@ -446,6 +488,22 @@ export function UsageLimitsSettingsSection() {
       hosts={hosts}
       selectedHostId={selectedHost?.id ?? null}
       onSelectHost={setSelectedHostId}
+      reauthenticatePending={loginTerminal.isPending}
+      onReauthenticate={
+        usageHostId
+          ? (config) => {
+              void loginTerminal
+                .openLogin({
+                  hostId: usageHostId,
+                  command: config.loginCommand,
+                  title: config.loginTitle,
+                })
+                .catch(() => {
+                  appToast.error(`Could not open ${config.loginTitle}`);
+                });
+            }
+          : undefined
+      }
     />
   );
 }
