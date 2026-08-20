@@ -139,6 +139,13 @@ export interface ProviderRegistryService {
   ): readonly PermissionMode[] | null;
   supportsFork(providerId: string): boolean;
   /**
+   * Whether BB should forward a local title change to the provider runtime.
+   * Registered providers answer from their declaration. Dynamic ACP ids are
+   * never registered and do not support provider-side rename, so they answer
+   * from the shared ACP tier rather than defaulting to "dispatch anyway".
+   */
+  supportsThreadRename(providerId: string): boolean;
+  /**
    * Whether the provider can recreate a session at an earlier point, which is
    * what edit-past-message rewind needs. Fork is not enough: ACP clones whole
    * sessions tip-only.
@@ -267,6 +274,17 @@ export function createProviderRegistryService(
         return ACP_TIER_CAPABILITIES.supportsFork;
       }
       return false;
+    },
+
+    supportsThreadRename(providerId) {
+      const registration = getRegistration(providerId);
+      if (registration) {
+        return registration.info.capabilities.supportsThreadRename;
+      }
+      if (isAcpProviderId(providerId)) {
+        return ACP_TIER_CAPABILITIES.supportsThreadRename;
+      }
+      return true;
     },
 
     supportsSessionRewind(providerId) {

@@ -653,4 +653,121 @@ describe("tool activity projection", () => {
   it("lets error replace finalized completed command status", () => {
     expect(finalizedCommandStatusAfterError("completed")).toEqual(["error"]);
   });
+
+  it("upgrades a failed tool-call to a later command with the same call id", () => {
+    const state = createProjectionState();
+    const callId = "call-grok-1";
+
+    onExecBegin(state, eventMeta(1), "thread-1", "turn-1", {
+      kind: "tool-call",
+      callId,
+      toolName: "run_terminal_command",
+      toolArgs: null,
+      status: "pending",
+      completedAt: null,
+    });
+    onExecEnd(state, eventMeta(2), "thread-1", "turn-1", {
+      kind: "tool-call",
+      callId,
+      toolName: "run_terminal_command",
+      toolArgs: null,
+      output: "failed",
+      status: "error",
+      completedAt: 2,
+    });
+    onExecEnd(state, eventMeta(3), "thread-1", "turn-1", {
+      kind: "command",
+      callId,
+      command: "rtk git status",
+      cwd: "/repo",
+      output: "failed",
+      status: "error",
+      exitCode: 1,
+      completedAt: 3,
+    });
+
+    expect(commandMessages(state)).toMatchObject([
+      {
+        callId,
+        command: "rtk git status",
+        status: "error",
+      },
+    ]);
+    expect(toolCallMessages(state)).toEqual([]);
+  });
+
+  it("upgrades a finalized successful tool-call to a later command with the same call id", () => {
+    const state = createProjectionState();
+    const callId = "call-grok-2";
+
+    onExecBegin(state, eventMeta(1), "thread-1", "turn-1", {
+      kind: "tool-call",
+      callId,
+      toolName: "run_terminal_command",
+      toolArgs: null,
+      status: "pending",
+      completedAt: null,
+    });
+    onExecEnd(state, eventMeta(2), "thread-1", "turn-1", {
+      kind: "tool-call",
+      callId,
+      toolName: "run_terminal_command",
+      toolArgs: null,
+      output: "done",
+      status: "completed",
+      completedAt: 2,
+    });
+    onExecEnd(state, eventMeta(3), "thread-1", "turn-1", {
+      kind: "command",
+      callId,
+      command: "rtk pnpm test",
+      cwd: "/repo",
+      output: "1 passed",
+      status: "completed",
+      exitCode: 0,
+      completedAt: 3,
+    });
+
+    expect(commandMessages(state)).toMatchObject([
+      {
+        callId,
+        command: "rtk pnpm test",
+        output: "1 passed",
+        status: "completed",
+      },
+    ]);
+    expect(toolCallMessages(state)).toEqual([]);
+  });
+
+  it("does not downgrade a command to a later tool-call with the same call id", () => {
+    const state = createProjectionState();
+    const callId = "call-grok-3";
+
+    onExecBegin(state, eventMeta(1), "thread-1", "turn-1", {
+      kind: "command",
+      callId,
+      command: "rtk git status",
+      cwd: "/repo",
+      status: "pending",
+      completedAt: null,
+    });
+    onExecEnd(state, eventMeta(2), "thread-1", "turn-1", {
+      kind: "tool-call",
+      callId,
+      toolName: "run_terminal_command",
+      toolArgs: null,
+      output: "done",
+      status: "completed",
+      completedAt: 2,
+    });
+
+    expect(commandMessages(state)).toMatchObject([
+      {
+        callId,
+        command: "rtk git status",
+        status: "completed",
+      },
+    ]);
+    expect(toolCallMessages(state)).toEqual([]);
+  });
 });

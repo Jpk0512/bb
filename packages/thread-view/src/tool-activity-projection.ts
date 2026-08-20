@@ -508,6 +508,10 @@ function upsertRunningExecCall(
     return createRunningExecCall(incoming, meta, threadId, scopeFields.scope);
   }
 
+  if (existing.kind !== incoming.kind) {
+    upgradeExecutionKind(existing, incoming);
+  }
+
   // Merge strategy per field:
   //   "keep first"  — set once from the first event that provides it
   //   "keep latest" — provider begin/end can revise command text
@@ -753,6 +757,92 @@ function mergeExecutionOutput(
   }
 }
 
+type ExecutionKind = RunningExecCall["kind"];
+
+const EXECUTION_KIND_RANK: Record<ExecutionKind, number> = {
+  "tool-call": 0,
+  command: 1,
+  delegation: 1,
+};
+
+function shouldUpgradeExecutionKind(
+  current: ExecutionKind,
+  incoming: ExecutionKind,
+): boolean {
+  return EXECUTION_KIND_RANK[incoming] > EXECUTION_KIND_RANK[current];
+}
+
+function stripKindSpecificExecutionFields(target: Record<string, unknown>): void {
+  delete target.approvalStatus;
+  delete target.childProjection;
+  delete target.command;
+  delete target.cwd;
+  delete target.description;
+  delete target.exitCode;
+  delete target.parsedIntents;
+  delete target.source;
+  delete target.statusLabels;
+  delete target.subagentType;
+  delete target.toolArgs;
+  delete target.toolName;
+}
+
+function applyIncomingExecutionKind(
+  target: ExecutionMergeTarget,
+  incoming: ProviderExecutionUpdate | RunningExecCall,
+): void {
+  const next = target as unknown as Record<string, unknown>;
+  stripKindSpecificExecutionFields(next);
+  switch (incoming.kind) {
+    case "command":
+      next.kind = "command";
+      next.command = incoming.command ?? "";
+      next.cwd = incoming.cwd ?? null;
+      next.parsedIntents = incoming.parsedIntents ?? [];
+      next.source = incoming.source ?? null;
+      next.exitCode = incoming.exitCode ?? null;
+      next.approvalStatus = incoming.approvalStatus ?? null;
+      break;
+    case "tool-call":
+      next.kind = "tool-call";
+      next.toolName = incoming.toolName ?? null;
+      next.toolArgs = incoming.toolArgs ?? null;
+      if (incoming.statusLabels) {
+        next.statusLabels = incoming.statusLabels;
+      }
+      next.parsedIntents = incoming.parsedIntents ?? [];
+      next.approvalStatus = incoming.approvalStatus ?? null;
+      break;
+    case "delegation":
+      next.kind = "delegation";
+      next.toolName = incoming.toolName ?? null;
+      next.subagentType = incoming.subagentType;
+      next.description = incoming.description;
+      if (!("outputBuffer" in target)) {
+        next.childProjection = emptyEventProjection();
+      }
+      break;
+  }
+  if ("id" in target && typeof target.threadId === "string") {
+    const rowKindForId = incoming.kind === "tool-call" ? "tool" : incoming.kind;
+    next.id = messageId(target.threadId, rowKindForId, incoming.callId);
+  }
+}
+
+function upgradeExecutionKind(
+  target: ExecutionMergeTarget,
+  incoming: ProviderExecutionUpdate | RunningExecCall,
+): boolean {
+  if (target.kind === incoming.kind) {
+    return true;
+  }
+  if (!shouldUpgradeExecutionKind(target.kind, incoming.kind)) {
+    return false;
+  }
+  applyIncomingExecutionKind(target, incoming);
+  return true;
+}
+
 function mergeExecutionSummary(
   target: ExecutionMergeTarget,
   incoming: ExecutionMergeSource,
@@ -760,10 +850,14 @@ function mergeExecutionSummary(
 ): void {
   mergeExecutionOutput(target, incoming, options);
   if ("kind" in incoming) {
-    if (target.kind !== incoming.kind) {
-      throw new Error(
-        `Cannot merge ${target.kind} with ${incoming.kind} for call ${incoming.callId}`,
-      );
+    if (
+      target.kind !== incoming.kind &&
+      !upgradeExecutionKind(target, incoming)
+    ) {
+      mergeExecutionCompletion(target, incoming);
+      target.status =
+        mergeCallStatus(target.status, incoming.status) ?? target.status;
+      return;
     }
     switch (incoming.kind) {
       case "command":
@@ -1109,14 +1203,16 @@ export function onExecEnd(
     }
   }
 
+  const historyMatch = findExecMessageInHistoryCells(state, incoming.callId);
   if (
     state.toolActivity.finalizedExecCallIds.has(incoming.callId) &&
-    merged.status !== "error"
+    merged.status !== "error" &&
+    (historyMatch === null ||
+      !shouldUpgradeExecutionKind(historyMatch.call.kind, incoming.kind))
   ) {
     return;
   }
 
-  const historyMatch = findExecMessageInHistoryCells(state, incoming.callId);
   if (historyMatch) {
     mergeExecutionSummary(historyMatch.call, merged, {
       visibleOutput: merged.output,

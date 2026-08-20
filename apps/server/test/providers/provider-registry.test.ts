@@ -73,6 +73,10 @@ describe("provider registry policy accessors", () => {
       registry.getSupportedPermissionModes("acp-custom-agent"),
     ).toStrictEqual(["accept-edits", "full"]);
     expect(typeof registry.supportsFork("acp-custom-agent")).toBe("boolean");
+    // Dynamic ACP agents (Grok, OpenCode, custom slugs) are never registered.
+    // The daemon rejects thread.rename; dispatching it 500s the session chrome.
+    expect(registry.supportsThreadRename("acp-grok")).toBe(false);
+    expect(registry.supportsThreadRename("acp-custom-agent")).toBe(false);
     // With no resolver wired the tier declares nothing, so an unresolvable
     // acp-* id cannot claim a per-agent capability.
     expect(registry.supportsManualCompaction("acp-opencode")).toBe(false);
@@ -99,6 +103,7 @@ describe("provider registry policy accessors", () => {
     expect(registry.getServerCapabilities("nope")).toBeNull();
     expect(registry.getSupportedPermissionModes("nope")).toBeNull();
     expect(registry.supportsFork("nope")).toBe(false);
+    expect(registry.supportsThreadRename("nope")).toBe(true);
   });
 
   // A disabled provider plugin removes its provider outright. The compaction

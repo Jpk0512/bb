@@ -183,13 +183,7 @@ function providerSupportsThreadRename(
   registry: ProviderRegistryService,
   providerId: string,
 ): boolean {
-  const registration = registry.get(providerId);
-  if (!registration) {
-    // Unregistered ids (dynamic/custom ACP agents) keep receiving renames,
-    // exactly as they did before the registry.
-    return true;
-  }
-  return registration.info.capabilities.supportsThreadRename;
+  return registry.supportsThreadRename(providerId);
 }
 
 function providerSupportsThreadArchiveForwarding(
