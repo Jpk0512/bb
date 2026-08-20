@@ -499,8 +499,24 @@ export async function prepareTurnSubmitCommandPayload(
           model: args.execution.model,
           intent: args.turnDispatch,
         });
+  const requestedProviderId = preflight.bindingOverride?.providerId;
+  const providerOverrideIsUnsafe =
+    requestedProviderId !== undefined &&
+    requestedProviderId !== args.thread.providerId;
+  if (providerOverrideIsUnsafe) {
+    deps.logger.warn(
+      {
+        requestedProviderId,
+        threadId: args.thread.id,
+        threadProviderId: args.thread.providerId,
+      },
+      "Ignoring plugin turn preflight provider override for a warm provider session",
+    );
+  }
   const providerId =
-    preflight.bindingOverride?.providerId ?? args.thread.providerId;
+    providerOverrideIsUnsafe || requestedProviderId === undefined
+      ? args.thread.providerId
+      : requestedProviderId;
   const execution =
     preflight.bindingOverride?.model === undefined
       ? args.execution

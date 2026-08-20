@@ -1042,6 +1042,11 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     withPluginOperationLock,
   } = createPluginRuntime({ deps, nextCronRunAt, settledWithin });
 
+  // A command timeout can publish delivery-unknown before the provider's late
+  // turn/completed event arrives. Keep one settlement per turn so downstream
+  // consumers (notably Wave 3 telemetry) never observe both outcomes.
+  const settledTurnKeys = new Set<string>();
+
   let managedValidateInstallDir!: (
     args: RegisterInstalledArgs,
   ) => Promise<PluginManifest>;
@@ -1606,6 +1611,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     async stop() {
       for (const watcher of builtinSourceWatchers.splice(0)) watcher.close();
       await disposeAll();
+      settledTurnKeys.clear();
       await syncCliSkill();
       notifyPluginsChanged();
     },
@@ -2263,6 +2269,11 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     },
 
     dispatchTurnSettled(signal) {
+      if (signal.turnId !== null) {
+        const key = `${signal.threadId}\u0000${signal.turnId}`;
+        if (settledTurnKeys.has(key)) return;
+        settledTurnKeys.add(key);
+      }
       for (const [pluginId, plugin] of [...loaded.entries()]) {
         for (const handler of [...plugin.handle.runtimeHooks.turnSettledHandlers]) {
           void invokeWrapped(pluginId, "turn settled handler", () =>

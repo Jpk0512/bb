@@ -1711,6 +1711,12 @@ export function updateThread(
     notifier.notifyThread(id, changes, {
       projectId: existing.projectId,
     });
+    if (
+      "title" in input ||
+      ("visibility" in input && input.visibility !== existing.visibility)
+    ) {
+      notifier.notifySystem(["notifications-changed"]);
+    }
   }
   return updated ?? null;
 }
@@ -1878,6 +1884,7 @@ export function setThreadSupersededBy(
     notifier.notifyThread(input.threadId, ["title-changed"], {
       projectId: existing.projectId,
     });
+    notifier.notifySystem(["notifications-changed"]);
   }
   return updated ?? null;
 }
@@ -1966,6 +1973,7 @@ export function revealThread(
   notifier.notifyThread(args.threadId, changes, {
     projectId: existing.projectId,
   });
+  notifier.notifySystem(["notifications-changed"]);
   return { restored: { unarchived, unhidden }, thread: updated };
 }
 
@@ -1991,6 +1999,7 @@ export function deleteThread(
     projectId: existing.projectId,
   });
   notifier.notifyProject(existing.projectId, ["threads-changed"]);
+  notifier.notifySystem(["notifications-changed"]);
   return true;
 }
 
@@ -2014,6 +2023,7 @@ export function markThreadDeleted(
       projectId: updated.projectId,
     });
     notifier.notifyProject(updated.projectId, ["threads-changed"]);
+    notifier.notifySystem(["notifications-changed"]);
   }
 
   return updated ?? null;
@@ -2035,6 +2045,7 @@ export function archiveThread(
     notifier.notifyThread(id, ["archived-changed"], {
       projectId: updated.projectId,
     });
+    notifier.notifySystem(["notifications-changed"]);
   }
   return updated ?? null;
 }
@@ -2055,6 +2066,7 @@ export function unarchiveThread(
     notifier.notifyThread(id, ["archived-changed"], {
       projectId: updated.projectId,
     });
+    notifier.notifySystem(["notifications-changed"]);
   }
   return updated ?? null;
 }

@@ -134,6 +134,21 @@ describe("plugin runtime hooks", () => {
       settledAt: 1,
       turn: null,
     });
+    // A late terminal event must not produce a second settlement for the same
+    // turn after an earlier command-result settlement.
+    service.dispatchTurnSettled({
+      threadId: "thread-1",
+      turnId: "turn-1",
+      providerThreadId: "provider-1",
+      providerId: "codex",
+      requestId: null,
+      outcome: "failed",
+      error: "late terminal event",
+      providerCheckpointId: null,
+      startedAt: null,
+      settledAt: 2,
+      turn: null,
+    });
     service.dispatchBindingLifecycle({
       threadId: "thread-1",
       bindingId: "thread-1:codex:provider-1",
@@ -188,7 +203,10 @@ describe("plugin runtime hooks", () => {
 
     handle.api.sdk.subscribe({ event: "thread:changed", callback: () => {} });
     for (const hook of handle.disposeHooks) await hook();
+    // A handler that races with disposal must not leave a new live
+    // subscription behind after the aggregate disposer has run.
+    handle.api.sdk.subscribe({ event: "thread:changed", callback: () => {} });
 
-    expect(unsubscribe).toHaveBeenCalledOnce();
+    expect(unsubscribe).toHaveBeenCalledTimes(2);
   });
 });

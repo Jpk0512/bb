@@ -169,6 +169,9 @@ describe("notifications", () => {
         redirectedFromThreadId: null,
         restored: { unhidden: false, unarchived: false },
       });
+      expect(
+        getNotification(harness.db, notification.id)?.readAt,
+      ).not.toBeNull();
     });
   });
 
@@ -201,6 +204,39 @@ describe("notifications", () => {
         threadId: successor.id,
         redirectedFromThreadId: source.id,
       });
+    });
+  });
+
+  it("invalidates inbox rows when a target changes disposition", async () => {
+    await withTestHarness(async (harness) => {
+      const { host } = seedHostSession(harness.deps, {
+        id: "host-notification-target-change",
+      });
+      const { project } = seedProjectWithSource(harness.deps, {
+        hostId: host.id,
+        path: "/tmp/notification-target-change",
+      });
+      const thread = seedThread(harness.deps, { projectId: project.id });
+      const socket = createMockHubSocket();
+      harness.deps.hub.registerClient(socket);
+      harness.deps.hub.subscribe(socket, { kind: "system" });
+      await createTestNotification(harness, thread.id);
+      socket.messages.length = 0;
+
+      archiveThread(harness.db, harness.deps.hub, thread.id);
+
+      expect(
+        socket.messages.some((message) => {
+          const parsed = JSON.parse(message) as {
+            type?: string;
+            changes?: string[];
+          };
+          return (
+            parsed.type === "changed" &&
+            parsed.changes?.includes("notifications-changed") === true
+          );
+        }),
+      ).toBe(true);
     });
   });
 

@@ -386,7 +386,9 @@ function wrapSdkForPlugin(
   disposeHooks: Array<() => void | Promise<void>>,
 ): BbSdk {
   const subscriptions = new Set<() => void>();
+  let disposed = false;
   disposeHooks.push(() => {
+    disposed = true;
     for (const unsubscribe of [...subscriptions]) unsubscribe();
     subscriptions.clear();
   });
@@ -403,6 +405,10 @@ function wrapSdkForPlugin(
     },
     subscribe(args) {
       const unsubscribe = sdk.subscribe(args);
+      if (disposed) {
+        unsubscribe();
+        return () => {};
+      }
       let active = true;
       const scopedUnsubscribe = () => {
         if (!active) return;

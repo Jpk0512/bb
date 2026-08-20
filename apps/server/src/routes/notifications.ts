@@ -115,6 +115,9 @@ export function registerNotificationRoutes(app: Hono, deps: AppDeps): void {
       notification.threadId,
     );
     if (!target) {
+      // Opening a durable row is an acknowledgement even when its target has
+      // since been deleted or retired without a live lineage head.
+      markNotificationRead(deps.db, deps.hub, notificationId);
       return context.json({
         outcome: "target-missing" as const,
         threadId: notification.threadId,
@@ -131,6 +134,7 @@ export function registerNotificationRoutes(app: Hono, deps: AppDeps): void {
       unarchive: true,
     });
     if (!revealed) {
+      markNotificationRead(deps.db, deps.hub, notificationId);
       return context.json({
         outcome: "target-missing" as const,
         threadId: target.thread.id,
