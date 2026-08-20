@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { events } from "@bb/db";
+import { events, getThread, listNotifications } from "@bb/db";
 import {
   turnRequestEventDataSchema,
   type SystemMessageKind,
@@ -138,6 +138,15 @@ describe("Family B emit-site discriminator stamping", () => {
           threadId: child.id,
           threadName: "Worker child",
         });
+        const inbox = listNotifications(harness.db, {
+          threadId: fixture.parentThreadId,
+        });
+        expect(inbox).toHaveLength(1);
+        expect(inbox[0]?.category).toBe("worker-finished");
+        expect(inbox[0]?.sourceKind).toBe("system");
+        expect(inbox[0]?.title).toContain("Worker child");
+        const parent = getThread(harness.db, fixture.parentThreadId);
+        expect(parent?.latestAttentionAt).toBeGreaterThan(0);
       });
     });
   }
@@ -177,6 +186,14 @@ describe("Family B emit-site discriminator stamping", () => {
         kind: "thread-batch",
         count: 2,
       });
+      const inbox = listNotifications(harness.db, {
+        threadId: fixture.parentThreadId,
+      });
+      expect(inbox).toHaveLength(2);
+      expect(inbox.map((row) => row.category)).toEqual([
+        "worker-finished",
+        "worker-finished",
+      ]);
     });
   });
 
@@ -205,6 +222,12 @@ describe("Family B emit-site discriminator stamping", () => {
         threadId: child.id,
         threadName: "Blocked child",
       });
+      const inbox = listNotifications(harness.db, {
+        threadId: fixture.parentThreadId,
+      });
+      expect(inbox).toHaveLength(1);
+      expect(inbox[0]?.category).toBe("approval-needed");
+      expect(inbox[0]?.title).toBe("Blocked child needs attention");
     });
   });
 
