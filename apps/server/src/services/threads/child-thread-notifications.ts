@@ -1,9 +1,13 @@
 import type {
+  NotificationCategory,
   PromptInput,
   SystemMessageSubject,
   ThreadEventTurnStatus,
 } from "@bb/domain";
-import { listActiveBackgroundTaskCountsByThreadIds } from "@bb/db";
+import {
+  createNotification,
+  listActiveBackgroundTaskCountsByThreadIds,
+} from "@bb/db";
 import { renderTemplate } from "@bb/templates";
 import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
 import {
@@ -409,6 +413,59 @@ function childThreadTurnNotificationLogMessage(
   }
 }
 
+function workerInboxTitle(
+  childThread: ChildThreadNotificationSource,
+  turnStatus: ThreadEventTurnStatus,
+): string {
+  const name = parentSystemThreadLabel(childThread);
+  switch (turnStatus) {
+    case "completed":
+      return `${name} finished`;
+    case "failed":
+      return `${name} failed`;
+    case "interrupted":
+      return `${name} was interrupted`;
+    default: {
+      const exhaustiveCheck: never = turnStatus;
+      return exhaustiveCheck;
+    }
+  }
+}
+
+function emitParentInboxNotification(args: {
+  category: NotificationCategory;
+  childThread: ChildThreadNotificationSource;
+  deps: LoggedPendingInteractionWorkSessionDeps;
+  parentThreadId: string;
+  title: string;
+  body: string;
+  payload: Record<string, string>;
+}): void {
+  try {
+    createNotification(args.deps.db, args.deps.hub, {
+      sourceKind: "system",
+      threadId: args.parentThreadId,
+      category: args.category,
+      title: args.title,
+      body: args.body,
+      payload: {
+        childThreadId: args.childThread.id,
+        ...args.payload,
+      },
+      attention: true,
+    });
+  } catch (error) {
+    args.deps.logger.error(
+      {
+        err: error,
+        childThreadId: args.childThread.id,
+        parentThreadId: args.parentThreadId,
+      },
+      "Failed to create parent inbox notification for child thread",
+    );
+  }
+}
+
 async function flushChildThreadTurnNotificationBatch(
   deps: LoggedPendingInteractionWorkSessionDeps,
   parentThreadId: string,
@@ -439,6 +496,21 @@ async function flushChildThreadTurnNotificationBatch(
       },
       "Failed to queue batched parent turn notifications",
     );
+  }
+
+  for (const item of batch.items) {
+    emitParentInboxNotification({
+      category: "worker-finished",
+      childThread: item.childThread,
+      deps,
+      parentThreadId,
+      title: workerInboxTitle(item.childThread, item.turnStatus),
+      body:
+        item.turnStatus === "completed"
+          ? "Open the worker thread to read its result."
+          : CHILD_THREAD_INSPECTION_GUIDANCE,
+      payload: { turnStatus: item.turnStatus },
+    });
   }
 }
 
@@ -540,4 +612,16 @@ export async function queueChildThreadNeedsAttentionNotificationBestEffort(
       "Failed to queue parent needs-attention notification",
     );
   }
+
+  emitParentInboxNotification({
+    category: "approval-needed",
+    childThread: args.childThread,
+    deps,
+    parentThreadId: args.parentThreadId,
+    title: `${parentSystemThreadLabel(args.childThread)} needs attention`,
+    body:
+      args.blockerSummary?.trim() ||
+      CHILD_THREAD_NEEDS_ATTENTION_FALLBACK_SUMMARY,
+    payload: { kind: "needs-attention" },
+  });
 }
