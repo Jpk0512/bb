@@ -3,6 +3,7 @@ import { matchPath, useLocation } from "react-router-dom";
 import {
   getRootComposeRoutePath,
   getPluginsRoutePath,
+  isInboxRoutePath,
   isToolsRoutePath,
   SETTINGS_PLUGINS_ROUTE_PATH,
   SETTINGS_ROUTE_PATH,
@@ -13,6 +14,7 @@ interface AppSettingsRouteMemory {
   settingsRoutePath: string;
   toolsRoutePath: string;
   toolsBackRoutePath: string;
+  inboxBackRoutePath: string;
 }
 
 function getLocationRoutePath(location: {
@@ -49,13 +51,17 @@ export function useAppSettingsRouteMemory(): AppSettingsRouteMemory {
   const isSettingsRoute =
     !isCompatibilityRoute && isGlobalSettingsRoute(location.pathname);
   const isCurrentToolsRoute = isToolsRoutePath(location.pathname);
+  const isCurrentInboxRoute = isInboxRoutePath(location.pathname);
   const lastAppRoutePathRef = useRef(
     isSettingsRoute || isCompatibilityRoute
       ? getRootComposeRoutePath()
       : currentRoutePath,
   );
   const lastCoreAppRoutePathRef = useRef(
-    isSettingsRoute || isCurrentToolsRoute || isCompatibilityRoute
+    isSettingsRoute ||
+      isCurrentToolsRoute ||
+      isCurrentInboxRoute ||
+      isCompatibilityRoute
       ? getRootComposeRoutePath()
       : currentRoutePath,
   );
@@ -72,7 +78,7 @@ export function useAppSettingsRouteMemory(): AppSettingsRouteMemory {
       return;
     }
     lastAppRoutePathRef.current = currentRoutePath;
-    if (isCurrentToolsRoute) {
+    if (isCurrentToolsRoute || isCurrentInboxRoute) {
       return;
     }
     lastCoreAppRoutePathRef.current = currentRoutePath;
@@ -80,6 +86,7 @@ export function useAppSettingsRouteMemory(): AppSettingsRouteMemory {
     currentRoutePath,
     isCompatibilityRoute,
     isCurrentToolsRoute,
+    isCurrentInboxRoute,
     isSettingsRoute,
   ]);
 
@@ -98,5 +105,8 @@ export function useAppSettingsRouteMemory(): AppSettingsRouteMemory {
       isCurrentToolsRoute || isCompatibilityRoute
         ? lastCoreAppRoutePathRef.current
         : currentRoutePath,
+    inboxBackRoutePath: isCurrentInboxRoute
+      ? lastCoreAppRoutePathRef.current
+      : currentRoutePath,
   };
 }

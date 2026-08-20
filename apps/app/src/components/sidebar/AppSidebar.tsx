@@ -31,7 +31,11 @@ import {
   MACOS_WINDOW_DRAG_CLASS,
   shouldUseMacosDesktopChrome,
 } from "@/lib/bb-desktop";
-import { getRootComposeRoutePath, getThreadRoutePath } from "@/lib/route-paths";
+import {
+  getRootComposeRoutePath,
+  getThreadRoutePath,
+  INBOX_ROUTE_PATH,
+} from "@/lib/route-paths";
 import { useThreadSplitsEnabled } from "@/hooks/useThreadSplitsEnabled";
 import { usePaneContentSplitDrag } from "./usePaneContentSplitDrag";
 import { openUrlInExternalBrowser } from "@/lib/url-open-routing";
@@ -330,6 +334,7 @@ export function AppSidebar({
           onNavigate={closeOnMobile}
           splitEnabled={threadSplitsEnabled}
           toolsRoutePath={toolsRoutePath}
+          inboxRoutePath={INBOX_ROUTE_PATH}
         />
         <SidebarContent>
           <PluginThreadList

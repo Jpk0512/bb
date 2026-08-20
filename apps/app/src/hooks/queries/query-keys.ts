@@ -77,6 +77,7 @@ export const PLUGIN_CATALOG_SEARCH_QUERY_KEY = "plugin-catalog-search";
 export const PLUGIN_CATALOG_INSTALL_PLAN_QUERY_KEY =
   "plugin-catalog-install-plan";
 export const PLUGIN_MARKETPLACES_QUERY_KEY = "plugin-marketplaces";
+export const NOTIFICATION_LIST_QUERY_KEY = "notificationList";
 export interface ThreadListQueryFilters {
   projectId?: string;
   hasParent?: ThreadListFilters["hasParent"];
@@ -168,6 +169,9 @@ export type ProjectSourceBranchesQueryKey = readonly [
 ];
 export type SidebarNavigationQueryKey = readonly [
   typeof SIDEBAR_NAVIGATION_QUERY_KEY,
+];
+export type NotificationListQueryKey = readonly [
+  typeof NOTIFICATION_LIST_QUERY_KEY,
 ];
 export type ThreadsQueryKey = readonly [typeof THREADS_QUERY_KEY];
 export type ThreadListQueryKey = readonly [
@@ -630,6 +634,15 @@ export function projectSourceBranchesQueryKeyPrefix(
 
 export function sidebarNavigationQueryKey(): SidebarNavigationQueryKey {
   return [SIDEBAR_NAVIGATION_QUERY_KEY];
+}
+
+/** One shared open-inbox query backs the page, navigation badge, and actions. */
+export function notificationListQueryKey(): NotificationListQueryKey {
+  return [NOTIFICATION_LIST_QUERY_KEY];
+}
+
+export function allNotificationListQueryKeyPrefix(): NotificationListQueryKey {
+  return [NOTIFICATION_LIST_QUERY_KEY];
 }
 
 export function threadsQueryKey(): ThreadsQueryKey {

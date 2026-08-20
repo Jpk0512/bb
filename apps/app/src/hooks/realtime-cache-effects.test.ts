@@ -55,13 +55,8 @@ import {
  *   - "notifications-changed" → BBF-7, Wave 2
  * See docs/fork/phase-6-charter.md.
  */
-const CHARTER_RESERVED_THREAD_CHANGE_KINDS: ReadonlySet<string> = new Set([
-  // "provider-changed" is wired by BBF-3 and is no longer reserved.
-  "notifications-changed",
-]);
-const CHARTER_RESERVED_SYSTEM_CHANGE_KINDS: ReadonlySet<string> = new Set([
-  "notifications-changed",
-]);
+const CHARTER_RESERVED_THREAD_CHANGE_KINDS: ReadonlySet<string> = new Set();
+const CHARTER_RESERVED_SYSTEM_CHANGE_KINDS: ReadonlySet<string> = new Set();
 
 const PROJECT_PROMPT_HISTORY_THREAD_CHANGES = [
   "thread-created",

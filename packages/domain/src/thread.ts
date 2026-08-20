@@ -422,7 +422,7 @@ export const threadListEntrySchema = threadWithRuntimeSchema.extend({
   pinSortKey: z.string().nullable(),
   hasPendingInteraction: z.boolean(),
   /** Count of unread, undismissed notifications for the sidebar chip. */
-  unreadNotificationCount: z.number().int().nonnegative(),
+  unreadNotificationCount: z.number().int().nonnegative().optional(),
   environmentHostId: z.string().nullable(),
   environmentName: z.string().nullable(),
   environmentBranchName: z.string().nullable(),

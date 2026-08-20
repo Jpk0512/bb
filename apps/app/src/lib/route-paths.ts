@@ -15,6 +15,7 @@ export const SETTINGS_PROVIDER_ROUTE_PATH = "/settings/providers/:providerId";
 // :section route, which has no splat and so never matches this two-segment path.
 export const SETTINGS_MACHINE_ROUTE_PATH = "/settings/machines/:hostId";
 export const TOOLS_ROUTE_PATH = "/extensions";
+export const INBOX_ROUTE_PATH = "/inbox";
 export const TOOLS_SKILLS_ROUTE_PATH = "/extensions/skills";
 export const TOOLS_SKILL_DETAIL_ROUTE_PATH =
   "/extensions/skills/library/:skillId";
@@ -126,6 +127,14 @@ export function isToolsRoutePath(pathname: string): boolean {
     pathname === TOOLS_ROUTE_PATH ||
     matchPath(`${TOOLS_ROUTE_PATH}/*`, pathname) !== null
   );
+}
+
+export function isInboxRoutePath(pathname: string): boolean {
+  return pathname === INBOX_ROUTE_PATH;
+}
+
+export function getInboxRoutePath(): string {
+  return INBOX_ROUTE_PATH;
 }
 
 export function getSkillsRoutePath(): string {
@@ -253,6 +262,7 @@ const baseRoutePatterns: readonly string[] = [
   SETTINGS_PLUGIN_ROUTE_PATH,
   SETTINGS_PROVIDER_ROUTE_PATH,
   TOOLS_ROUTE_PATH,
+  INBOX_ROUTE_PATH,
   TOOLS_SKILLS_ROUTE_PATH,
   TOOLS_SKILL_DETAIL_ROUTE_PATH,
   LEGACY_TOOLS_SKILL_DETAIL_ROUTE_PATH,

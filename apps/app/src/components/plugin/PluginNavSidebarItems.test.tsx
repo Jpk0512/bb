@@ -25,6 +25,12 @@ import {
 import { PluginNavSidebarItems } from "./PluginNavSidebarItems";
 import { pluginNavPanelOrderAtom } from "./pluginNavSidebarAtoms";
 
+const inboxMock = vi.hoisted(() => ({ unreadCount: 0 }));
+
+vi.mock("@/hooks/queries/notification-queries", () => ({
+  useNotificationList: () => ({ data: { unreadCount: inboxMock.unreadCount } }),
+}));
+
 function registrationSet(
   overrides: Partial<PluginRegistrationSet>,
 ): PluginRegistrationSet {
@@ -69,6 +75,7 @@ function registerPanel(
 function renderSidebarItems(
   options: {
     toolsRoutePath?: string;
+    inboxRoutePath?: string;
     storedOrder?: string[];
     compactViewport?: boolean;
   } = {},
@@ -86,7 +93,10 @@ function renderSidebarItems(
       <Provider store={store}>
         <MemoryRouter initialEntries={["/"]}>
           <SidebarProvider>
-            <PluginNavSidebarItems toolsRoutePath={options.toolsRoutePath} />
+            <PluginNavSidebarItems
+              toolsRoutePath={options.toolsRoutePath}
+              inboxRoutePath={options.inboxRoutePath}
+            />
           </SidebarProvider>
         </MemoryRouter>
       </Provider>
@@ -94,7 +104,7 @@ function renderSidebarItems(
   );
 }
 
-const ROW_LABELS = new Set(["Extensions", "Docs", "GitHub"]);
+const ROW_LABELS = new Set(["Inbox", "Extensions", "Docs", "GitHub"]);
 
 function panelRowNames(): string[] {
   return screen
@@ -104,6 +114,7 @@ function panelRowNames(): string[] {
 }
 
 beforeEach(() => {
+  inboxMock.unreadCount = 0;
   window.localStorage.clear();
   resetAllCrashedPluginSlotsForTest();
   // React reports errors caught by the slot boundary; keep expected crashes
@@ -404,6 +415,23 @@ describe("PluginNavSidebarItems", () => {
     expect(
       window.localStorage.getItem("bb.sidebar.pluginPanelOrder") ?? "",
     ).not.toContain("__builtin__/tools");
+  });
+
+  it("renders the native Inbox row with an unread accessory only when needed", () => {
+    inboxMock.unreadCount = 3;
+    renderSidebarItems({
+      inboxRoutePath: "/inbox",
+      toolsRoutePath: "/extensions/plugins",
+    });
+
+    expect(panelRowNames()).toEqual(["Inbox", "Extensions"]);
+    expect(screen.getByLabelText("3 unread notifications")).toBeTruthy();
+  });
+
+  it("hides the Inbox unread accessory at zero", () => {
+    inboxMock.unreadCount = 0;
+    renderSidebarItems({ inboxRoutePath: "/inbox" });
+    expect(screen.queryByLabelText(/unread notifications/)).toBeNull();
   });
 
   it("carries both Extensions glyphs so hover swaps without reflow", () => {

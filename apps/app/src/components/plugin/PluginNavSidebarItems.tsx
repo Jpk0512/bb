@@ -35,6 +35,7 @@ import { PluginIcon } from "@/components/plugin/PluginIcon";
 import { PluginSlotMount } from "@/components/plugin/PluginSlotMount";
 import { PROJECT_LIST_ACTION_BUTTON_CLASS } from "@/components/sidebar/ProjectList";
 import { getPluginPanelRoutePath } from "@/lib/route-paths";
+import { useNotificationList } from "@/hooks/queries/notification-queries";
 import { usePluginSlots } from "@/lib/plugin-slots";
 import { cn } from "@bb/shared-ui/lib/utils";
 import type { PluginNavPanelSlot } from "@/lib/plugin-slots";
@@ -82,12 +83,26 @@ export const TOOLS_NAV_ROW_KEY = getPluginNavPanelKey({
   id: "tools",
 });
 
+/** Preference key for the host-owned Inbox row. */
+export const INBOX_NAV_ROW_KEY = getPluginNavPanelKey({
+  pluginId: BUILTIN_NAV_ROW_PLUGIN_ID,
+  id: "inbox",
+});
+
 /**
  * One sidebar nav row. Plugin rows come from `navPanel` slots; the Extensions
  * row is host chrome that shares the list so both obey the same order and hide
  * preferences.
  */
 type SidebarNavRow =
+  | {
+      kind: "inbox";
+      pluginId: string;
+      id: string;
+      title: string;
+      routePath: string;
+      unreadCount: number;
+    }
   | {
       kind: "tools";
       pluginId: string;
@@ -119,12 +134,62 @@ type SidebarNavRow =
  */
 export function PluginNavSidebarItems({
   toolsRoutePath,
+  inboxRoutePath,
   ...props
 }: {
   onNavigate?: () => void;
   splitEnabled?: boolean;
   /** Omit when a host surface should render plugin rows without Extensions. */
   toolsRoutePath?: string;
+  /** The native inbox route. Omit for host surfaces and isolated tests. */
+  inboxRoutePath?: string;
+}) {
+  return inboxRoutePath === undefined ? (
+    <PluginNavSidebarItemsWithoutInbox
+      toolsRoutePath={toolsRoutePath}
+      {...props}
+    />
+  ) : (
+    <PluginNavSidebarItemsWithInbox
+      inboxRoutePath={inboxRoutePath}
+      toolsRoutePath={toolsRoutePath}
+      {...props}
+    />
+  );
+}
+
+function PluginNavSidebarItemsWithInbox({
+  inboxRoutePath,
+  toolsRoutePath,
+  ...props
+}: Omit<
+  Parameters<typeof PluginNavSidebarItemsWithoutInbox>[0],
+  "inboxRoutePath"
+> & {
+  inboxRoutePath: string;
+}) {
+  const inbox = useNotificationList();
+  return (
+    <PluginNavSidebarItemsWithoutInbox
+      {...props}
+      toolsRoutePath={toolsRoutePath}
+      inboxRoutePath={inboxRoutePath}
+      unreadCount={inbox.data?.unreadCount ?? 0}
+    />
+  );
+}
+
+function PluginNavSidebarItemsWithoutInbox({
+  toolsRoutePath,
+  inboxRoutePath,
+  unreadCount = 0,
+  ...props
+}: {
+  onNavigate?: () => void;
+  splitEnabled?: boolean;
+  toolsRoutePath?: string;
+  inboxRoutePath?: string;
+  unreadCount?: number;
 }) {
   const { navPanels } = usePluginSlots();
   const rows = useMemo<SidebarNavRow[]>(() => {
@@ -135,8 +200,20 @@ export function PluginNavSidebarItems({
       title: panel.title,
       panel,
     }));
-    if (toolsRoutePath === undefined) return pluginRows;
+    const builtinRows: SidebarNavRow[] = [];
+    if (inboxRoutePath !== undefined) {
+      builtinRows.push({
+        kind: "inbox",
+        pluginId: BUILTIN_NAV_ROW_PLUGIN_ID,
+        id: "inbox",
+        title: "Inbox",
+        routePath: inboxRoutePath,
+        unreadCount,
+      });
+    }
+    if (toolsRoutePath === undefined) return [...builtinRows, ...pluginRows];
     return [
+      ...builtinRows,
       {
         kind: "tools",
         pluginId: BUILTIN_NAV_ROW_PLUGIN_ID,
@@ -146,7 +223,7 @@ export function PluginNavSidebarItems({
       },
       ...pluginRows,
     ];
-  }, [navPanels, toolsRoutePath]);
+  }, [inboxRoutePath, navPanels, toolsRoutePath, unreadCount]);
   // Router hooks live in the inner component so hosts without a Router
   // (isolated sidebar tests/stories) can render the empty state.
   if (rows.length === 0) return null;
@@ -171,9 +248,10 @@ function PluginNavSidebarItemList({
     // Users who customized their plugin order before the Extensions row joined
     // the list keep it on top instead of finding it at the bottom. Seed only
     // while the row exists, so a build without it saves no key for it.
-    const leadingKeys = rows.some((row) => row.kind === "tools")
-      ? [TOOLS_NAV_ROW_KEY]
-      : [];
+    const leadingKeys = [
+      ...(rows.some((row) => row.kind === "inbox") ? [INBOX_NAV_ROW_KEY] : []),
+      ...(rows.some((row) => row.kind === "tools") ? [TOOLS_NAV_ROW_KEY] : []),
+    ];
     return arrangePluginNavPanels({
       panels: rows,
       storedOrder: seedLeadingNavPanelKeys(storedOrder, leadingKeys),
@@ -362,10 +440,43 @@ function SidebarNavRowItem({
   splitEnabled,
   ...props
 }: SidebarNavRowItemProps) {
-  return row.kind === "tools" ? (
+  return row.kind === "inbox" ? (
+    <InboxNavSidebarItem {...props} row={row} />
+  ) : row.kind === "tools" ? (
     <ToolsNavSidebarItem {...props} row={row} />
   ) : (
     <PluginNavSidebarItem {...props} row={row} splitEnabled={splitEnabled} />
+  );
+}
+
+function InboxNavSidebarItem({
+  row,
+  pathname,
+  onNavigate,
+  ...props
+}: Omit<SidebarNavRowItemProps, "row" | "splitEnabled"> & {
+  row: Extract<SidebarNavRow, { kind: "inbox" }>;
+}) {
+  const navigate = useNavigate();
+  return (
+    <SidebarNavRowChrome
+      {...props}
+      rowKey={getPluginNavPanelKey(row)}
+      title={row.title}
+      icon={<Icon name="Mail" className="shrink-0" aria-hidden="true" />}
+      isActive={pathname === row.routePath}
+      accessory={
+        row.unreadCount > 0 ? (
+          <span aria-label={`${row.unreadCount} unread notifications`}>
+            {row.unreadCount}
+          </span>
+        ) : null
+      }
+      onSelect={() => {
+        onNavigate?.();
+        void navigate(row.routePath);
+      }}
+    />
   );
 }
 

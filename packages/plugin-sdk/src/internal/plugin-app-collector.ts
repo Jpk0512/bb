@@ -8,6 +8,7 @@ import type {
   PluginMessageDirectiveRegistration,
   PluginNavPanelRegistration,
   PluginNewThreadPanelActionRegistration,
+  PluginNotificationBodyRegistration,
   PluginPendingInteractionRegistration,
   PluginProviderIconRegistration,
   PluginSettingsSectionRegistration,
@@ -38,6 +39,7 @@ export interface CollectedPluginAppRegistrations {
   newThreadPanelActions: PluginNewThreadPanelActionRegistration[];
   composerCustomizations: ComposerCustomization[];
   pendingInteractions: PluginPendingInteractionRegistration[];
+  notificationBodies: PluginNotificationBodyRegistration[];
   sidebarFooterActions: PluginSidebarFooterActionRegistration[];
   threadLists: PluginThreadListRegistration[];
   threadHeaderActions: PluginThreadHeaderActionRegistration[];
@@ -68,6 +70,7 @@ export function collectPluginAppRegistrations(
     newThreadPanelActions: [],
     composerCustomizations: [],
     pendingInteractions: [],
+    notificationBodies: [],
     sidebarFooterActions: [],
     threadLists: [],
     threadHeaderActions: [],
@@ -86,6 +89,7 @@ export function collectPluginAppRegistrations(
     newThreadPanelAction: new Set<string>(),
     composerCustomization: new Set<string>(),
     pendingInteraction: new Set<string>(),
+    notificationBody: new Set<string>(),
     sidebarFooterAction: new Set<string>(),
     threadList: new Set<string>(),
     threadHeaderAction: new Set<string>(),
@@ -238,6 +242,15 @@ export function collectPluginAppRegistrations(
         const id = requireSlotId(kind, registration?.id);
         requireUniqueId(kind, seenIds.pendingInteraction, id);
         collected.pendingInteractions.push({
+          id,
+          component: requireComponent(kind, registration.component),
+        });
+      },
+      experimental_notificationBody(registration) {
+        const kind = "slots.experimental_notificationBody";
+        const id = requireSlotId(kind, registration?.id);
+        requireUniqueId(kind, seenIds.notificationBody, id);
+        collected.notificationBodies.push({
           id,
           component: requireComponent(kind, registration.component),
         });

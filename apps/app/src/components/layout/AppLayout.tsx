@@ -66,6 +66,7 @@ import {
   getProjectSettingsRoutePath,
   getRootComposeRoutePath,
   getThreadRoutePath,
+  isInboxRoutePath,
   isProjectlessProjectId,
   isToolsRoutePath,
   PLUGIN_PANEL_ROUTE_PATH,
@@ -451,6 +452,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     settingsRoutePath,
     toolsBackRoutePath,
     toolsRoutePath,
+    inboxBackRoutePath,
   } = useAppSettingsRouteMemory();
   useEffect(
     () =>
@@ -513,6 +515,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const isGlobalSettingsView =
     matchPath(`${SETTINGS_ROUTE_PATH}/*`, location.pathname) !== null;
   const isGlobalToolsView = isToolsRoutePath(location.pathname);
+  const isInboxView = isInboxRoutePath(location.pathname);
   const pluginPanelMatch = matchPath(
     PLUGIN_PANEL_ROUTE_PATH,
     location.pathname,
@@ -841,6 +844,8 @@ export function AppLayout({ children }: AppLayoutProps) {
                     ? "settings"
                     : isGlobalToolsView
                       ? "tools"
+                      : isInboxView
+                        ? "inbox"
                       : "app"
                 }
                 onResizeMouseDown={handleResizeMouseDown}
@@ -848,6 +853,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                 appRoutePath={appRoutePath}
                 settingsRoutePath={settingsRoutePath}
                 toolsBackRoutePath={toolsBackRoutePath}
+                inboxBackRoutePath={inboxBackRoutePath}
                 toolsRoutePath={toolsRoutePath}
               />
               <SidebarInset>
