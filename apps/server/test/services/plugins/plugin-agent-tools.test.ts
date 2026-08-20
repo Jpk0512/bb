@@ -567,6 +567,7 @@ describe("plugin tools reach thread runtime config", () => {
         requestId: encodeClientTurnRequestIdNumber({ value: requestValue }),
         syncGeneratedTitle: false,
         thread,
+        turnDispatch: null,
       });
 
     const command = await buildCommand(1);
@@ -734,6 +735,7 @@ describe("plugin tools reach thread runtime config", () => {
         requestId: encodeClientTurnRequestIdNumber({ value: requestValue }),
         syncGeneratedTitle: false,
         thread: target.thread,
+        turnDispatch: null,
       });
     };
 
@@ -860,6 +862,7 @@ describe("plugin tools reach thread runtime config", () => {
       providerThreadId: "provider-thread-conditional-beta",
       target: { mode: "start" },
       thread: beta.thread,
+      turnDispatch: null,
     });
     expect(
       turnSubmit.resumeContext.dynamicTools.map((tool) => tool.name),

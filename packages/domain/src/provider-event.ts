@@ -600,6 +600,14 @@ const unscopedProviderEventSchema = z.discriminatedUnion("type", [
     details: z.string().optional(),
   }),
   z.object({
+    /** Structured companion to the timeline warning emitted for a rebuild. */
+    type: z.literal("provider/sessionReplaced"),
+    threadId: z.string(),
+    providerThreadId: z.string(),
+    reason: z.string().min(1),
+    contextLost: z.boolean(),
+  }),
+  z.object({
     type: z.literal("provider/modelFallback"),
     threadId: z.string(),
     providerThreadId: z.string(),

@@ -5,6 +5,7 @@ import Database from "better-sqlite3";
 import { CronExpressionParser } from "cron-parser";
 import { Hono } from "hono";
 import { z } from "zod";
+import { threadEventTypeValues, type ThreadEventType } from "@bb/domain";
 import { PLUGIN_INTERACTION_MAX_TITLE_LENGTH } from "@bb/domain/plugin-interaction-limits";
 import {
   AGENT_TOOL_NAME_PATTERN,
@@ -46,7 +47,10 @@ import type {
   PluginCliContext,
   PluginCliExecutionResult,
   PluginCliResult,
+  BindingLifecycleHandler,
+  BindingLifecycleSignal,
   PluginEvents,
+  PluginRuntime,
   PluginHttp,
   PluginHttpAuthMode,
   PluginHttpHandler,
@@ -72,12 +76,19 @@ import type {
   PluginThreadEventHandler,
   PluginThreadEventName,
   PluginThreadEventPayloads,
+  ProviderEventHandler,
+  ProviderEventObservation,
   PluginUi,
   PluginRpcError,
   PluginRpcValidationIssue,
   StandardSchemaV1,
   StandardSchemaV1Issue,
   StandardSchemaV1Result,
+  TurnPreflightContext,
+  TurnPreflightDecision,
+  TurnPreflightHandler,
+  TurnSettledHandler,
+  TurnSettledSignal,
   JsonValue,
 } from "@get-bb/plugin-sdk";
 import {
@@ -227,6 +238,12 @@ export interface FakePluginRegistrations {
     | ((ctx: { threadId: string; projectId: string }) => string | null)
     | null;
   threadEventHandlers: Record<PluginThreadEventName, number>;
+  runtimeHooks: {
+    turnPreflight: number;
+    providerEvent: number;
+    turnSettled: number;
+    bindingLifecycle: number;
+  };
   mentionProviders: FakeMentionProviderRecord[];
   /** Live provider registrations from `experimental_registerProvider`
    * (normalized declarations, registration order; dispose removes). */
@@ -324,6 +341,17 @@ export interface FakePluginBehaviorDrivers {
   emitThreadEvent<E extends PluginThreadEventName>(
     event: E,
     payload: PluginThreadEventPayloads[E],
+  ): Promise<{ errors: unknown[] }>;
+  /** Run this plugin's preflight handlers with production waterfall rules. */
+  runTurnPreflight(
+    context: TurnPreflightContext,
+  ): Promise<TurnPreflightDecision>;
+  emitProviderEvent(observation: ProviderEventObservation): Promise<{
+    errors: unknown[];
+  }>;
+  emitTurnSettled(signal: TurnSettledSignal): Promise<{ errors: unknown[] }>;
+  emitBindingLifecycle(
+    signal: BindingLifecycleSignal,
   ): Promise<{ errors: unknown[] }>;
   /**
    * Call a registered agent tool the way a provider tool-call would:
@@ -1269,9 +1297,7 @@ function createFakePluginHostInternal(
       // declarations exactly like production.
       const normalized = validatePluginProviderDeclaration(declaration);
       if (
-        providerRegistrations.some(
-          (existing) => existing.id === normalized.id,
-        )
+        providerRegistrations.some((existing) => existing.id === normalized.id)
       ) {
         throw new Error(
           `Provider "${normalized.id}" is already registered; a plugin cannot shadow an existing provider.`,
@@ -1491,9 +1517,34 @@ function createFakePluginHostInternal(
   };
 
   // --- sdk ---
-  const { sdk, harness: sdkHarness } = createFakeSdk({
+  const disposeHooks: Array<() => void | Promise<void>> = [];
+  const { sdk: unscopedSdk, harness: sdkHarness } = createFakeSdk({
     pluginId,
     overrides: options.sdk,
+  });
+  const sdkSubscriptions = new Set<() => void>();
+  disposeHooks.push(() => {
+    for (const unsubscribe of [...sdkSubscriptions]) unsubscribe();
+    sdkSubscriptions.clear();
+  });
+  const sdk: typeof unscopedSdk = new Proxy(unscopedSdk, {
+    get(target, property, receiver) {
+      if (property !== "subscribe") {
+        return Reflect.get(target, property, receiver);
+      }
+      return (args: Parameters<typeof unscopedSdk.subscribe>[0]) => {
+        const unsubscribe = unscopedSdk.subscribe(args);
+        let active = true;
+        const scopedUnsubscribe = () => {
+          if (!active) return;
+          active = false;
+          sdkSubscriptions.delete(scopedUnsubscribe);
+          unsubscribe();
+        };
+        sdkSubscriptions.add(scopedUnsubscribe);
+        return scopedUnsubscribe;
+      };
+    },
   });
 
   // --- thread events / dispose ---
@@ -1507,7 +1558,13 @@ function createFakePluginHostInternal(
     "thread.archived": [],
     "thread.deleted": [],
   };
-  const disposeHooks: Array<() => void | Promise<void>> = [];
+  const turnPreflightHandlers: TurnPreflightHandler[] = [];
+  const providerEventHandlers: Array<{
+    eventTypes: ReadonlySet<ThreadEventType> | null;
+    handler: ProviderEventHandler;
+  }> = [];
+  const turnSettledHandlers: TurnSettledHandler[] = [];
+  const bindingLifecycleHandlers: BindingLifecycleHandler[] = [];
   const serviceControllers: AbortController[] = [];
   let nextInteractionId = 1;
   const pendingInteractions = new Map<
@@ -1755,6 +1812,36 @@ function createFakePluginHostInternal(
       handlers.push(handler);
     },
   };
+  const knownThreadEventTypes = new Set<string>(threadEventTypeValues);
+  const runtime: PluginRuntime = {
+    onTurnPreflight(handler) {
+      assertLive();
+      turnPreflightHandlers.push(handler);
+    },
+    onProviderEvent(handler, options) {
+      assertLive();
+      let eventTypes: ReadonlySet<ThreadEventType> | null = null;
+      if (options?.eventTypes !== undefined) {
+        const normalized = new Set<ThreadEventType>();
+        for (const eventType of options.eventTypes) {
+          if (!knownThreadEventTypes.has(eventType)) {
+            throw new Error(`unknown provider event type "${eventType}"`);
+          }
+          normalized.add(eventType);
+        }
+        eventTypes = normalized;
+      }
+      providerEventHandlers.push({ eventTypes, handler });
+    },
+    onTurnSettled(handler) {
+      assertLive();
+      turnSettledHandlers.push(handler);
+    },
+    onBindingLifecycle(handler) {
+      assertLive();
+      bindingLifecycleHandlers.push(handler);
+    },
+  };
 
   const bb: BbPluginApi = {
     pluginId,
@@ -1769,6 +1856,7 @@ function createFakePluginHostInternal(
     agents,
     ui,
     events,
+    runtime,
     status,
     server,
     hosts,
@@ -1812,6 +1900,10 @@ function createFakePluginHostInternal(
     }
     hostWorkerExitSubscriptions.splice(0);
     hostSignalSubscriptions.splice(0);
+    turnPreflightHandlers.splice(0);
+    providerEventHandlers.splice(0);
+    turnSettledHandlers.splice(0);
+    bindingLifecycleHandlers.splice(0);
     invalidated = true;
   }
 
@@ -1859,6 +1951,14 @@ function createFakePluginHostInternal(
           "thread.failed": threadEventHandlers["thread.failed"].length,
           "thread.archived": threadEventHandlers["thread.archived"].length,
           "thread.deleted": threadEventHandlers["thread.deleted"].length,
+        };
+      },
+      get runtimeHooks() {
+        return {
+          turnPreflight: turnPreflightHandlers.length,
+          providerEvent: providerEventHandlers.length,
+          turnSettled: turnSettledHandlers.length,
+          bindingLifecycle: bindingLifecycleHandlers.length,
         };
       },
       mentionProviders,
@@ -2082,6 +2182,127 @@ function createFakePluginHostInternal(
         } catch (error) {
           errors.push(error);
           emitLog("warn", `${event} handler failed: ${errorMessage(error)}`);
+        }
+      }
+      return { errors };
+    },
+
+    async runTurnPreflight(context) {
+      assertLive();
+      const contextItems = [] as NonNullable<
+        Extract<TurnPreflightDecision, { kind: "admit-with" }>["contextItems"]
+      >;
+      let replaceInput: Extract<
+        TurnPreflightDecision,
+        { kind: "admit-with" }
+      >["replaceInput"];
+      let binding: Extract<
+        TurnPreflightDecision,
+        { kind: "admit-with" }
+      >["binding"];
+      for (const handler of [...turnPreflightHandlers]) {
+        let decision: TurnPreflightDecision;
+        try {
+          decision = await handler(context);
+        } catch (error) {
+          emitLog(
+            "warn",
+            `turn preflight handler failed: ${errorMessage(error)}`,
+          );
+          continue;
+        }
+        if (
+          decision.kind === "reject" ||
+          decision.kind === "require-approval"
+        ) {
+          return decision;
+        }
+        if (decision.kind !== "admit-with") continue;
+        if (decision.contextItems !== undefined) {
+          contextItems.push(...decision.contextItems);
+        }
+        if (decision.replaceInput !== undefined) {
+          if (replaceInput === undefined && context.trigger !== "user") {
+            replaceInput = decision.replaceInput;
+          } else {
+            emitLog("warn", "turn preflight replaceInput claim was ignored");
+          }
+        }
+        if (decision.tools !== undefined || decision.skills !== undefined) {
+          emitLog(
+            "warn",
+            "turn preflight tool/skill selection was ignored; spawn-pinned configuration wins",
+          );
+        }
+        binding = decision.binding ?? binding;
+      }
+      if (
+        contextItems.length === 0 &&
+        replaceInput === undefined &&
+        binding === undefined
+      ) {
+        return { kind: "admit" };
+      }
+      return {
+        kind: "admit-with",
+        ...(contextItems.length > 0 ? { contextItems } : {}),
+        ...(replaceInput !== undefined ? { replaceInput } : {}),
+        ...(binding !== undefined ? { binding } : {}),
+      };
+    },
+
+    async emitProviderEvent(observation) {
+      assertLive();
+      const errors: unknown[] = [];
+      for (const record of [...providerEventHandlers]) {
+        if (
+          record.eventTypes !== null &&
+          !record.eventTypes.has(observation.event.type)
+        ) {
+          continue;
+        }
+        try {
+          await record.handler(observation);
+        } catch (error) {
+          errors.push(error);
+          emitLog(
+            "warn",
+            `provider event handler failed: ${errorMessage(error)}`,
+          );
+        }
+      }
+      return { errors };
+    },
+
+    async emitTurnSettled(signal) {
+      assertLive();
+      const errors: unknown[] = [];
+      for (const handler of [...turnSettledHandlers]) {
+        try {
+          await handler(signal);
+        } catch (error) {
+          errors.push(error);
+          emitLog(
+            "warn",
+            `turn settled handler failed: ${errorMessage(error)}`,
+          );
+        }
+      }
+      return { errors };
+    },
+
+    async emitBindingLifecycle(signal) {
+      assertLive();
+      const errors: unknown[] = [];
+      for (const handler of [...bindingLifecycleHandlers]) {
+        try {
+          await handler(signal);
+        } catch (error) {
+          errors.push(error);
+          emitLog(
+            "warn",
+            `binding lifecycle handler failed: ${errorMessage(error)}`,
+          );
         }
       }
       return { errors };

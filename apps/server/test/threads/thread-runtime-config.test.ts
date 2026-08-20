@@ -228,6 +228,7 @@ describe("thread runtime config", () => {
           requestId: encodeClientTurnRequestIdNumber({ value: 101 }),
           syncGeneratedTitle: false,
           thread,
+          turnDispatch: null,
         });
         expect(startCommand.acpLaunchSpec).toEqual(expectedSpec);
         expect(startCommand.dynamicTools).toEqual([
@@ -248,6 +249,7 @@ describe("thread runtime config", () => {
             input: textInput("continue"),
             target: { mode: "start" },
             thread,
+            turnDispatch: null,
           },
         );
         expect(submitCommand.acpLaunchSpec).toEqual(expectedSpec);
@@ -364,6 +366,7 @@ describe("thread runtime config", () => {
           requestId: encodeClientTurnRequestIdNumber({ value: 102 }),
           syncGeneratedTitle: false,
           thread,
+          turnDispatch: null,
         });
         expect(startCommand.acpLaunchSpec).toEqual(expectedSpec);
         expect(startCommand.dynamicTools).toEqual([
@@ -384,6 +387,7 @@ describe("thread runtime config", () => {
             input: textInput("continue"),
             target: { mode: "start" },
             thread,
+            turnDispatch: null,
           },
         );
         expect(submitCommand.acpLaunchSpec).toEqual(expectedSpec);
@@ -786,6 +790,7 @@ describe("thread runtime config", () => {
         requestId: encodeClientTurnRequestIdNumber({ value: 1 }),
         syncGeneratedTitle: false,
         thread,
+        turnDispatch: null,
       });
 
       expect(command.injectedSkillSources).toEqual([
@@ -853,6 +858,7 @@ describe("thread runtime config", () => {
           requestId: encodeClientTurnRequestIdNumber({ value: requestValue }),
           syncGeneratedTitle: false,
           thread,
+          turnDispatch: null,
         });
 
       expect((await buildCommand(1)).options.claudeCodeMockCliTraffic).toEqual({
@@ -916,6 +922,7 @@ describe("thread runtime config", () => {
           requestId: encodeClientTurnRequestIdNumber({ value: 1 }),
           syncGeneratedTitle: false,
           thread,
+          turnDispatch: null,
         });
       }
 
@@ -967,6 +974,7 @@ describe("thread runtime config", () => {
           requestId: encodeClientTurnRequestIdNumber({ value: 1 }),
           syncGeneratedTitle: false,
           thread,
+          turnDispatch: null,
         });
       }
 
@@ -1027,6 +1035,7 @@ describe("thread runtime config", () => {
           requestId: encodeClientTurnRequestIdNumber({ value: 1 }),
           syncGeneratedTitle: false,
           thread,
+          turnDispatch: null,
         });
       }
 
@@ -1096,6 +1105,7 @@ describe("thread runtime config", () => {
         requestId: encodeClientTurnRequestIdNumber({ value: 1 }),
         syncGeneratedTitle: false,
         thread,
+        turnDispatch: null,
       });
 
       expect(command.input).toEqual(input);

@@ -284,6 +284,8 @@ async function queueActiveParentSystemMessage(
       status: args.environment.status,
       workspaceProvisionType: args.environment.workspaceProvisionType,
     },
+    // Internal parent-agent delivery must not be rejectable by plugins.
+    turnDispatch: null,
   });
 
   const queued = deps.db.transaction(
@@ -349,6 +351,8 @@ async function queueReadyParentSystemMessage(
     projectId: args.thread.projectId,
     providerId: args.thread.providerId,
     syncGeneratedTitle: false,
+    // Internal parent-agent delivery must not be rejectable by plugins.
+    turnDispatch: null,
   });
   let transitioned = false;
   deps.db.transaction(

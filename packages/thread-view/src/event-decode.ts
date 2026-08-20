@@ -37,6 +37,7 @@ export function getEventProviderThreadId(
     case "turn/diff/updated":
     case "provider/error":
     case "provider/warning":
+    case "provider/sessionReplaced":
     case "provider/modelFallback":
     case "provider/rateLimits/updated":
     case "provider/unhandled":
@@ -97,6 +98,7 @@ export function getEventParentToolCallId(
     case "turn/diff/updated":
     case "provider/error":
     case "provider/warning":
+    case "provider/sessionReplaced":
     case "provider/modelFallback":
     case "provider/rateLimits/updated":
     case "client/thread/start":

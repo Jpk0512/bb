@@ -1,5 +1,12 @@
 import type { ToolCallResponse } from "@bb/domain";
 import type {
+  BindingLifecycleSignal,
+  PluginInteractionResult,
+  ProviderEventObservation,
+  TurnPreflightContext,
+  TurnSettledSignal,
+} from "@get-bb/plugin-sdk";
+import type {
   PluginAgentConfigurationContext,
   PluginAgentToolContext,
   PluginAgentToolRecord,
@@ -19,18 +26,72 @@ import type {
  * service here instead of threading it through every deps object. Unset
  * (tests that never build an app) both calls are cheap no-ops.
  */
-type PluginAgentContributions = Pick<
-  PluginService,
-  | "listSkillRootContributions"
-  | "listAgentTools"
-  | "listInstructionContributions"
-  | "findAgentTool"
-  | "invokeAgentTool"
-  | "resolveMention"
-> &
-  Partial<Pick<PluginService, "resolveAgentConfiguration">>;
+type PluginAgentContributions = Partial<
+  Pick<
+    PluginService,
+    | "listSkillRootContributions"
+    | "listAgentTools"
+    | "listInstructionContributions"
+    | "findAgentTool"
+    | "invokeAgentTool"
+    | "resolveMention"
+    | "resolveAgentConfiguration"
+    | "runTurnPreflight"
+    | "requestTurnPreflightApproval"
+    | "dispatchProviderEvents"
+    | "dispatchTurnSettled"
+    | "dispatchBindingLifecycle"
+  >
+>;
 
 let contributions: PluginAgentContributions | undefined;
+
+export async function runPluginTurnPreflight(args: {
+  context: TurnPreflightContext;
+  deadlineAt: number;
+}) {
+  const run = contributions?.runTurnPreflight;
+  return run
+    ? await run(args)
+    : {
+        decisions: [],
+        timedOut: false,
+      };
+}
+
+export function requestPluginTurnPreflightApproval(args: {
+  pluginId: string;
+  threadId: string;
+  rendererId: string;
+  title: string;
+  payload: import("@bb/domain").JsonValue;
+  timeoutMs: number;
+}): Promise<PluginInteractionResult> {
+  const request = contributions?.requestTurnPreflightApproval;
+  if (!request) {
+    return Promise.resolve({
+      outcome: "cancelled",
+      reason: "plugin-disposed",
+    });
+  }
+  return request(args);
+}
+
+export function dispatchPluginProviderEvents(
+  observations: ProviderEventObservation[],
+): void {
+  contributions?.dispatchProviderEvents?.(observations);
+}
+
+export function dispatchPluginTurnSettled(signal: TurnSettledSignal): void {
+  contributions?.dispatchTurnSettled?.(signal);
+}
+
+export function dispatchPluginBindingLifecycle(
+  signal: BindingLifecycleSignal,
+): void {
+  contributions?.dispatchBindingLifecycle?.(signal);
+}
 
 export function setPluginAgentContributions(
   next: PluginAgentContributions | undefined,
@@ -40,12 +101,12 @@ export function setPluginAgentContributions(
 
 /** Skills roots contributed by running plugins (the "plugin" skill tier). */
 export function getPluginSkillRootContributions(): PluginSkillRootContribution[] {
-  return contributions?.listSkillRootContributions() ?? [];
+  return contributions?.listSkillRootContributions?.() ?? [];
 }
 
 /** Native tools from bb.agents.registerTool, resolved live per session start. */
 export function listPluginAgentTools(): PluginAgentToolContribution[] {
-  return contributions?.listAgentTools() ?? [];
+  return contributions?.listAgentTools?.() ?? [];
 }
 
 export async function resolvePluginAgentConfiguration(args: {
@@ -55,7 +116,7 @@ export async function resolvePluginAgentConfiguration(args: {
   const active = contributions;
   if (!active?.resolveAgentConfiguration) {
     return {
-      tools: active?.listAgentTools() ?? [],
+      tools: active?.listAgentTools?.() ?? [],
       selectedSkillIdsByPlugin: new Map<string, ReadonlySet<string>>(),
       dynamicInstructions: [] as Array<{ pluginId: string; text: string }>,
     };
@@ -71,14 +132,14 @@ export function listPluginInstructionContributions(): Array<{
   pluginId: string;
   provider: (ctx: { threadId: string; projectId: string }) => string | null;
 }> {
-  return contributions?.listInstructionContributions() ?? [];
+  return contributions?.listInstructionContributions?.() ?? [];
 }
 
 /** Resolve a native plugin tool by name for tool-call dispatch. */
 export function findPluginAgentTool(
   name: string,
 ): { pluginId: string; record: PluginAgentToolRecord } | undefined {
-  return contributions?.findAgentTool(name);
+  return contributions?.findAgentTool?.(name);
 }
 
 /**
@@ -92,7 +153,7 @@ export async function resolvePluginMention(args: {
   itemId: string;
 }): Promise<PluginMentionResolveResult> {
   const active = contributions;
-  if (!active) {
+  if (!active?.resolveMention) {
     return {
       ok: false,
       error: "plugin mention resolution is unavailable on this server",
@@ -107,7 +168,7 @@ export async function invokePluginAgentTool(
   args: { input: unknown; ctx: PluginAgentToolContext },
 ): Promise<ToolCallResponse> {
   const active = contributions;
-  if (!active) {
+  if (!active?.invokeAgentTool) {
     return {
       success: false,
       contentItems: [

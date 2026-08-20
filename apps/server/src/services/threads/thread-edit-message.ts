@@ -45,6 +45,7 @@ import {
   sendThreadMessage,
 } from "./thread-send.js";
 import { requestThreadStopForCurrentState } from "./thread-lifecycle.js";
+import { toTurnPreflightApiError } from "./turn-preflight.js";
 
 type ThreadRewindPrepareCommand = Extract<
   HostDaemonCommand,
@@ -460,21 +461,35 @@ export async function editThreadMessage(
       conflict("This earlier turn has no provider session");
     }
     rewindLeaseId = randomUUID();
-    const startCommand = await buildThreadStartCommand(deps, {
-      thread: editableThread,
-      fork: null,
-      input: [],
-      requestId: createClientTurnRequestId(),
-      execution,
-      permissionEscalation: resolvePermissionEscalation({
+    const rewindRequestId = createClientTurnRequestId();
+    let startCommand: Awaited<ReturnType<typeof buildThreadStartCommand>>;
+    try {
+      startCommand = await buildThreadStartCommand(deps, {
         thread: editableThread,
-        initiator,
-      }),
-      environment: readyEnvironment,
-      projectId: editableThread.projectId,
-      providerId: editableThread.providerId,
-      syncGeneratedTitle: false,
-    });
+        fork: null,
+        input: [],
+        requestId: rewindRequestId,
+        execution,
+        permissionEscalation: resolvePermissionEscalation({
+          thread: editableThread,
+          initiator,
+        }),
+        environment: readyEnvironment,
+        projectId: editableThread.projectId,
+        providerId: editableThread.providerId,
+        syncGeneratedTitle: false,
+        turnDispatch: {
+          requestId: rewindRequestId,
+          initiator,
+          senderThreadId,
+          trigger: "history-replacement",
+          target: { kind: "new-turn" },
+          input: [],
+        },
+      });
+    } catch (error) {
+      throw toTurnPreflightApiError(error) ?? error;
+    }
     const prepared: HostDaemonCommandResult<"thread.rewind.prepare"> =
       await runLiveHostCommand(deps, {
         command: rewindPrepareCommandFromStart(startCommand, {

@@ -12,7 +12,9 @@ import {
 } from "@bb/db";
 import {
   PLUGIN_INTERACTION_MAX_TITLE_LENGTH,
+  threadEventTypeValues,
   type JsonValue,
+  type ThreadEventType,
 } from "@bb/domain";
 import type {
   BbPluginApi,
@@ -27,7 +29,9 @@ import type {
   PluginCliCommandInfo,
   PluginCliContext,
   PluginCliResult,
+  BindingLifecycleHandler,
   PluginEvents,
+  PluginRuntime,
   PluginHttp,
   PluginHttpAuthMode,
   PluginHttpHandler,
@@ -50,6 +54,9 @@ import type {
   PluginStorage,
   PluginThreadEventHandler,
   PluginThreadEventName,
+  ProviderEventHandler,
+  TurnPreflightHandler,
+  TurnSettledHandler,
   PluginUi,
   StandardSchemaV1,
   PluginRpcContract,
@@ -108,7 +115,11 @@ export type {
   PluginCliContext,
   PluginCliRegistration,
   PluginCliResult,
+  BindingLifecycleHandler,
+  BindingLifecyclePhase,
+  BindingLifecycleSignal,
   PluginEvents,
+  PluginRuntime,
   PluginHttp,
   PluginHttpAuthMode,
   PluginHttpHandler,
@@ -136,8 +147,17 @@ export type {
   PluginThreadEventHandler,
   PluginThreadEventName,
   PluginThreadEventPayloads,
+  ProviderEventHandler,
+  ProviderEventObservation,
   PluginUi,
   StandardSchemaV1,
+  TurnPreflightContext,
+  TurnPreflightDecision,
+  TurnPreflightHandler,
+  TurnPreflightTrigger,
+  TurnSettledHandler,
+  TurnSettledOutcome,
+  TurnSettledSignal,
 } from "@get-bb/plugin-sdk";
 
 /**
@@ -178,6 +198,18 @@ export function isNeedsConfigurationError(error: unknown): error is Error {
 export type PluginThreadEventHandlers = {
   [E in PluginThreadEventName]: Array<PluginThreadEventHandler<E>>;
 };
+
+export interface PluginProviderEventHandlerRecord {
+  eventTypes: ReadonlySet<ThreadEventType> | null;
+  handler: ProviderEventHandler;
+}
+
+export interface PluginRuntimeHooks {
+  turnPreflightHandlers: TurnPreflightHandler[];
+  providerEventHandlers: PluginProviderEventHandlerRecord[];
+  turnSettledHandlers: TurnSettledHandler[];
+  bindingLifecycleHandlers: BindingLifecycleHandler[];
+}
 
 /**
  * Wire surfaces (design §4.6/§4.7). Registration is load-safe: routes and
@@ -284,6 +316,8 @@ export interface PluginApiHandle {
   databaseHandles: Database.Database[];
   /** Thread lifecycle handlers recorded by `bb.events.on`. */
   threadEventHandlers: PluginThreadEventHandlers;
+  /** Server runtime hooks recorded by `bb.runtime.*`. */
+  runtimeHooks: PluginRuntimeHooks;
   /** HTTP routes recorded by `bb.http.route`; dropped with the handle. */
   httpRoutes: PluginHttpRouteRecord[];
   /** RPC handlers recorded by `bb.rpc.register`; dropped with the handle. */
@@ -346,7 +380,16 @@ export type PluginAgentConfigurationProvider = (
  * default attribution (`origin: "plugin"`, `originPluginId: <plugin id>`)
  * unless the plugin sets those fields explicitly.
  */
-function wrapSdkForPlugin(sdk: BbSdk, pluginId: string): BbSdk {
+function wrapSdkForPlugin(
+  sdk: BbSdk,
+  pluginId: string,
+  disposeHooks: Array<() => void | Promise<void>>,
+): BbSdk {
+  const subscriptions = new Set<() => void>();
+  disposeHooks.push(() => {
+    for (const unsubscribe of [...subscriptions]) unsubscribe();
+    subscriptions.clear();
+  });
   return {
     ...sdk,
     notifications: {
@@ -357,6 +400,18 @@ function wrapSdkForPlugin(sdk: BbSdk, pluginId: string): BbSdk {
           pluginId: args.pluginId ?? pluginId,
         });
       },
+    },
+    subscribe(args) {
+      const unsubscribe = sdk.subscribe(args);
+      let active = true;
+      const scopedUnsubscribe = () => {
+        if (!active) return;
+        active = false;
+        subscriptions.delete(scopedUnsubscribe);
+        unsubscribe();
+      };
+      subscriptions.add(scopedUnsubscribe);
+      return scopedUnsubscribe;
     },
     threads: {
       ...sdk.threads,
@@ -511,6 +566,12 @@ export function createPluginApi(options: {
     "thread.failed": [],
     "thread.archived": [],
     "thread.deleted": [],
+  };
+  const runtimeHooks: PluginRuntimeHooks = {
+    turnPreflightHandlers: [],
+    providerEventHandlers: [],
+    turnSettledHandlers: [],
+    bindingLifecycleHandlers: [],
   };
   const httpRoutes: PluginHttpRouteRecord[] = [];
   const rpcHandlers = new Map<string, PluginRpcHandler>();
@@ -1400,6 +1461,37 @@ export function createPluginApi(options: {
       handlers.push(handler);
     },
   };
+  const knownThreadEventTypes = new Set<string>(threadEventTypeValues);
+  const runtime: PluginRuntime = {
+    onTurnPreflight(handler) {
+      assertLive();
+      runtimeHooks.turnPreflightHandlers.push(handler);
+    },
+    onProviderEvent(handler, options) {
+      assertLive();
+      const requestedTypes = options?.eventTypes;
+      let eventTypes: ReadonlySet<ThreadEventType> | null = null;
+      if (requestedTypes !== undefined) {
+        const normalized = new Set<ThreadEventType>();
+        for (const eventType of requestedTypes) {
+          if (!knownThreadEventTypes.has(eventType)) {
+            throw new Error(`unknown provider event type "${eventType}"`);
+          }
+          normalized.add(eventType);
+        }
+        eventTypes = normalized;
+      }
+      runtimeHooks.providerEventHandlers.push({ eventTypes, handler });
+    },
+    onTurnSettled(handler) {
+      assertLive();
+      runtimeHooks.turnSettledHandlers.push(handler);
+    },
+    onBindingLifecycle(handler) {
+      assertLive();
+      runtimeHooks.bindingLifecycleHandlers.push(handler);
+    },
+  };
 
   const api: BbPluginApi = {
     pluginId,
@@ -1414,6 +1506,7 @@ export function createPluginApi(options: {
     agents,
     ui,
     events,
+    runtime,
     status,
     server,
     hosts,
@@ -1426,7 +1519,7 @@ export function createPluginApi(options: {
             "use it inside handlers, services, or timers, not at factory load time",
         );
       }
-      wrappedSdk ??= wrapSdkForPlugin(sdk, pluginId);
+      wrappedSdk ??= wrapSdkForPlugin(sdk, pluginId, disposeHooks);
       return wrappedSdk;
     },
     onDispose(hook) {
@@ -1441,6 +1534,7 @@ export function createPluginApi(options: {
     settings: settingsRecord,
     databaseHandles,
     threadEventHandlers,
+    runtimeHooks,
     httpRoutes,
     rpcHandlers,
     hostWorkerExitHandlers,

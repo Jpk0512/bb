@@ -15,12 +15,14 @@ import {
   resetActiveThreadEventPruningState,
 } from "../system/event-pruning.js";
 import { emitPluginThreadArchived } from "../plugins/plugin-thread-events.js";
+import { dispatchPluginBindingLifecycle } from "../plugins/plugin-agent-contributions.js";
 import {
   dispatchSettledArchivedThreadProviderArchiveCommand,
   requestActiveRuntimeThreadStopIfNeeded,
 } from "./thread-lifecycle.js";
 import { archiveThreadAndReleaseChildren } from "./thread-ownership.js";
 import { requireThreadHostCommandEnvironment } from "./thread-command-environment.js";
+import { getLastProviderThreadId } from "./thread-events.js";
 
 interface ArchiveThreadWithLifecycleEffectsArgs {
   environment: {
@@ -68,6 +70,17 @@ export function archiveThreadWithLifecycleEffects(
     threadId: archivedThread.id,
   });
   emitPluginThreadArchived(archivedThread);
+  const providerThreadId = getLastProviderThreadId(deps, archivedThread.id);
+  if (providerThreadId !== null) {
+    dispatchPluginBindingLifecycle({
+      threadId: archivedThread.id,
+      providerId: archivedThread.providerId,
+      providerThreadId,
+      bindingId: `${archivedThread.id}:${archivedThread.providerId}:${providerThreadId}`,
+      phase: "archived",
+      detail: null,
+    });
+  }
 
   return archivedThread;
 }

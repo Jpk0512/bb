@@ -760,6 +760,50 @@ always in the timeline yet. To react to a thread's content, listen on
 in a handler — including `bb.sdk.threads.update({ threadId, title })` —
 cannot delay or interrupt the thread's turn.
 
+### bb.runtime — provider runtime hooks
+
+`bb.runtime` is the server-side runtime surface. These hooks run in the BB
+server, not in a provider bridge or agent-runtime process, so they also work
+when the daemon runs on another enrolled machine.
+
+```ts
+bb.runtime.onTurnPreflight(async (context) => {
+  // Return { kind: "admit" }, { kind: "reject", code, message },
+  // { kind: "admit-with", contextItems? }, or { kind: "require-approval", ... }.
+  return { kind: "admit" };
+});
+
+bb.runtime.onProviderEvent((observation) => {
+  // Delivered after the normalized provider event is durably stored.
+});
+
+bb.runtime.onTurnSettled((signal) => {
+  // completed | failed | interrupted | delivery-unknown | provider-session-lost
+});
+
+bb.runtime.onBindingLifecycle((signal) => {
+  // start | resume | model-changed | session-replaced | health-degraded |
+  // archived | crashed
+});
+```
+
+Preflight handlers run in plugin-id order with a shared two-second budget.
+The first explicit rejection wins; a throwing or slow handler admits the turn
+and is logged. `contextItems` are appended in handler order. `replaceInput`
+is single-claim and is refused for user-triggered turns. Preflight cannot
+change tool or skill selection: any attempted change is ignored and logged;
+the thread's spawn-pinned configuration remains authoritative. A requested
+approval uses the existing pending-interaction UI and a denial rejects the
+turn.
+
+The three observer hooks are fire-and-forget and failure-isolated. Provider
+events are delivered exactly once per durable insert and may be filtered with
+`onProviderEvent(handler, { eventTypes: [...] })`. A turn settlement's `turn`
+field is currently `null`; it is reserved for the structured record supplied
+by later telemetry support. Binding ids are opaque strings derived from the
+thread, provider, and provider-session id. All registrations and SDK
+subscriptions made through a plugin are disposed automatically on reload.
+
 ### bb.http — HTTP routes
 
 `bb.http.route(method, path, handler, { auth? })` mounts an exact-match

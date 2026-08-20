@@ -75,6 +75,68 @@ describe("ui.requestInput", () => {
   });
 });
 
+describe("runtime hooks", () => {
+  const context = {
+    threadId: "thread-test",
+    projectId: "project-test",
+    environmentId: "environment-test",
+    requestId: "creq_abcdefghjk",
+    initiator: "agent" as const,
+    senderThreadId: "sender-test",
+    trigger: "auto-dispatch" as const,
+    target: { kind: "new-turn" as const },
+    input: [{ type: "text" as const, text: "original", mentions: [] }],
+    inputGroups: null,
+    binding: { providerId: "codex", model: "gpt-test" },
+  };
+
+  it("mirrors preflight aggregation and observer filtering", async () => {
+    const { bb, harness } = createFakePluginHost();
+    const observed: string[] = [];
+    bb.runtime.onTurnPreflight(() => ({
+      kind: "admit-with",
+      contextItems: [{ type: "text", text: "context", mentions: [] }],
+      replaceInput: [{ type: "text", text: "replacement", mentions: [] }],
+    }));
+    bb.runtime.onTurnPreflight(() => ({
+      kind: "admit-with",
+      replaceInput: [{ type: "text", text: "ignored", mentions: [] }],
+      tools: ["forbidden"],
+    }));
+    bb.runtime.onProviderEvent(
+      (event) => {
+        observed.push(event.event.type);
+      },
+      { eventTypes: ["provider/warning"] },
+    );
+
+    await expect(harness.runTurnPreflight(context)).resolves.toEqual({
+      kind: "admit-with",
+      contextItems: [{ type: "text", text: "context", mentions: [] }],
+      replaceInput: [{ type: "text", text: "replacement", mentions: [] }],
+    });
+    await harness.emitProviderEvent({
+      threadId: "thread-test",
+      environmentId: "environment-test",
+      providerThreadId: "provider-test",
+      sequence: 1,
+      turnId: null,
+      scope: { kind: "thread" },
+      event: {
+        type: "provider/warning",
+        threadId: "thread-test",
+        providerThreadId: "provider-test",
+        category: "general",
+        scope: { kind: "thread" },
+      },
+    });
+    expect(observed).toEqual(["provider/warning"]);
+    expect(harness.logEntries.map((entry) => entry.message).join("\n")).toMatch(
+      /replaceInput claim was ignored.*tool\/skill selection was ignored/su,
+    );
+  });
+});
+
 describe("host control plane", () => {
   it("validates typed host calls and delivers host lifecycle events", async () => {
     const contract = defineRpcContract({
@@ -418,7 +480,11 @@ describe("http", () => {
         clone: () => real.clone(),
       } as unknown as Response;
     });
-    bb.http.route("GET", "/not-a-response", () => ({ status: 200 }) as Response);
+    bb.http.route(
+      "GET",
+      "/not-a-response",
+      () => ({ status: 200 }) as Response,
+    );
 
     const foreign = await harness.fetchHttp("GET", "/foreign");
     expect(foreign.status).toBe(201);
@@ -780,10 +846,10 @@ describe("agent tools", () => {
       thread: { ...configurationContext.thread, id: "thread-beta" },
       host: { id: "host-beta", name: "Beta host" },
       provider: {
-      id: "claude-code",
-      model: "claude-opus",
-      capabilities: { supportsNativeUserQuestion: false },
-    },
+        id: "claude-code",
+        model: "claude-opus",
+        capabilities: { supportsNativeUserQuestion: false },
+      },
     };
     const beta = await harness.resolveAgentConfiguration(betaContext);
 
@@ -968,9 +1034,7 @@ describe("agents.experimental_registerProvider", () => {
       },
       composerActions: ["plan"],
       ...overrides,
-    } as Parameters<
-      BbPluginApi["agents"]["experimental_registerProvider"]
-    >[0];
+    } as Parameters<BbPluginApi["agents"]["experimental_registerProvider"]>[0];
   }
 
   it("rejects malformed declarations with the shared host policy", () => {
@@ -1018,9 +1082,9 @@ describe("agents.experimental_registerProvider", () => {
     ).toThrow(/icon must not escape the plugin directory/);
     // The `bb.branding.icon` grammar: "./" means a plugin file, anything else
     // is a host glyph name. A path without the prefix is neither.
-    expect(() =>
-      register(agentDeclaration({ icon: "/abs/icon.svg" })),
-    ).toThrow(/icon looks like a path but does not start with "\.\/"/);
+    expect(() => register(agentDeclaration({ icon: "/abs/icon.svg" }))).toThrow(
+      /icon looks like a path but does not start with "\.\/"/,
+    );
     expect(() =>
       register(agentDeclaration({ composerActions: ["plan", "plan"] })),
     ).toThrow(/composerActions entry "plan" is duplicated/);

@@ -524,6 +524,8 @@ export function createBridgeProtocolAdapter(
         if (!parsed.success || parsed.data.providerThreadId === null) {
           return [];
         }
+        // Preserve the existing warning so the timeline remains stable, and
+        // also retain the structured replacement facts for server observers.
         return [
           {
             type: "provider/warning",
@@ -534,6 +536,14 @@ export function createBridgeProtocolAdapter(
               ? "Provider session was replaced; provider-side context was lost."
               : "Provider session was replaced.",
             details: parsed.data.reason,
+            scope: { kind: "thread" },
+          },
+          {
+            type: "provider/sessionReplaced",
+            threadId: parsed.data.threadId,
+            providerThreadId: parsed.data.providerThreadId,
+            reason: parsed.data.reason,
+            contextLost: parsed.data.contextLost,
             scope: { kind: "thread" },
           },
         ];

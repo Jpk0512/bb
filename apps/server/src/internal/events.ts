@@ -23,10 +23,16 @@ import {
   type HostDaemonRejectedEvent,
 } from "@bb/host-daemon-contract";
 import {
+  getThreadEventScopeTurnId,
   requireThreadEventScopeTurnId,
   type ThreadEventType,
   type ThreadEventTurnStatus,
 } from "@bb/domain";
+import type {
+  BindingLifecycleSignal,
+  ProviderEventObservation,
+  TurnSettledSignal,
+} from "@get-bb/plugin-sdk";
 import type { Hono } from "hono";
 import { ApiError } from "../errors.js";
 import type {
@@ -47,7 +53,13 @@ import {
 } from "../services/lib/error-log-fields.js";
 import { applyLoggedThreadLifecycleEvent } from "../services/threads/lifecycle-outcome.js";
 import { applyTurnCompletedEvent } from "./turn-completed-events.js";
-import { findPluginAgentTool } from "../services/plugins/plugin-agent-contributions.js";
+import {
+  dispatchPluginBindingLifecycle,
+  dispatchPluginProviderEvents,
+  dispatchPluginTurnSettled,
+  findPluginAgentTool,
+} from "../services/plugins/plugin-agent-contributions.js";
+import { getLastProviderThreadId } from "../services/threads/thread-events.js";
 import {
   getInactiveSessionLogFields,
   requireAuthenticatedDaemonSession,
@@ -93,6 +105,22 @@ interface NotifyInsertedEventThreadsDeps {
 interface NotifyInsertedEventThreadsArgs {
   eventInputs: AppendDaemonEventInput[];
   insertedInputIndexes: number[];
+}
+
+interface BuildProviderEventObservationsArgs {
+  acceptedEvents: AcceptedDaemonEvent[];
+  entries: PostableEventBatchEntry[];
+  insertedInputIndexes: number[];
+}
+
+interface BuildRuntimeSignalsArgs {
+  events: HostDaemonEventEnvelope[];
+  /**
+   * Captured before insertion: after an identity event is durable, looking up
+   * the last provider thread id cannot tell a newly-created binding from a
+   * resumed one.
+   */
+  previousProviderThreadIdByThreadId: ReadonlyMap<string, string | null>;
 }
 
 function parseStoredBackgroundTaskItemStatus(data: string): string | undefined {
@@ -224,6 +252,7 @@ function resolveProviderIdentifiers(event: HostDaemonEventEnvelope["event"]): {
     case "thread/identity":
     case "thread/name/updated":
     case "provider/warning":
+    case "provider/sessionReplaced":
     case "provider/modelFallback":
     case "provider/rateLimits/updated":
       return { providerThreadId: event.providerThreadId };
@@ -340,6 +369,193 @@ function notifyInsertedEventThreads(
       eventTypes: Array.from(eventTypes),
     });
   }
+}
+
+/** Provider observers receive only events whose insert committed. */
+function buildProviderEventObservations(
+  args: BuildProviderEventObservationsArgs,
+): ProviderEventObservation[] {
+  return args.acceptedEvents.map((acceptedEvent, acceptedIndex) => {
+    const inputIndex = args.insertedInputIndexes[acceptedIndex];
+    if (inputIndex === undefined) {
+      throw new Error("Missing inserted event index for accepted daemon event");
+    }
+    const entry = args.entries[inputIndex];
+    if (entry === undefined) {
+      throw new Error("Missing daemon event entry for accepted daemon event");
+    }
+    const event = entry.envelope.event;
+    return {
+      threadId: acceptedEvent.threadId,
+      environmentId: entry.environmentId,
+      providerThreadId: resolveProviderIdentifiers(event).providerThreadId,
+      sequence: acceptedEvent.sequence,
+      turnId: getThreadEventScopeTurnId(event.scope) ?? null,
+      scope: event.scope,
+      event,
+    };
+  });
+}
+
+function bindingSignal(args: {
+  detail: BindingLifecycleSignal["detail"];
+  phase: BindingLifecycleSignal["phase"];
+  providerId: string;
+  providerThreadId: string;
+  threadId: string;
+}): BindingLifecycleSignal {
+  return {
+    threadId: args.threadId,
+    providerId: args.providerId,
+    providerThreadId: args.providerThreadId,
+    bindingId: `${args.threadId}:${args.providerId}:${args.providerThreadId}`,
+    phase: args.phase,
+    detail: args.detail,
+  };
+}
+
+function buildRuntimeSignals(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  args: BuildRuntimeSignalsArgs,
+): Array<BindingLifecycleSignal | TurnSettledSignal> {
+  const signals: Array<BindingLifecycleSignal | TurnSettledSignal> = [];
+  const providerThreadIdByThreadId = new Map(
+    args.previousProviderThreadIdByThreadId,
+  );
+  for (const entry of args.events) {
+    const event = entry.event;
+    const thread = getThread(deps.db, entry.threadId);
+    if (!thread) continue;
+    const providerId = thread.providerId;
+    if (event.type === "turn/completed") {
+      signals.push({
+        threadId: entry.threadId,
+        turnId: requireThreadEventScopeTurnId({
+          type: event.type,
+          scope: event.scope,
+        }),
+        providerThreadId: event.providerThreadId,
+        providerId,
+        requestId: null,
+        outcome: event.status,
+        error: null,
+        providerCheckpointId: null,
+        startedAt: null,
+        settledAt: Date.now(),
+        turn: null,
+      });
+      continue;
+    }
+    if (
+      event.type === "system/error" &&
+      event.code === "provider_process_exited"
+    ) {
+      const providerThreadId = getLastProviderThreadId(deps, entry.threadId);
+      signals.push({
+        threadId: entry.threadId,
+        turnId: getThreadEventScopeTurnId(event.scope) ?? null,
+        providerThreadId,
+        providerId,
+        requestId: null,
+        outcome: "provider-session-lost",
+        error: event.message,
+        providerCheckpointId: null,
+        startedAt: null,
+        settledAt: Date.now(),
+        turn: null,
+      });
+      if (providerThreadId !== null) {
+        signals.push(
+          bindingSignal({
+            threadId: entry.threadId,
+            providerId,
+            providerThreadId,
+            phase: "crashed",
+            detail: { message: event.message },
+          }),
+        );
+      }
+      continue;
+    }
+    const providerThreadId = resolveProviderIdentifiers(event).providerThreadId;
+    if (providerThreadId === null) continue;
+    if (event.type === "thread/identity") {
+      const phase =
+        providerThreadIdByThreadId.get(entry.threadId) === null ||
+        providerThreadIdByThreadId.get(entry.threadId) === undefined
+          ? "start"
+          : "resume";
+      signals.push(
+        bindingSignal({
+          threadId: entry.threadId,
+          providerId,
+          providerThreadId,
+          phase,
+          detail: null,
+        }),
+      );
+      providerThreadIdByThreadId.set(entry.threadId, providerThreadId);
+    } else if (event.type === "provider/sessionReplaced") {
+      signals.push(
+        bindingSignal({
+          threadId: entry.threadId,
+          providerId,
+          providerThreadId,
+          phase: "session-replaced",
+          detail: { reason: event.reason, contextLost: event.contextLost },
+        }),
+      );
+    } else if (event.type === "provider/modelFallback") {
+      signals.push(
+        bindingSignal({
+          threadId: entry.threadId,
+          providerId,
+          providerThreadId,
+          phase: "model-changed",
+          detail: {
+            originalModel: event.originalModel,
+            fallbackModel: event.fallbackModel,
+            reason: event.reason,
+          },
+        }),
+      );
+    } else if (event.type === "provider/rateLimits/updated") {
+      signals.push(
+        bindingSignal({
+          threadId: entry.threadId,
+          providerId,
+          providerThreadId,
+          phase: "health-degraded",
+          detail: event.rateLimits,
+        }),
+      );
+    }
+  }
+  return signals;
+}
+
+function deferPluginRuntimeHooks(args: {
+  deps: LoggedPendingInteractionWorkSessionDeps;
+  providerEvents: ProviderEventObservation[];
+  signals: Array<BindingLifecycleSignal | TurnSettledSignal>;
+}): void {
+  if (args.providerEvents.length === 0 && args.signals.length === 0) return;
+  deferAfterResponse({
+    config: args.deps.config,
+    logger: args.deps.logger,
+    name: "Plugin runtime hook dispatch",
+    work: () => {
+      dispatchPluginProviderEvents(args.providerEvents);
+      for (const signal of args.signals) {
+        if ("outcome" in signal) {
+          dispatchPluginTurnSettled(signal);
+        } else {
+          dispatchPluginBindingLifecycle(signal);
+        }
+      }
+      return Promise.resolve();
+    },
+  });
 }
 
 function addParentTurnNotificationFollowUp(
@@ -918,6 +1134,21 @@ export function registerInternalEventRoutes(app: Hono, deps: AppDeps): void {
         });
       });
       const postableEvents = labelledEntries.map((entry) => entry.envelope);
+      const previousProviderThreadIdByThreadId = new Map<
+        string,
+        string | null
+      >();
+      for (const entry of postableEvents) {
+        if (
+          entry.event.type === "thread/identity" &&
+          !previousProviderThreadIdByThreadId.has(entry.threadId)
+        ) {
+          previousProviderThreadIdByThreadId.set(
+            entry.threadId,
+            getLastProviderThreadId(deps, entry.threadId),
+          );
+        }
+      }
       let appendResult: AppendDaemonEventsResult;
       try {
         appendResult = deps.db.transaction(
@@ -962,6 +1193,25 @@ export function registerInternalEventRoutes(app: Hono, deps: AppDeps): void {
           insertedEventIndexes: appendResult.insertedInputIndexes,
         }),
       );
+      const insertedEvents = appendResult.insertedInputIndexes.map((index) => {
+        const event = postableEvents[index];
+        if (event === undefined) {
+          throw new Error("Missing postable event for inserted daemon event");
+        }
+        return event;
+      });
+      deferPluginRuntimeHooks({
+        deps,
+        providerEvents: buildProviderEventObservations({
+          acceptedEvents: appendResult.acceptedEvents,
+          entries: labelledEntries,
+          insertedInputIndexes: appendResult.insertedInputIndexes,
+        }),
+        signals: buildRuntimeSignals(deps, {
+          events: insertedEvents,
+          previousProviderThreadIdByThreadId,
+        }),
+      });
       for (const candidate of resolveActivePruneCandidates({
         acceptedEvents: appendResult.acceptedEvents,
         events: postableEvents,

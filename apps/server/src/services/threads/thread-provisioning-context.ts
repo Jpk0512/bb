@@ -4,6 +4,7 @@ import {
   promptInputSchema,
   resolvedThreadExecutionOptionsSchema,
   clientTurnRequestIdSchema,
+  threadTurnInitiatorSchema,
   type ClientTurnRequestId,
   type PromptInput,
   type ResolvedThreadExecutionOptions,
@@ -75,6 +76,9 @@ export const threadProvisionCommonPayloadSchema = z.object({
   fork: threadForkDescriptorSchema.nullable().default(null),
   input: z.array(promptInputSchema),
   inputGroups: z.array(z.array(promptInputSchema).min(1)).min(1).optional(),
+  initiator: threadTurnInitiatorSchema,
+  senderThreadId: z.string().min(1).nullable(),
+  trigger: z.enum(["user", "auto-dispatch"]),
   titleProvided: z.boolean(),
   // When true the thread-start turn is persisted/displayed but no provider run
   // is dispatched — the started agent waits for the user's first message (fork
@@ -199,6 +203,8 @@ export interface CreateMetadataPendingContextArgs {
   execution: ResolvedThreadExecutionOptions;
   fork: ThreadForkDescriptor | null;
   input: PromptInput[];
+  initiator: import("@bb/domain").ThreadTurnInitiator;
+  senderThreadId: string | null;
   seedWithoutRun: boolean;
   titleProvided: boolean;
 }
@@ -227,7 +233,9 @@ export interface CreateReprovisioningContextArgs {
   execution: ResolvedThreadExecutionOptions;
   input: PromptInput[];
   inputGroups?: PromptInput[][];
+  initiator: import("@bb/domain").ThreadTurnInitiator;
   provisioningId: string;
+  senderThreadId: string | null;
 }
 
 export interface CreateWorkspaceReadyContextArgs {
@@ -359,6 +367,9 @@ export function createMetadataPendingContext(
       execution: args.execution,
       fork: args.fork,
       input: args.input,
+      initiator: args.initiator,
+      senderThreadId: args.senderThreadId,
+      trigger: "user",
       titleProvided: args.titleProvided,
       seedWithoutRun: args.seedWithoutRun,
     },
@@ -470,6 +481,9 @@ export function createReprovisioningContext(
       ...(args.inputGroups !== undefined
         ? { inputGroups: args.inputGroups }
         : {}),
+      initiator: args.initiator,
+      senderThreadId: args.senderThreadId,
+      trigger: "auto-dispatch",
       titleProvided: true,
       seedWithoutRun: false,
     },
