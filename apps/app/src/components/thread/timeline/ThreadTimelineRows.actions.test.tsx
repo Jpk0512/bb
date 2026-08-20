@@ -25,6 +25,7 @@ import {
   setPluginSlotRegistrations,
   type PluginRegistrationSet,
 } from "@/lib/plugin-slots";
+import { createQueryClientTestHarness } from "@/test/queryClientTestHarness";
 import { ThreadTimelineRows } from "./ThreadTimelineRows";
 
 function messageActionRegistrationSet(
@@ -44,13 +45,28 @@ function messageActionRegistrationSet(
 
 // ThreadTimelineRows reads route state for the search deep-link scroll, so it
 // must render inside a Router. Production and Ladle always provide one; these
-// isolated unit renders wrap the tree in a MemoryRouter.
-const toMarkup = (ui: ReactElement) =>
-  renderToStaticMarkup(<MemoryRouter>{ui}</MemoryRouter>);
+// isolated unit renders wrap the tree in a MemoryRouter. A turn row's
+// collapsed telemetry strip (BBF-6) also reads react-query, so both helpers
+// wrap in a fresh QueryClientProvider per call.
+const toMarkup = (ui: ReactElement) => {
+  const { wrapper: QueryClientTestWrapper } = createQueryClientTestHarness();
+  return renderToStaticMarkup(
+    <QueryClientTestWrapper>
+      <MemoryRouter>{ui}</MemoryRouter>
+    </QueryClientTestWrapper>,
+  );
+};
 const renderWithRouter = (
   ui: ReactElement,
   initialEntries: ComponentProps<typeof MemoryRouter>["initialEntries"] = ["/"],
-) => render(<MemoryRouter initialEntries={initialEntries}>{ui}</MemoryRouter>);
+) => {
+  const { wrapper: QueryClientTestWrapper } = createQueryClientTestHarness();
+  return render(
+    <QueryClientTestWrapper>
+      <MemoryRouter initialEntries={initialEntries}>{ui}</MemoryRouter>
+    </QueryClientTestWrapper>,
+  );
+};
 
 function SameThreadSearchNavigationHarness() {
   const navigate = useNavigate();

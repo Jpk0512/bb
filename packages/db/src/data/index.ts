@@ -61,6 +61,17 @@ export type {
 } from "./thread-sections.js";
 
 export {
+  getPreviousRootTurnUsage,
+  getThreadTurnRecord,
+  listThreadTurnRecords,
+  upsertThreadTurnRecord,
+} from "./thread-turns.js";
+export type {
+  GetPreviousRootTurnUsageArgs,
+  ListThreadTurnRecordsArgs,
+} from "./thread-turns.js";
+
+export {
   createPromptHistoryEntry,
   listStoredProjectPromptHistoryRows,
   listStoredThreadPromptHistoryRows,
@@ -391,6 +402,7 @@ export {
   listStoredEventRowsByParentToolCallIds,
   listStoredEventRowsByThreadIdsAndTypes,
   listStoredEventRows,
+  listStoredEventRowsForTurn,
   listStoredEventRowsInRange,
   isTimelineCursorSequencePresent,
   listItemEventSpansByItems,
@@ -416,6 +428,7 @@ export {
   listOpenBackgroundTaskItemRowsForThread,
   listThreadIdsWithLatestHostDaemonRestartInterruption,
   listThreadTurnInterruptionEventStates,
+  listTurnConversationItemRows,
   MissingStoredTurnStartedError,
   pruneBackgroundTaskProgressEvents,
   pruneContextWindowUsageEventsBeforeSequence,
@@ -450,11 +463,13 @@ export type {
   ListStoredClientTurnRequestRowsByKeysArgs,
   ListStoredClientTurnRequestIdsInRangeArgs,
   ListStoredEventRowsByThreadIdsAndTypesArgs,
+  ListStoredEventRowsForTurnArgs,
   ListStoredThreadProvisioningRowsByProvisioningIdArgs,
   ListStoredTimelineWindowEventRowsArgs,
   ListStoredTurnStartedKeysArgs,
   ListThreadIdsWithLatestHostDaemonRestartInterruptionArgs,
   ListThreadTurnInterruptionEventStatesArgs,
+  ListTurnConversationItemRowsArgs,
   ListStoredTurnStartedRowsByTurnIdsUpToSequenceArgs,
   MissingStoredTurnStartedDetails,
   PruneContextWindowUsageEventsBeforeSequenceArgs,

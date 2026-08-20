@@ -845,6 +845,18 @@ export interface ListStoredEventRowsArgs {
   threadId: string;
 }
 
+export interface ListStoredEventRowsForTurnArgs {
+  /** See {@link InlineOutputCharLimit}. */
+  maxInlineOutputChars: InlineOutputCharLimit;
+  threadId: string;
+  turnId: string;
+}
+
+export interface ListTurnConversationItemRowsArgs {
+  threadId: string;
+  turnId: string;
+}
+
 export interface FindStoredEventRowArgs {
   afterSequence?: number;
   threadId: string;
@@ -1109,6 +1121,57 @@ export function listStoredEventRows(
     )
     .orderBy(events.sequence)
     .limit(args.limit ?? Number.MAX_SAFE_INTEGER)
+    .all();
+}
+
+/**
+ * Returns every persisted row scoped to one turn, independently of timeline
+ * windows and presentation grouping. Callers choose whether bulk output is
+ * truncated; telemetry's builder uses the original event stream, not rows that
+ * were shortened for transcript rendering.
+ */
+export function listStoredEventRowsForTurn(
+  db: DbQueryConnection,
+  args: ListStoredEventRowsForTurnArgs,
+): StoredEventRow[] {
+  return db
+    .select(storedEventRowFieldsWithInlineOutputLimit(args.maxInlineOutputChars))
+    .from(events)
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        eq(events.turnId, args.turnId),
+      ),
+    )
+    .orderBy(events.sequence)
+    .all();
+}
+
+/**
+ * Unclipped conversation text for a single turn. The output truncation helper
+ * deliberately does not alter item text, but this query also avoids applying a
+ * timeline output cap so API consumers never inherit presentation clipping.
+ */
+export function listTurnConversationItemRows(
+  db: DbQueryConnection,
+  args: ListTurnConversationItemRowsArgs,
+): StoredEventRow[] {
+  const conversationItemKinds = [
+    "agentMessage",
+    "userMessage",
+  ] satisfies ThreadEventItemType[];
+  return db
+    .select(storedEventRowFields)
+    .from(events)
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        eq(events.turnId, args.turnId),
+        eq(events.type, "item/completed"),
+        inArray(events.itemKind, conversationItemKinds),
+      ),
+    )
+    .orderBy(events.sequence)
     .all();
 }
 

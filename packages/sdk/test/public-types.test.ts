@@ -391,6 +391,7 @@ type ExpectedThreadsKey =
   | "tabs"
   | "timeline"
   | "timelineTurnSummaryDetails"
+  | "turns"
   | "unarchive"
   | "unpin"
   | "update"

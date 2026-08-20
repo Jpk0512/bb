@@ -105,6 +105,10 @@ import { getThreadRoutePath } from "@/lib/route-paths";
 import { useThreadTimelineTurnSummaryDetails } from "@/hooks/queries/thread-queries";
 import { type ThreadTimelineTurnSummaryDetailsQueryIdentity } from "@/hooks/queries/query-keys";
 import {
+  TurnTelemetryExpandedBody,
+  TurnTelemetryStrip,
+} from "./TurnTelemetryStrip.js";
+import {
   useSenderThreadMetadataById,
   type SenderThreadMetadata,
 } from "@/hooks/useSenderThreadMetadataById";
@@ -313,12 +317,14 @@ interface TimelineExpandableBodyProps {
   compactActivityIntents: boolean;
   row: ThreadTimelineViewRow;
   showAssistantMessageActions: boolean;
+  showTurnTelemetry?: boolean;
 }
 
 interface TurnRowBodyProps {
   compactActivityIntents: boolean;
   row: TimelineViewTurnRow;
   showAssistantMessageActions: boolean;
+  showTurnTelemetry?: boolean;
 }
 
 type LazyTurnRowBodyProps = TurnRowBodyProps;
@@ -428,6 +434,15 @@ const LatestActionableAssistantMessageIdContext = createContext<string | null>(
 const LatestActionableUserMessageIdContext = createContext<string | null>(null);
 const EMPTY_ROW_ID_SET: ReadonlySet<string> = new Set<string>();
 const TimelineSearchExpansionContext =
+  createContext<ReadonlySet<string>>(EMPTY_ROW_ID_SET);
+// A steered turn (a mid-turn user/system nudge) still completes as ONE
+// client turnId, but the timeline can emit it as several sibling "turn"
+// summary rows (segments) sharing that turnId — see buildTurnSummaryRow's
+// `segmentIndex`-suffixed row ids. The per-turn telemetry strip must render
+// exactly once per turnId, so this context carries the row ids the last
+// segment for each turnId, scoped to the same rows array a
+// TimelineRowsList renders (turn segments are always siblings there).
+const TimelineLastTurnSegmentRowIdsContext =
   createContext<ReadonlySet<string>>(EMPTY_ROW_ID_SET);
 const SKILL_FILE_NAME = "SKILL.md";
 
@@ -629,6 +644,23 @@ function buildTurnSummaryDetailsIdentity({
     threadId: rowThreadId ?? threadId,
     turnId: rowTurnId,
   };
+}
+
+/**
+ * The last "turn" row id for each distinct turnId in `rows` — see
+ * {@link TimelineLastTurnSegmentRowIdsContext}. Iterates only the given
+ * (already flat) level: turn segments never nest inside another turn row.
+ */
+function computeLastTurnSegmentRowIds(
+  rows: readonly ThreadTimelineViewRow[],
+): ReadonlySet<string> {
+  const lastRowIdByTurnId = new Map<string, string>();
+  for (const row of rows) {
+    if (row.kind === "turn") {
+      lastRowIdByTurnId.set(row.turnId, row.id);
+    }
+  }
+  return new Set(lastRowIdByTurnId.values());
 }
 
 function timelineRowsOwnerKey({
@@ -1199,6 +1231,7 @@ function TimelineExpandableBody({
   compactActivityIntents,
   row,
   showAssistantMessageActions,
+  showTurnTelemetry = false,
 }: TimelineExpandableBodyProps) {
   const {
     onOpenLink,
@@ -1262,6 +1295,7 @@ function TimelineExpandableBody({
           showAssistantMessageActions={
             showAssistantMessageActions && row.status === "pending"
           }
+          showTurnTelemetry={showTurnTelemetry}
         />
       );
     case "work":
@@ -1339,18 +1373,15 @@ function TurnRowBody({
   compactActivityIntents,
   row,
   showAssistantMessageActions,
+  showTurnTelemetry = false,
 }: TurnRowBodyProps) {
-  if (row.children === null) {
-    return (
-      <LazyTurnRowBody
-        compactActivityIntents={compactActivityIntents}
-        row={row}
-        showAssistantMessageActions={showAssistantMessageActions}
-      />
-    );
-  }
-
-  return (
+  const details = row.children === null ? (
+    <LazyTurnRowBody
+      compactActivityIntents={compactActivityIntents}
+      row={row}
+      showAssistantMessageActions={showAssistantMessageActions}
+    />
+  ) : (
     <TimelineRowsList
       rows={row.children}
       scopeActive={false}
@@ -1361,6 +1392,18 @@ function TurnRowBody({
       unreadDividerAutoScroll={false}
       unreadDividerPlacement={null}
     />
+  );
+  if (!showTurnTelemetry) {
+    return details;
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      <TurnTelemetryExpandedBody
+        threadId={row.threadId}
+        turnId={row.turnId}
+      />
+      {details}
+    </div>
   );
 }
 
@@ -1772,6 +1815,11 @@ function TimelineExpandableRowView({
     terminalAutoExpandedRowIds,
   } = useTimelineTurnStateContext();
   const searchExpandedRowIds = useContext(TimelineSearchExpansionContext);
+  const lastTurnSegmentRowIds = useContext(
+    TimelineLastTurnSegmentRowIdsContext,
+  );
+  const showTurnTelemetry =
+    row.kind === "turn" && lastTurnSegmentRowIds.has(row.id);
   const renderBody = useCallback(
     () => (
       <TimelineExpandableBody
@@ -1779,6 +1827,7 @@ function TimelineExpandableRowView({
         row={row}
         compactActivityIntents={compactActivityIntents}
         showAssistantMessageActions={showAssistantMessageActions}
+        showTurnTelemetry={showTurnTelemetry}
       />
     ),
     [
@@ -1786,10 +1835,17 @@ function TimelineExpandableRowView({
       compactActivityIntents,
       row,
       showAssistantMessageActions,
+      showTurnTelemetry,
     ],
   );
 
   const leadingIcon = leadingIconForRow(row);
+  // Only the last segment of a (possibly steered, multi-segment) turn shows
+  // the telemetry strip, so one client turn never renders more than one.
+  const collapsedPreview =
+    row.kind === "turn" && lastTurnSegmentRowIds.has(row.id) ? (
+      <TurnTelemetryStrip threadId={row.threadId} turnId={row.turnId} />
+    ) : undefined;
 
   return (
     <ExpandableTimelineRow
@@ -1818,6 +1874,7 @@ function TimelineExpandableRowView({
       onTitleAction={onTitleAction}
       resolveSegmentLinkHref={resolveSegmentLinkHref}
       renderBody={renderBody}
+      collapsedPreview={collapsedPreview}
     />
   );
 }
@@ -1914,44 +1971,51 @@ function TimelineRowsList({
     () => findActiveLatestBundleId(rows),
     [rows],
   );
+  const lastTurnSegmentRowIds = useStableReadonlySet(
+    useMemo(() => computeLastTurnSegmentRowIds(rows), [rows]),
+  );
   const items = useMemo(
     () => buildTimelineRowsListItems({ rows, unreadDividerPlacement }),
     [rows, unreadDividerPlacement],
   );
   return (
     <TimelineSearchExpansionContext.Provider value={stableSearchExpandedRowIds}>
-      <div
-        className={cn(
-          "flex min-w-0 flex-col [&_button:not(:disabled)]:cursor-pointer",
-          timelineRowsListGapClassName(spacing),
-          className,
-        )}
-        data-timeline-row-list={spacing}
+      <TimelineLastTurnSegmentRowIdsContext.Provider
+        value={lastTurnSegmentRowIds}
       >
-        {items.map((item) => {
-          if (item.kind === "unread-divider") {
-            return (
-              <TimelineUnreadDivider
-                key={item.id}
-                autoScroll={unreadDividerAutoScroll}
-              />
-            );
-          }
+        <div
+          className={cn(
+            "flex min-w-0 flex-col [&_button:not(:disabled)]:cursor-pointer",
+            timelineRowsListGapClassName(spacing),
+            className,
+          )}
+          data-timeline-row-list={spacing}
+        >
+          {items.map((item) => {
+            if (item.kind === "unread-divider") {
+              return (
+                <TimelineUnreadDivider
+                  key={item.id}
+                  autoScroll={unreadDividerAutoScroll}
+                />
+              );
+            }
 
-          return (
-            <div key={item.row.id} data-timeline-row-id={item.row.id}>
-              <MemoizedTimelineRowView
-                activeLatestBundleId={activeLatestBundleId}
-                row={item.row}
-                scopeActive={scopeActive}
-                showAssistantMessageActions={showAssistantMessageActions}
-                spacing={spacing}
-                compactActivityIntents={compactActivityIntents}
-              />
-            </div>
-          );
-        })}
-      </div>
+            return (
+              <div key={item.row.id} data-timeline-row-id={item.row.id}>
+                <MemoizedTimelineRowView
+                  activeLatestBundleId={activeLatestBundleId}
+                  row={item.row}
+                  scopeActive={scopeActive}
+                  showAssistantMessageActions={showAssistantMessageActions}
+                  spacing={spacing}
+                  compactActivityIntents={compactActivityIntents}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </TimelineLastTurnSegmentRowIdsContext.Provider>
     </TimelineSearchExpansionContext.Provider>
   );
 }

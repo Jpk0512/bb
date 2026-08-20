@@ -210,6 +210,8 @@ import type {
   ThreadStoragePathsQuery,
   ThreadTimelineQuery,
   ThreadTimelineResponse,
+  ThreadTurnsQuery,
+  ThreadTurnsResponse,
   ThreadWithIncludesResponse,
   TimelineTurnSummaryDetailsQuery,
   TimelineTurnSummaryDetailsResponse,
@@ -317,6 +319,7 @@ import {
   terminalOutputQuerySchema,
   terminalResizeRequestSchema,
   threadTimelineQuerySchema,
+  threadTurnsQuerySchema,
   systemCliSkillsStatusQuerySchema,
   systemInstallCliSkillsRequestSchema,
   timelineTurnSummaryDetailsQuerySchema,
@@ -1316,6 +1319,14 @@ export const publicApiRoutes = {
         threadTimelineQuerySchema,
       ),
       response: jsonResponse<ThreadTimelineResponse>(),
+    }),
+    turns: defineRoute({
+      path: "/threads/:id/turns",
+      method: "get",
+      request: optionalQueryRequest<PathId, ThreadTurnsQuery>(
+        threadTurnsQuerySchema,
+      ),
+      response: jsonResponse<ThreadTurnsResponse>(),
     }),
     conversationOutline: defineRoute({
       path: "/threads/:id/conversation-outline",

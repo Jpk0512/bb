@@ -23,6 +23,8 @@ import {
   threadTimelineGoalSchema,
   threadTimelineModelFallbackSchema,
   threadTimelinePendingTodosSchema,
+  threadTurnRecordSchema,
+  threadTurnSpanSchema,
   threadVisibilitySchema,
   threadWithRuntimeSchema,
 } from "@bb/domain";
@@ -869,6 +871,40 @@ export const threadTimelineQuerySchema = z
     });
   });
 export type ThreadTimelineQuery = z.infer<typeof threadTimelineQuerySchema>;
+
+export const threadTurnMessageSchema = z
+  .object({
+    createdAt: z.number(),
+    itemId: z.string().min(1),
+    role: z.enum(["assistant", "user"]),
+    text: z.string(),
+  })
+  .strict();
+export type ThreadTurnMessage = z.infer<typeof threadTurnMessageSchema>;
+
+export const threadTurnResponseSchema = threadTurnRecordSchema
+  .omit({ spans: true })
+  .extend({
+    messages: z.array(threadTurnMessageSchema).optional(),
+    spans: z.array(threadTurnSpanSchema).optional(),
+  });
+export type ThreadTurnResponse = z.infer<typeof threadTurnResponseSchema>;
+
+export const threadTurnsQuerySchema = z
+  .object({
+    beforeCompletedAt: z.string().regex(/^\d+$/),
+    include: z.enum(["messages"]),
+    includeSpans: z.enum(["true", "false"]),
+    limit: z.string().regex(/^\d+$/),
+    turnId: z.string().min(1),
+  })
+  .partial();
+export type ThreadTurnsQuery = z.infer<typeof threadTurnsQuerySchema>;
+
+export const threadTurnsResponseSchema = z
+  .object({ turns: z.array(threadTurnResponseSchema) })
+  .strict();
+export type ThreadTurnsResponse = z.infer<typeof threadTurnsResponseSchema>;
 
 export const timelineTurnSummaryDetailsQuerySchema = z.object({
   turnId: z.string().min(1),

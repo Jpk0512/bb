@@ -6,6 +6,7 @@ import type {
   PromptInput,
   ThreadEvent,
   ThreadEventType,
+  ThreadTurnRecord,
   ThreadTurnInitiator,
   TurnRequestTarget,
 } from "@bb/domain";
@@ -889,8 +890,8 @@ export type TurnSettledOutcome =
   | "provider-session-lost";
 
 /**
- * Durable turn settlement signal. BBF-6 will populate `turn`; BBF-8 owns the
- * event and deliberately emits null until the structured turn record exists.
+ * Durable turn settlement signal. BBF-8 owns this event; BBF-6 supplies the
+ * structured record when a durable `turn/completed` event was materialized.
  */
 export interface TurnSettledSignal {
   threadId: string;
@@ -903,7 +904,12 @@ export interface TurnSettledSignal {
   providerCheckpointId: string | null;
   startedAt: number | null;
   settledAt: number;
-  turn: null;
+  /**
+   * Null only when no durable completion event exists (for example provider
+   * session loss or delivery-unknown). Normal terminal turns carry the
+   * materialized record keyed by this signal's threadId/turnId.
+   */
+  turn: ThreadTurnRecord | null;
 }
 
 export type TurnSettledHandler = (
