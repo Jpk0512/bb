@@ -7,6 +7,7 @@ import {
   pinThread,
   reorderPinnedThread,
   reorderQueuedThreadMessage,
+  revealThread,
   setQueuedThreadMessageGroupBoundary,
   unarchiveThread,
   unpinThread,
@@ -624,6 +625,22 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
       { split: payload.split ?? "replace", file: payload.file },
     );
     return context.json({ delivered });
+  });
+
+  post(routes.reveal, (context, payload) => {
+    const publicThread = requirePublicThread(deps.db, context.req.param("id"));
+    const result = revealThread(deps.db, deps.hub, {
+      threadId: publicThread.id,
+      unhide: payload.unhide,
+      unarchive: payload.unarchive,
+    });
+    if (!result) {
+      throw new ApiError(404, "thread_not_found", "Thread not found");
+    }
+    return context.json({
+      thread: toThreadResponseFromThread(deps, { thread: result.thread }),
+      restored: result.restored,
+    });
   });
 
   post(routes.paneAction, (context, payload) => {

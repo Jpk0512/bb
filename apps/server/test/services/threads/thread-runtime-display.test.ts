@@ -212,7 +212,7 @@ function createThreadListEntry(
     ...args.thread,
     modelOverride: null,
     reasoningLevelOverride: null,
-    // Phase 6 charter columns: declared on the row, unread by any code path.
+    // Phase 6 columns owned by other primitives.
     childKind: null,
     providerGeneration: 0,
     supersededByThreadId: null,
@@ -221,6 +221,7 @@ function createThreadListEntry(
     environmentName: null,
     environmentWorkspaceDisplayKind: "other",
     hasPendingInteraction: false,
+    unreadNotificationCount: 0,
   };
 }
 

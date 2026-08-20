@@ -27,6 +27,7 @@ import type {
   ThreadConversationOutlineResponse,
   ThreadListResponse,
   ThreadOpenResponse,
+  ThreadRevealResponse,
   ThreadPaneAction,
   ThreadPaneActionResponse,
   ThreadPendingInteractionsResponse,
@@ -119,6 +120,7 @@ export type ThreadEventWaitResult = ThreadEventRow | null;
 export type ThreadTimelineResult = ThreadTimelineResponse;
 export type ThreadArchiveResult = ThreadArchiveAllResponse;
 export type ThreadOpenResult = ThreadOpenResponse;
+export type ThreadRevealResult = ThreadRevealResponse;
 export type ThreadPaneActionResult = ThreadPaneActionResponse;
 export type ThreadDeleteResult = { ok: true };
 export type ThreadSendResult = { ok: true };
@@ -279,6 +281,13 @@ export interface ThreadOpenArgs {
   threadId: string;
   split?: ThreadOpenSplit;
   file: ThreadOpenFile | null;
+}
+
+export interface ThreadRevealArgs {
+  threadId: string;
+  unarchive?: boolean;
+  unhide?: boolean;
+  signal?: AbortSignal;
 }
 
 export interface ThreadPaneActionArgs {
@@ -465,6 +474,7 @@ export interface ThreadsArea {
   markRead(args: ThreadActionArgs): Promise<ThreadReadStateResult>;
   markUnread(args: ThreadActionArgs): Promise<ThreadReadStateResult>;
   open(args: ThreadOpenArgs): Promise<ThreadOpenResult>;
+  reveal(args: ThreadRevealArgs): Promise<ThreadRevealResult>;
   paneAction(args: ThreadPaneActionArgs): Promise<ThreadPaneActionResult>;
   output(args: ThreadOutputArgs): Promise<ThreadOutputResponse>;
   pin(args: ThreadActionArgs): Promise<ThreadMutationResult>;
@@ -1049,6 +1059,22 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
             file: input.file,
           },
         }),
+      );
+    },
+    async reveal(input) {
+      return transport.readJson(
+        transport.api.v1.threads[":id"].reveal.$post(
+          {
+            param: { id: input.threadId },
+            json: {
+              ...(input.unhide === undefined ? {} : { unhide: input.unhide }),
+              ...(input.unarchive === undefined
+                ? {}
+                : { unarchive: input.unarchive }),
+            },
+          },
+          ...signalRequestArgs(input.signal),
+        ),
       );
     },
     async paneAction(input) {

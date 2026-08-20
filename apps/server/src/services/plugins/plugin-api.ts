@@ -74,7 +74,12 @@ import {
   summarizeParseIssues,
   validatePluginProviderDeclaration,
 } from "@get-bb/plugin-sdk/internal/host-policy";
-import type { BbSdk, ThreadForkArgs, ThreadSpawnArgs } from "@bb/sdk";
+import type {
+  BbSdk,
+  NotificationCreateArgs,
+  ThreadForkArgs,
+  ThreadSpawnArgs,
+} from "@bb/sdk";
 import type { ServerLogger } from "../../types.js";
 import type { PluginInteractionResult } from "../interactions/pending-interactions.js";
 import { isValidPluginRealtimeChannelName } from "../../ws/plugin-realtime.js";
@@ -344,6 +349,15 @@ export type PluginAgentConfigurationProvider = (
 function wrapSdkForPlugin(sdk: BbSdk, pluginId: string): BbSdk {
   return {
     ...sdk,
+    notifications: {
+      ...sdk.notifications,
+      create(args: NotificationCreateArgs) {
+        return sdk.notifications.create({
+          ...args,
+          pluginId: args.pluginId ?? pluginId,
+        });
+      },
+    },
     threads: {
       ...sdk.threads,
       fork(args: ThreadForkArgs) {
@@ -798,8 +812,10 @@ export function createPluginApi(options: {
       const declared = new Map<string, PluginRealtimeChannelDeclaration>();
       for (const entry of channels) {
         const channel = entry?.channel;
-        if (typeof channel !== "string" ||
-            !isValidPluginRealtimeChannelName(channel)) {
+        if (
+          typeof channel !== "string" ||
+          !isValidPluginRealtimeChannelName(channel)
+        ) {
           throw new Error(
             `invalid realtime channel name ${JSON.stringify(channel)} — use ` +
               'letters, digits, ".", "_", ":" and "-" (max 64 chars)',
@@ -808,7 +824,10 @@ export function createPluginApi(options: {
         if (declared.has(channel)) {
           throw new Error(`realtime channel "${channel}" is declared twice`);
         }
-        if (typeof entry.label !== "string" || entry.label.trim().length === 0) {
+        if (
+          typeof entry.label !== "string" ||
+          entry.label.trim().length === 0
+        ) {
           throw new Error(
             `realtime channel "${channel}" needs a non-empty label — it is ` +
               "shown to users in the plugin detail Includes section",

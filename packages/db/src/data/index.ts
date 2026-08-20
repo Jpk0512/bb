@@ -29,6 +29,7 @@ export {
   createNotification,
   dismissNotification,
   getNotification,
+  getNotificationWithTarget,
   listNotifications,
   markNotificationRead,
 } from "./notifications.js";

@@ -164,6 +164,28 @@ export function getNotification(
   );
 }
 
+export function getNotificationWithTarget(
+  db: DbQueryConnection,
+  id: string,
+): NotificationListRow | null {
+  return (
+    db
+      .select({
+        ...getTableColumns(notifications),
+        targetThreadId: threads.id,
+        targetTitle: threads.title,
+        targetTitleFallback: threads.titleFallback,
+        targetVisibility: threads.visibility,
+        targetArchivedAt: threads.archivedAt,
+        targetDeletedAt: threads.deletedAt,
+      })
+      .from(notifications)
+      .leftJoin(threads, eq(notifications.threadId, threads.id))
+      .where(eq(notifications.id, id))
+      .get() ?? null
+  );
+}
+
 export function listNotifications(
   db: DbQueryConnection,
   args: ListNotificationsArgs = {},

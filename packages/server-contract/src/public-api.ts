@@ -8,6 +8,7 @@ import type {
   Environment,
   Experiments,
   Host,
+  Notification,
   PendingInteraction,
   ProjectExecutionDefaults,
   ProjectSource,
@@ -111,6 +112,10 @@ import type {
   HostProviderCliInstallRequest,
   HostProviderCliStatusResponse,
   HostRetryUpdateResponse,
+  CreateNotificationRequest,
+  NotificationListQuery,
+  NotificationListResponse,
+  NotificationOpenResponse,
   ProjectAttachmentContentQuery,
   ProjectAttachmentUploadForm,
   ProjectBranchesQuery,
@@ -188,6 +193,8 @@ import type {
   ThreadConversationOutlineResponse,
   ThreadOpenRequest,
   ThreadOpenResponse,
+  ThreadRevealRequest,
+  ThreadRevealResponse,
   ThreadPaneActionRequest,
   ThreadPaneActionResponse,
   ProviderRateLimitRecoveryStatus,
@@ -237,6 +244,7 @@ import {
   createHostJoinCodeRequestSchema,
   createProjectSourceRequestSchema,
   createQueuedMessageRequestSchema,
+  createNotificationRequestSchema,
   updateQueuedMessageRequestSchema,
   createThreadRequestSchema,
   forkThreadRequestSchema,
@@ -296,7 +304,9 @@ import {
   threadGetQuerySchema,
   threadHostFileContentQuerySchema,
   threadListQuerySchema,
+  notificationListQuerySchema,
   threadOpenRequestSchema,
+  threadRevealRequestSchema,
   threadPaneActionRequestSchema,
   threadSearchQuerySchema,
   threadStorageContentQuerySchema,
@@ -909,6 +919,43 @@ export const publicApiRoutes = {
     }),
   },
 
+  notifications: {
+    create: defineRoute({
+      path: "/notifications",
+      method: "post",
+      request: jsonRequest<EmptyInput, CreateNotificationRequest>(
+        createNotificationRequestSchema,
+      ),
+      response: jsonResponse<Notification>({ status: 201 }),
+    }),
+    list: defineRoute({
+      path: "/notifications",
+      method: "get",
+      request: optionalQueryRequest<EmptyInput, NotificationListQuery>(
+        notificationListQuerySchema,
+      ),
+      response: jsonResponse<NotificationListResponse>(),
+    }),
+    read: defineRoute({
+      path: "/notifications/:id/read",
+      method: "post",
+      request: noRequest<PathId>(),
+      response: jsonResponse<Notification>(),
+    }),
+    dismiss: defineRoute({
+      path: "/notifications/:id/dismiss",
+      method: "post",
+      request: noRequest<PathId>(),
+      response: jsonResponse<Notification>(),
+    }),
+    open: defineRoute({
+      path: "/notifications/:id/open",
+      method: "post",
+      request: noRequest<PathId>(),
+      response: jsonResponse<NotificationOpenResponse>(),
+    }),
+  },
+
   threads: {
     list: defineRoute({
       path: "/threads",
@@ -1121,6 +1168,14 @@ export const publicApiRoutes = {
       method: "post",
       request: jsonRequest<PathId, ThreadOpenRequest>(threadOpenRequestSchema),
       response: jsonResponse<ThreadOpenResponse>(),
+    }),
+    reveal: defineRoute({
+      path: "/threads/:id/reveal",
+      method: "post",
+      request: jsonRequest<PathId, ThreadRevealRequest>(
+        threadRevealRequestSchema,
+      ),
+      response: jsonResponse<ThreadRevealResponse>(),
     }),
     paneAction: defineRoute({
       path: "/threads/:id/pane-action",
