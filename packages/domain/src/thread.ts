@@ -421,13 +421,8 @@ export const threadListEntrySchema = threadWithRuntimeSchema.extend({
   activity: threadActivityStateSchema,
   pinSortKey: z.string().nullable(),
   hasPendingInteraction: z.boolean(),
-  /**
-   * PHASE 6 CHARTER (BBF-7). Count of undismissed notifications for this
-   * thread, for the sidebar chip. `hasPendingInteraction` on this same schema
-   * is the established precedent for per-thread attention state in the list
-   * payload. Optional until BBF-7 adds the correlated subquery.
-   */
-  unreadNotificationCount: z.number().optional(),
+  /** Count of unread, undismissed notifications for the sidebar chip. */
+  unreadNotificationCount: z.number().int().nonnegative(),
   environmentHostId: z.string().nullable(),
   environmentName: z.string().nullable(),
   environmentBranchName: z.string().nullable(),
