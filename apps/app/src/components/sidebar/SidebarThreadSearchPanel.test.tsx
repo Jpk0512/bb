@@ -63,6 +63,7 @@ function createThreadListEntry({
     originKind: null,
     originPluginId: null,
     visibility: "visible",
+    childKind: null,
     parentThreadId: null,
     pinSortKey: null,
     pinnedAt: null,

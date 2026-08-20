@@ -12,6 +12,7 @@ function makeThread(overrides: Partial<ThreadListEntry> = {}): ThreadListEntry {
     titleFallback: "A thread",
     sectionId: null,
     status: "idle",
+    childKind: null,
     parentThreadId: null,
     sourceThreadId: null,
     originKind: null,

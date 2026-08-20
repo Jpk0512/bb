@@ -64,6 +64,7 @@ function makeThreadListEntry(id = "thread-1"): ThreadListEntry {
     titleFallback: null,
     sectionId: null,
     status: "active",
+    childKind: null,
     parentThreadId: null,
     sourceThreadId: null,
     originKind: null,

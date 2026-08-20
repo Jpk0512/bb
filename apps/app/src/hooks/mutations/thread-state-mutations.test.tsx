@@ -35,6 +35,7 @@ function makeThreadWithRuntime(
     titleFallback: null,
     sectionId: null,
     status: "active",
+    childKind: null,
     parentThreadId: null,
     sourceThreadId: null,
     originKind: null,

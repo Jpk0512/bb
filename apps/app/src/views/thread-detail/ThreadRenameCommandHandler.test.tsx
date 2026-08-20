@@ -59,6 +59,7 @@ function makeThread(id: string, title: string): Thread {
     originKind: null,
     originPluginId: null,
     visibility: "visible",
+    childKind: null,
     parentThreadId: null,
     pinnedAt: null,
     projectId: "proj_test",

@@ -15,6 +15,7 @@ function createThread(overrides: Partial<ThreadListEntry>): ThreadListEntry {
     titleFallback: "Thread",
     sectionId: null,
     status: "idle",
+    childKind: null,
     parentThreadId: null,
     sourceThreadId: null,
     originKind: null,
