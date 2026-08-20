@@ -55,6 +55,7 @@ export const THREAD_CONVERSATION_OUTLINE_QUERY_KEY =
   "threadConversationOutline";
 export const THREAD_TIMELINE_TURN_SUMMARY_DETAILS_QUERY_KEY =
   "threadTimelineTurnSummaryDetails";
+export const THREAD_TURNS_QUERY_KEY = "threadTurns";
 export const SYSTEM_PROVIDERS_QUERY_KEY = "systemProviders";
 export const SYSTEM_CONFIG_QUERY_KEY = "systemConfig";
 export const SYSTEM_EXECUTION_OPTIONS_QUERY_KEY = "systemExecutionOptions";
@@ -375,6 +376,24 @@ export type ThreadTimelineTurnSummaryDetailsQueryKeyPrefix = readonly [
 ];
 export type AllThreadTimelineTurnSummaryDetailsQueryKeyPrefix = readonly [
   typeof THREAD_TIMELINE_TURN_SUMMARY_DETAILS_QUERY_KEY,
+];
+export interface ThreadTurnsQueryIdentity {
+  includeSpans: boolean;
+  threadId: string;
+  turnId: string;
+}
+export type ThreadTurnsQueryKey = readonly [
+  typeof THREAD_TURNS_QUERY_KEY,
+  string,
+  string,
+  boolean,
+];
+export type ThreadTurnsQueryKeyPrefix = readonly [
+  typeof THREAD_TURNS_QUERY_KEY,
+  string,
+];
+export type AllThreadTurnsQueryKeyPrefix = readonly [
+  typeof THREAD_TURNS_QUERY_KEY,
 ];
 export type EnvironmentDiffFilesQueryKey = readonly [
   typeof ENVIRONMENT_DIFF_FILES_QUERY_KEY,
@@ -946,6 +965,24 @@ export function threadTimelineTurnSummaryDetailsQueryKeyPrefix(
 
 export function allThreadTimelineTurnSummaryDetailsQueryKeyPrefix(): AllThreadTimelineTurnSummaryDetailsQueryKeyPrefix {
   return [THREAD_TIMELINE_TURN_SUMMARY_DETAILS_QUERY_KEY];
+}
+
+export function threadTurnsQueryKey({
+  includeSpans,
+  threadId,
+  turnId,
+}: ThreadTurnsQueryIdentity): ThreadTurnsQueryKey {
+  return [THREAD_TURNS_QUERY_KEY, threadId, turnId, includeSpans];
+}
+
+export function threadTurnsQueryKeyPrefix(
+  threadId: string,
+): ThreadTurnsQueryKeyPrefix {
+  return [THREAD_TURNS_QUERY_KEY, threadId];
+}
+
+export function allThreadTurnsQueryKeyPrefix(): AllThreadTurnsQueryKeyPrefix {
+  return [THREAD_TURNS_QUERY_KEY];
 }
 
 /**

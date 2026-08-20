@@ -19,6 +19,7 @@ import type {
   ThreadStorageFileListResponse,
   ThreadStoragePathListResponse,
   ThreadTimelineResponse,
+  ThreadTurnsResponse,
   TimelineTurnSummaryDetailsResponse,
 } from "@bb/server-contract";
 import { applyTimelineDelta } from "@bb/server-contract";
@@ -73,8 +74,10 @@ import {
   threadConversationOutlineQueryKey,
   threadTimelineQueryKey,
   threadTimelineTurnSummaryDetailsQueryKey,
+  threadTurnsQueryKey,
   threadsQueryKey,
   type ThreadTimelineTurnSummaryDetailsQueryIdentity,
+  type ThreadTurnsQueryIdentity,
 } from "./query-keys";
 import { ARCHIVED_THREADS_PAGE_SIZE } from "./archived-threads-page-size";
 import { ingestThreadDetailBootstrap } from "../cache-owners/thread-detail-cache-owner";
@@ -113,6 +116,8 @@ export function didThreadDetailBootstrapRefreshAfterMount(query: {
 type ThreadTimelineQueryOptions = QueryOptions;
 
 type ThreadTimelineTurnSummaryDetailsQueryOptions = QueryOptions;
+
+type ThreadTurnsQueryOptions = QueryOptions;
 
 type ThreadQueuedMessagesQueryOptions = QueryOptions;
 
@@ -902,6 +907,40 @@ export function useThreadTimelineTurnSummaryDetails(
       Boolean(identity.turnId),
     meta: {
       errorMessage: "Failed to load turn summary details.",
+      showErrorToast: false,
+    },
+    refetchOnMount: options?.refetchOnMount ?? true,
+    staleTime: options?.staleTime ?? Infinity,
+  });
+}
+
+/**
+ * Materialized per-turn telemetry (duration, usage, counts, and — only when
+ * `includeSpans` is true — the waterfall span tree) for one turn. Callers
+ * fetch without spans for the collapsed telemetry strip and re-fetch with
+ * `includeSpans: true` once the waterfall is expanded, which lands in its own
+ * cache entry since `includeSpans` is part of the query key.
+ */
+export function useThreadTurns(
+  identity: ThreadTurnsQueryIdentity,
+  options?: ThreadTurnsQueryOptions,
+) {
+  return useQuery<ThreadTurnsResponse>({
+    queryKey: threadTurnsQueryKey(identity),
+    queryFn: ({ signal }) =>
+      sdk.threads.turns({
+        threadId: requireThreadId(identity.threadId, "useThreadTurns"),
+        turnId: identity.turnId,
+        includeSpans: identity.includeSpans ? "true" : "false",
+        limit: "1",
+        signal,
+      }),
+    enabled:
+      (options?.enabled ?? true) &&
+      Boolean(identity.threadId) &&
+      Boolean(identity.turnId),
+    meta: {
+      errorMessage: "Failed to load turn telemetry.",
       showErrorToast: false,
     },
     refetchOnMount: options?.refetchOnMount ?? true,

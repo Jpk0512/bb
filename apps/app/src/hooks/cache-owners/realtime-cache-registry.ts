@@ -93,6 +93,7 @@ import {
   threadStorageFilePreviewQueryKeyPrefix,
   threadStorageFilesForThreadQueryKeyPrefix,
   threadStoragePathsForThreadQueryKeyPrefix,
+  threadTurnsQueryKeyPrefix,
 } from "../queries/query-keys";
 import { schedulePluginFrontendReconcile } from "../../lib/plugin-frontend-lazy";
 import {
@@ -301,6 +302,7 @@ export const REALTIME_THREAD_CHANGE_REGISTRY = {
       dirtyThreadSearchQueries, // Indexed conversation content may now match a search query.
       dirtyThreadTimelineQueries, // Timeline rows are built from appended events.
       dirtyThreadPullRequestQueryForCompletedTurn, // A turn may create a remote PR without changing the workspace.
+      dirtyThreadTurnQueriesForCompletedTurn, // Turn telemetry (BBF-6) is materialized only once the turn completes.
       dirtyThreadPromptHistoryQueriesForTurnRequests, // Follow-up recall is built from client turn requests.
     ],
   },
@@ -800,6 +802,16 @@ function dirtyThreadPullRequestQueryForCompletedTurn({
     );
   const environmentId = cachedThread?.environmentId;
   return environmentId ? [environmentPullRequestQueryKey(environmentId)] : [];
+}
+
+function dirtyThreadTurnQueriesForCompletedTurn({
+  eventTypes,
+  threadId,
+}: ThreadRealtimeDirtyContext): QueryKey[] {
+  if (!threadId || !eventTypes?.includes("turn/completed")) {
+    return [];
+  }
+  return [threadTurnsQueryKeyPrefix(threadId)];
 }
 
 function dirtyThreadPendingInteractionQueries({
