@@ -478,6 +478,7 @@ describe("createHostDaemonApp", () => {
         expect.objectContaining({
           env: {
             PATH: "/shell/bin:/usr/bin",
+            BB_SERVER_URL: "http://127.0.0.1:3334",
           },
           shellEnv: {
             PATH: "/shell/bin:/usr/bin",
@@ -582,6 +583,7 @@ describe("createHostDaemonApp", () => {
         expect.objectContaining({
           env: {
             PATH: "/startup/bin:/usr/bin",
+            BB_SERVER_URL: "http://127.0.0.1:3334",
           },
         }),
       );
