@@ -115,7 +115,12 @@ function throwExpectedWorkspacePathNotFoundOrRethrow(error: unknown): never {
 function providerCliEnvFromShellEnv(
   shellEnv: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv {
-  return shellEnv.PATH ? { ...process.env, PATH: shellEnv.PATH } : process.env;
+  // Provider maintenance commands are spawned outside AgentRuntime, so they
+  // do not receive the runtime's explicit BB_* routing overlay. Use the
+  // resolved shell environment as the source of truth (it points at the
+  // active dev/server instance), while retaining unrelated inherited values
+  // such as credentials used by the provider installer.
+  return { ...process.env, ...shellEnv };
 }
 
 function handleProviderCliInstallEventLine(

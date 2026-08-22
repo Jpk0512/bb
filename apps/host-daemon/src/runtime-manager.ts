@@ -287,10 +287,22 @@ function providerProcessEnvFromShellEnv(
   if (shellEnv.PATH) {
     env.PATH = shellEnv.PATH;
   }
-  // The Claude bridge resolves the CLI from its own process env; forward the
-  // documented override past the BB_* spawn sanitization.
-  if (shellEnv.BB_CLAUDE_CODE_EXECUTABLE) {
-    env.BB_CLAUDE_CODE_EXECUTABLE = shellEnv.BB_CLAUDE_CODE_EXECUTABLE;
+  // Provider processes inherit a sanitized environment which intentionally
+  // removes BB_* variables. These three values are the stable daemon/CLI
+  // routing context that provider-launched `bb` commands need. Thread-scoped
+  // values (BB_THREAD_ID, BB_THREAD_STORAGE, etc.) are supplied per request
+  // through the adapter envVars and must not be made runtime-global: one
+  // environment can host multiple threads concurrently.
+  for (const key of [
+    "BB_CLI",
+    "BB_SERVER_URL",
+    "BB_HOST_DAEMON_PORT",
+    "BB_CLAUDE_CODE_EXECUTABLE",
+  ]) {
+    const value = shellEnv[key];
+    if (value) {
+      env[key] = value;
+    }
   }
   return Object.keys(env).length > 0 ? env : null;
 }

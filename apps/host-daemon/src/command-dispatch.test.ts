@@ -279,6 +279,12 @@ async function runSuccessfulClaudeCodeUpdateVerification(args: {
     dataDir,
     createRuntime,
     provisionWorkspace: async () => createWorkspace(),
+    shellEnv: {
+      PATH: "/tmp/bb-bin:/usr/bin",
+      BB_CLI: "/tmp/bb-bin/bb",
+      BB_SERVER_URL: "http://127.0.0.1:23539",
+      BB_HOST_DAEMON_PORT: "31539",
+    },
   });
   const getProviderCliStatusForProvider = vi
     .fn()
@@ -1297,6 +1303,12 @@ describe("dispatchCommand", () => {
       createRuntime: createRuntimeSpy,
       dataDir,
       provisionWorkspace: async () => createWorkspace(),
+      shellEnv: {
+        PATH: "/tmp/bb-bin:/usr/bin",
+        BB_CLI: "/tmp/bb-bin/bb",
+        BB_SERVER_URL: "http://127.0.0.1:23539",
+        BB_HOST_DAEMON_PORT: "31539",
+      },
     });
     await manager.ensureProviderMaintenanceRuntime({ dataDir });
 
@@ -1343,6 +1355,12 @@ describe("dispatchCommand", () => {
       expect.objectContaining({
         actionKind: "update",
         provider: "codex",
+        env: expect.objectContaining({
+          PATH: "/tmp/bb-bin:/usr/bin",
+          BB_CLI: "/tmp/bb-bin/bb",
+          BB_SERVER_URL: "http://127.0.0.1:23539",
+          BB_HOST_DAEMON_PORT: "31539",
+        }),
       }),
     );
     expect(staleRuntime.shutdown).toHaveBeenCalledOnce();

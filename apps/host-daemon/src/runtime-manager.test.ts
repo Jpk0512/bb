@@ -1219,7 +1219,9 @@ describe("RuntimeManager", () => {
       createRuntime,
       shellEnv: {
         PATH: "/tmp/bb-bin:/home/me/.local/bin:/usr/bin",
+        BB_CLI: "/tmp/bb-bin/bb",
         BB_SERVER_URL: "http://127.0.0.1:3334",
+        BB_HOST_DAEMON_PORT: "3456",
         OPENAI_API_KEY: "test-openai-key",
       },
     });
@@ -1233,10 +1235,15 @@ describe("RuntimeManager", () => {
       expect.objectContaining({
         env: {
           PATH: "/tmp/bb-bin:/home/me/.local/bin:/usr/bin",
+          BB_CLI: "/tmp/bb-bin/bb",
+          BB_SERVER_URL: "http://127.0.0.1:3334",
+          BB_HOST_DAEMON_PORT: "3456",
         },
         shellEnv: {
           PATH: "/tmp/bb-bin:/home/me/.local/bin:/usr/bin",
+          BB_CLI: "/tmp/bb-bin/bb",
           BB_SERVER_URL: "http://127.0.0.1:3334",
+          BB_HOST_DAEMON_PORT: "3456",
           OPENAI_API_KEY: "test-openai-key",
         },
       }),
@@ -1312,6 +1319,7 @@ describe("RuntimeManager", () => {
       expect.objectContaining({
         env: {
           PATH: "/new/bin:/usr/bin",
+          BB_SERVER_URL: "http://127.0.0.1:3334",
         },
         shellEnv: {
           PATH: "/new/bin:/usr/bin",
