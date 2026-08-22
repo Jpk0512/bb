@@ -12,6 +12,7 @@ import {
   removeAttachmentBlobs,
 } from "../attachments";
 import { deliverCommentToLatestAgent } from "../steer";
+import { routeTask } from "../router.js";
 import { isSideChatShapedThread } from "../shared/side-chat";
 import {
   tasksRpcContract,
@@ -772,6 +773,45 @@ export function registerHandlers(
     getTaskByKey(input) {
       const task = store.tasks.getTaskByKey(input.taskKey);
       return { task: task ? apiTask(store, task) : null };
+    },
+    routeTask(input) {
+      const task = store.tasks.getTask(input.taskId);
+      if (!task) throw new Error(`Task not found: ${input.taskId}`);
+      const presets = store.tasks.listPresets();
+      const activeByPreset = new Map<string, number>();
+      for (const thread of store.tasks.listTaskThreads(task.id)) {
+        if (
+          thread.liveStatus === "starting" ||
+          thread.liveStatus === "working"
+        ) {
+          const preset = presets.find(
+            (candidate) => candidate.name === thread.presetName,
+          );
+          if (preset)
+            activeByPreset.set(
+              preset.id,
+              (activeByPreset.get(preset.id) ?? 0) + 1,
+            );
+        }
+      }
+      const decision = routeTask(
+        task,
+        presets.map((preset) => ({
+          preset,
+          activeThreads: activeByPreset.get(preset.id) ?? 0,
+        })),
+      );
+      const body = `Mission Control router v1: ${decision.presetId ?? "no eligible preset"}. ${decision.reasons.join("; ")}`;
+      const comment = store.tasks.createComment({
+        taskId: task.id,
+        kind: "system",
+        authorName: "Mission Control",
+        presetName: null,
+        threadId: null,
+        body,
+      });
+      publishCommentsChanged(bb, task.id, comment.notifiedCount);
+      return decision;
     },
     updateTask(input) {
       try {

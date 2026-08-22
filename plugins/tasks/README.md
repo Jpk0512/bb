@@ -5,6 +5,14 @@ agents, and keeping the task record connected to the threads doing the work.
 It provides projects and folders, task keys, statuses and priorities, labels,
 subtasks, Markdown comments, attachments, agent presets, and a full CLI.
 
+## Mission Control routing
+
+The `routeTask` RPC runs Router v1's deterministic scorecard over configured
+delegation presets, preferring the least-loaded preset and using the preset ID
+as a stable tie-breaker. Each decision returns its scorecard and reason list;
+the plugin also records those reasons as a system comment on the task so
+routing remains auditable after live state changes.
+
 ## Install
 
 Install Tasks from the official plugins that BB includes:

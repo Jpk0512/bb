@@ -502,6 +502,16 @@ export const tasksRpcContract = defineRpcContract({
     input: z.object({ taskKey: nonBlankStringSchema }).strict(),
     output: z.object({ task: taskSchema.nullable() }).strict(),
   },
+  routeTask: {
+    input: z.object({ taskId: idSchema }).strict(),
+    output: z
+      .object({
+        presetId: idSchema.nullable(),
+        reasons: z.array(nonBlankStringSchema),
+        scorecard: z.record(z.string(), z.number()),
+      })
+      .strict(),
+  },
   updateTask: {
     input: updateTaskInputSchema,
     output: taskMutationResultSchema,
