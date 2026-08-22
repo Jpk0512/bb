@@ -28,6 +28,7 @@ import { resolveThreadStorageRootPath } from "./services/threads/thread-storage.
 import { createLifecycleDedupers } from "./lifecycle-dedupers.js";
 import { MANAGED_ENVIRONMENT_RETIRE_GRACE_MS } from "./constants.js";
 import type { ServerRuntimeConfig } from "./types.js";
+import { backfillThreadTurnRecords } from "./internal/turn-completed-events.js";
 import { NotificationHub } from "./ws/hub.js";
 import { WatchInterestCoordinator } from "./ws/watch-interests.js";
 import { HostSharedPortCoordinator } from "./ws/host-shared-ports.js";
@@ -55,6 +56,13 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     dataDir: serverConfig.BB_DATA_DIR,
     logger,
   });
+  const turnTelemetryBackfill = backfillThreadTurnRecords({ db, logger });
+  if (turnTelemetryBackfill.inspected > 0) {
+    logger.info(
+      turnTelemetryBackfill,
+      "Backfilled durable turn telemetry from the event log",
+    );
+  }
   const hub = new NotificationHub();
   const watchInterests = new WatchInterestCoordinator({ db, hub });
   const sharedPorts = new HostSharedPortCoordinator({ db, hub });

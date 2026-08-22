@@ -3,7 +3,10 @@ import { getThreadTurnRecord, listThreadTurnRecords, threads } from "@bb/db";
 import { eq } from "drizzle-orm";
 import { turnScope } from "@bb/domain";
 import { groupHostDaemonEvents } from "@bb/host-daemon-contract";
-import { applyTurnCompletedEvent } from "../../src/internal/turn-completed-events.js";
+import {
+  applyTurnCompletedEvent,
+  backfillThreadTurnRecords,
+} from "../../src/internal/turn-completed-events.js";
 import { internalAuthHeaders } from "../helpers/commands.js";
 import {
   seedEnvironment,
@@ -237,6 +240,36 @@ describe("turn telemetry write seam on turn completion", () => {
         harness.db.select().from(threads).where(eq(threads.id, thread.id)).get()?.status,
       ).toBe("idle");
       expect(getThreadTurnRecord(harness.db, { threadId: thread.id, turnId })).toBeNull();
+    });
+  });
+
+  it("backfills turn records from durable completion events without settling lifecycle state", async () => {
+    await withTestHarness(async (harness) => {
+      const { thread } = await seedTelemetryThread(harness, { status: "active" });
+      const turnId = "turn-backfill";
+      seedEvent(harness.deps, {
+        threadId: thread.id,
+        sequence: 1,
+        type: "turn/started",
+        scope: turnScope(turnId),
+        data: { providerThreadId: "provider-1" },
+      });
+      seedEvent(harness.deps, {
+        threadId: thread.id,
+        sequence: 2,
+        type: "turn/completed",
+        scope: turnScope(turnId),
+        data: { providerThreadId: "provider-1", status: "completed" },
+      });
+
+      const result = backfillThreadTurnRecords(harness.deps);
+
+      expect(result.inspected).toBe(1);
+      expect(result.materialized).toBe(1);
+      expect(getThreadTurnRecord(harness.db, { threadId: thread.id, turnId })).not.toBeNull();
+      expect(
+        harness.db.select().from(threads).where(eq(threads.id, thread.id)).get()?.status,
+      ).toBe("active");
     });
   });
 });
