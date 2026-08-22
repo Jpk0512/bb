@@ -1840,10 +1840,14 @@ function TimelineExpandableRowView({
   );
 
   const leadingIcon = leadingIconForRow(row);
-  // Only the last segment of a (possibly steered, multi-segment) turn shows
-  // the telemetry strip, so one client turn never renders more than one.
+  // A row is either a child-session work row or a turn row, never both, so the
+  // two collapsed previews are mutually exclusive. `showTurnTelemetry` already
+  // limits the telemetry strip to the last segment of a (possibly steered,
+  // multi-segment) turn, so one client turn never renders more than one.
   const collapsedPreview =
-    row.kind === "turn" && lastTurnSegmentRowIds.has(row.id) ? (
+    row.kind === "work" && row.workKind === "child-session" ? (
+      <ChildSessionCollapsedPreview row={row} />
+    ) : row.kind === "turn" && showTurnTelemetry ? (
       <TurnTelemetryStrip threadId={row.threadId} turnId={row.turnId} />
     ) : undefined;
 
@@ -1866,15 +1870,10 @@ function TimelineExpandableRowView({
       }
       forceExpanded={searchExpandedRowIds.has(row.id)}
       terminalAutoExpanded={terminalAutoExpandedRowIds.has(row.id)}
-      collapsedPreview={
-        row.kind === "work" && row.workKind === "child-session" ? (
-          <ChildSessionCollapsedPreview row={row} />
-        ) : undefined
-      }
+      collapsedPreview={collapsedPreview}
       onTitleAction={onTitleAction}
       resolveSegmentLinkHref={resolveSegmentLinkHref}
       renderBody={renderBody}
-      collapsedPreview={collapsedPreview}
     />
   );
 }
