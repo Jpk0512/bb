@@ -413,10 +413,9 @@ export const REALTIME_THREAD_CHANGE_REGISTRY = {
       dirtyThreadDefaultExecutionOptionsQueries, // The model catalog is now the target provider's.
     ],
   },
-  // PHASE 6 CHARTER — reserved, deliberately unwired. Nothing emits this kind
-  // yet; the owning wave adds the dirty handlers and removes the kind from
-  // CHARTER_RESERVED_THREAD_CHANGE_KINDS in realtime-cache-effects.test.ts.
-  // See docs/fork/phase-6-charter.md.
+  // A thread-scoped notification change refreshes the notification lists and
+  // the thread rows that render the per-thread unread state. Debounced because
+  // a burst of notifications for one thread only needs one refetch.
   "notifications-changed": {
     flush: "debounced",
     dirty: [dirtyNotificationListQueries, dirtyThreadListQueries],
@@ -544,8 +543,8 @@ export const REALTIME_SYSTEM_CHANGE_REGISTRY = {
       reconcilePluginFrontendBundles,
     ],
   },
-  // PHASE 6 CHARTER — reserved, deliberately unwired. See the thread registry
-  // above and docs/fork/phase-6-charter.md.
+  // System-scoped twin of the thread-scoped kind: drives the global inbox
+  // badge, so only the notification lists need to reconcile.
   "notifications-changed": {
     dirty: [dirtyNotificationListQueries],
   },
