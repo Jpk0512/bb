@@ -1,5 +1,10 @@
 export { createAgentRuntime } from "./runtime.js";
 export {
+  ensureClaudeOAuthFresh,
+  hydratePiAnthropicFromClaude,
+  refreshClaudeOAuthTokens,
+} from "./pi/bridge/claude-oauth-hydrate.js";
+export {
   fingerprintAcpLaunchSpec,
   bridgeLaunchProcessKey,
 } from "./acp-launch-spec-fingerprint.js";

@@ -9,7 +9,7 @@ import {
   type CreateAgentSessionServicesOptions,
   type ResourceDiagnostic,
 } from "@earendil-works/pi-coding-agent";
-import { hydratePiAnthropicFromClaude } from "./claude-oauth-hydrate.js";
+import { ensureClaudeOAuthFresh } from "./claude-oauth-hydrate.js";
 
 export type CreateConfiguredPiServicesOptions = Omit<
   CreateAgentSessionServicesOptions,
@@ -125,11 +125,16 @@ export async function loadConfiguredPiServices(
   const cwd = resolve(options.cwd);
   const agentDir = resolve(options.agentDir ?? getAgentDir());
   try {
-    await hydratePiAnthropicFromClaude({ agentDir });
+    const oauth = await ensureClaudeOAuthFresh({ agentDir });
+    if (oauth === "unauthenticated") {
+      process.stderr.write(
+        "pi bridge: Claude OAuth is expired and refresh failed; run claude auth login\n",
+      );
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(
-      `pi bridge: failed to copy Claude Code OAuth into Pi: ${message}\n`,
+      `pi bridge: failed to refresh Claude Code OAuth: ${message}\n`,
     );
   }
   const settingsManager = createConfiguredPiSettingsManager(cwd, agentDir);

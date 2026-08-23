@@ -439,7 +439,6 @@ describe("execution setting classification",
             current: bridgeExecOptions,
             next: {
               ...bridgeExecOptions,
-              permissionMode: "full",
               workflowsEnabled: false,
               memoryEnabled: false,
             },

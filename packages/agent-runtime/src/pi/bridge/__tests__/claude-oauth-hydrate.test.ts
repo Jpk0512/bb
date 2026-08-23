@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  ensureClaudeOAuthFresh,
   hydratePiAnthropicFromClaude,
+  refreshClaudeOAuthTokens,
   type ClaudeOAuthTokens,
 } from "../claude-oauth-hydrate.js";
 
@@ -114,5 +116,114 @@ describe("hydratePiAnthropicFromClaude", () => {
 
     expect(result).toBe("unchanged");
     expect(wrote).toBe(false);
+  });
+});
+
+describe("ensureClaudeOAuthFresh", () => {
+  it("refreshes the newest expired session and writes every store", async () => {
+    const written: ClaudeOAuthTokens[] = [];
+    const result = await ensureClaudeOAuthFresh({
+      agentDir: "/tmp/pi-agent-ensure",
+      now: NOW,
+      readCandidates: async () => [
+        {
+          source: "claude",
+          tokens: liveClaude({
+            accessToken: "old-access",
+            refreshToken: "older-refresh",
+            expiresAt: NOW - 120_000,
+          }),
+        },
+      ],
+      refreshTokens: async (refreshToken) => {
+        expect(refreshToken).toBe("older-refresh");
+        return liveClaude({
+          accessToken: "new-access",
+          refreshToken: "new-refresh",
+          expiresAt: NOW + 8 * 60 * 60 * 1000,
+        });
+      },
+      writeStores: async (tokens) => {
+        written.push(tokens);
+      },
+    });
+
+    expect(result).toBe("refreshed");
+    expect(written).toEqual([
+      {
+        accessToken: "new-access",
+        refreshToken: "new-refresh",
+        expiresAt: NOW + 8 * 60 * 60 * 1000,
+      },
+    ]);
+  });
+
+  it("does not call refresh when a live access token already exists", async () => {
+    let refreshed = false;
+    const result = await ensureClaudeOAuthFresh({
+      agentDir: "/tmp/pi-agent-ensure",
+      now: NOW,
+      readCandidates: async () => [{ source: "claude", tokens: liveClaude() }],
+      refreshTokens: async () => {
+        refreshed = true;
+        return null;
+      },
+      writeStores: async () => {
+        throw new Error("should not write");
+      },
+      hydrate: async () => "unchanged",
+    });
+    expect(result).toBe("live");
+    expect(refreshed).toBe(false);
+  });
+
+  it("returns unauthenticated when every refresh fails", async () => {
+    const result = await ensureClaudeOAuthFresh({
+      agentDir: "/tmp/pi-agent-ensure",
+      now: NOW,
+      readCandidates: async () => [
+        {
+          source: "claude",
+          tokens: liveClaude({ expiresAt: NOW - 1_000 }),
+        },
+      ],
+      refreshTokens: async () => null,
+      writeStores: async () => {
+        throw new Error("should not write");
+      },
+    });
+    expect(result).toBe("unauthenticated");
+  });
+});
+
+describe("refreshClaudeOAuthTokens", () => {
+  it("maps a token response onto Claude store fields", async () => {
+    const tokens = await refreshClaudeOAuthTokens({
+      refreshToken: "r1",
+      now: NOW,
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            access_token: "a2",
+            refresh_token: "r2",
+            expires_in: 3600,
+          }),
+          { status: 200 },
+        ),
+    });
+    expect(tokens).toEqual({
+      accessToken: "a2",
+      refreshToken: "r2",
+      expiresAt: NOW + 3600_000,
+    });
+  });
+
+  it("returns null on invalid_grant", async () => {
+    const tokens = await refreshClaudeOAuthTokens({
+      refreshToken: "dead",
+      now: NOW,
+      fetchImpl: async () => new Response("invalid_grant", { status: 400 }),
+    });
+    expect(tokens).toBeNull();
   });
 });

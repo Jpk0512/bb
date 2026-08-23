@@ -458,6 +458,16 @@ function normalizeClaudeUsage(
 }
 
 async function fetchClaudeUsage(): Promise<ProviderUsage> {
+  // Refresh first and write every store. The old path returned `expired` and
+  // left Claude Code / Pi to rotate the refresh token independently, which is
+  // why a signed-in Anthropic account still failed the next bb turn.
+  try {
+    const { ensureClaudeOAuthFresh } = await import("@bb/agent-runtime");
+    const { getAgentDir } = await import("@earendil-works/pi-coding-agent");
+    await ensureClaudeOAuthFresh({ agentDir: getAgentDir() });
+  } catch {
+    // Usage still tries the on-disk token below.
+  }
   const [credentials, accountEmail] = await Promise.all([
     readClaudeCredentials(),
     readClaudeAccountEmail(),
@@ -466,9 +476,7 @@ async function fetchClaudeUsage(): Promise<ProviderUsage> {
     return { status: "unauthenticated" };
   }
   if (credentials.expiresAt != null && Date.now() >= credentials.expiresAt) {
-    // The Claude CLI owns these tokens and refreshes them on its own next run;
-    // refreshing here risks rotating its refresh token out from under it.
-    return { status: "expired" };
+    return { status: "unauthenticated" };
   }
 
   const response = await fetch(CLAUDE_USAGE_URL, {

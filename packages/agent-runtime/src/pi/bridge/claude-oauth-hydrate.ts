@@ -24,6 +24,11 @@ export interface PiOAuthEntry {
 }
 
 export type ClaudeOAuthHydrateResult = "copied" | "skipped" | "unchanged";
+export type ClaudeOAuthEnsureResult = "live" | "refreshed" | "unauthenticated";
+
+/** Public Claude Code OAuth client. Token endpoint is the current CLI target. */
+export const CLAUDE_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+export const CLAUDE_OAUTH_TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
 
 export interface HydratePiAnthropicFromClaudeOptions {
   agentDir: string;
@@ -233,4 +238,237 @@ export async function hydratePiAnthropicFromClaude(
     `${JSON.stringify(authFile, null, 2)}\n`,
   );
   return "copied";
+}
+
+export interface ClaudeOAuthCandidate {
+  source: string;
+  tokens: ClaudeOAuthTokens;
+}
+
+export interface RefreshClaudeOAuthTokensArgs {
+  refreshToken: string;
+  fetchImpl?: typeof fetch;
+  now?: number;
+}
+
+export interface EnsureClaudeOAuthFreshOptions {
+  agentDir: string;
+  now?: number;
+  readCandidates?: () => Promise<ClaudeOAuthCandidate[]>;
+  refreshTokens?: (
+    refreshToken: string,
+  ) => Promise<ClaudeOAuthTokens | null>;
+  writeStores?: (tokens: ClaudeOAuthTokens) => Promise<void>;
+  hydrate?: typeof hydratePiAnthropicFromClaude;
+}
+
+interface ClaudeOAuthTokenResponse {
+  access_token?: unknown;
+  refresh_token?: unknown;
+  expires_in?: unknown;
+}
+
+/**
+ * Exchange a Claude Code refresh token for a new access/refresh pair.
+ * Returns null on invalid_grant or a malformed body — never throws a token.
+ */
+export async function refreshClaudeOAuthTokens(
+  args: RefreshClaudeOAuthTokensArgs,
+): Promise<ClaudeOAuthTokens | null> {
+  const fetchImpl = args.fetchImpl ?? fetch;
+  const now = args.now ?? Date.now();
+  let response: Response;
+  try {
+    response = await fetchImpl(CLAUDE_OAUTH_TOKEN_URL, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "anthropic-beta": "oauth-2025-04-20",
+      },
+      body: JSON.stringify({
+        client_id: CLAUDE_OAUTH_CLIENT_ID,
+        grant_type: "refresh_token",
+        refresh_token: args.refreshToken,
+      }),
+    });
+  } catch {
+    return null;
+  }
+  if (!response.ok) {
+    return null;
+  }
+  let json: unknown;
+  try {
+    json = await response.json();
+  } catch {
+    return null;
+  }
+  if (typeof json !== "object" || json === null) {
+    return null;
+  }
+  const body = json as ClaudeOAuthTokenResponse;
+  if (!isNonEmptyString(body.access_token)) {
+    return null;
+  }
+  const refreshToken = isNonEmptyString(body.refresh_token)
+    ? body.refresh_token
+    : args.refreshToken;
+  const expiresIn =
+    typeof body.expires_in === "number" && Number.isFinite(body.expires_in)
+      ? body.expires_in
+      : 8 * 60 * 60;
+  return {
+    accessToken: body.access_token,
+    refreshToken,
+    expiresAt: now + expiresIn * 1000,
+  };
+}
+
+async function defaultReadCandidates(): Promise<ClaudeOAuthCandidate[]> {
+  const candidates: ClaudeOAuthCandidate[] = [];
+  const claude = await readClaudeOAuthTokens();
+  if (claude) {
+    candidates.push({ source: "claude", tokens: claude });
+  }
+  return candidates;
+}
+
+async function readPiAnthropicCandidate(
+  agentDir: string,
+): Promise<ClaudeOAuthCandidate | null> {
+  const raw = await defaultReadAuthFile(join(agentDir, "auth.json"));
+  const entry = readPiOAuthEntry(parsePiAuthFile(raw)[PI_ANTHROPIC_PROVIDER]);
+  if (!entry) {
+    return null;
+  }
+  return {
+    source: "pi",
+    tokens: {
+      accessToken: entry.access,
+      refreshToken: entry.refresh,
+      expiresAt: entry.expires,
+    },
+  };
+}
+
+async function writeClaudeCredentialsFile(
+  tokens: ClaudeOAuthTokens,
+): Promise<void> {
+  const path = join(homedir(), ".claude", ".credentials.json");
+  const existingRaw = await defaultReadAuthFile(path);
+  const existing = parsePiAuthFile(existingRaw);
+  const previous =
+    typeof existing.claudeAiOauth === "object" && existing.claudeAiOauth !== null
+      ? (existing.claudeAiOauth as Record<string, unknown>)
+      : {};
+  existing.claudeAiOauth = {
+    ...previous,
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    expiresAt: tokens.expiresAt,
+  };
+  await defaultWriteAuthFile(path, `${JSON.stringify(existing, null, 2)}\n`);
+}
+
+async function writeClaudeKeychain(tokens: ClaudeOAuthTokens): Promise<void> {
+  if (process.platform !== "darwin") {
+    return;
+  }
+  const payload = JSON.stringify({
+    claudeAiOauth: {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      expiresAt: tokens.expiresAt,
+    },
+  });
+  try {
+    await execFileAsync(
+      "security",
+      [
+        "add-generic-password",
+        "-U",
+        "-s",
+        CLAUDE_KEYCHAIN_SERVICE,
+        "-a",
+        userInfo().username,
+        "-w",
+        payload,
+      ],
+      { timeout: 10_000 },
+    );
+  } catch {
+    // File write is enough for the next CLI read; keychain is best-effort.
+  }
+}
+
+async function defaultWriteStores(
+  agentDir: string,
+  tokens: ClaudeOAuthTokens,
+): Promise<void> {
+  await writeClaudeCredentialsFile(tokens);
+  await writeClaudeKeychain(tokens);
+  await hydratePiAnthropicFromClaude({
+    agentDir,
+    readClaudeTokens: async () => tokens,
+  });
+}
+
+function compareCandidatesNewestFirst(
+  left: ClaudeOAuthCandidate,
+  right: ClaudeOAuthCandidate,
+): number {
+  return (right.tokens.expiresAt ?? 0) - (left.tokens.expiresAt ?? 0);
+}
+
+/**
+ * Make sure Claude Code and Pi share one live Anthropic session.
+ *
+ * The previous hydrate-only path refused to touch an expired access token
+ * because each consumer refreshed independently and rotated the other off.
+ * Refresh here, then write the new pair to the credentials file, the
+ * canonical keychain item, and Pi's auth.json so rotation cannot split them.
+ */
+export async function ensureClaudeOAuthFresh(
+  options: EnsureClaudeOAuthFreshOptions,
+): Promise<ClaudeOAuthEnsureResult> {
+  const now = options.now ?? Date.now();
+  const hydrate = options.hydrate ?? hydratePiAnthropicFromClaude;
+  const fromClaude = await (options.readCandidates ?? defaultReadCandidates)();
+  const fromPi = await readPiAnthropicCandidate(options.agentDir);
+  const candidates = [...fromClaude, ...(fromPi ? [fromPi] : [])];
+
+  const live = candidates.find((candidate) =>
+    isLiveAccess(candidate.tokens.expiresAt, now),
+  );
+  if (live) {
+    await hydrate({
+      agentDir: options.agentDir,
+      now,
+      readClaudeTokens: async () => live.tokens,
+    });
+    return "live";
+  }
+
+  const refreshable = [...candidates]
+    .filter((candidate) => candidate.tokens.refreshToken.length > 0)
+    .sort(compareCandidatesNewestFirst);
+  const refresh =
+    options.refreshTokens ??
+    ((refreshToken: string) =>
+      refreshClaudeOAuthTokens({ refreshToken, now }));
+
+  for (const candidate of refreshable) {
+    const next = await refresh(candidate.tokens.refreshToken);
+    if (!next) {
+      continue;
+    }
+    if (options.writeStores) {
+      await options.writeStores(next);
+    } else {
+      await defaultWriteStores(options.agentDir, next);
+    }
+    return "refreshed";
+  }
+  return "unauthenticated";
 }
