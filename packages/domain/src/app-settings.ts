@@ -39,6 +39,34 @@ export const appSettingsSchema = z
   .strict();
 export type AppSettings = z.infer<typeof appSettingsSchema>;
 
+/**
+ * One provider/model pair the user has curated out of their catalog.
+ *
+ * `model` is the provider-scoped model id exactly as the catalog reports it
+ * (for pi that includes the `<model-provider>/<model>` prefix), so a disabled
+ * entry matches the same string a thread would store.
+ */
+export const disabledModelSchema = z
+  .object({
+    providerId: z.string().min(1),
+    model: z.string().min(1),
+  })
+  .strict();
+export type DisabledModel = z.infer<typeof disabledModelSchema>;
+
+export const disabledModelsSchema = z.array(disabledModelSchema);
+export type DisabledModels = z.infer<typeof disabledModelsSchema>;
+
+export function isModelDisabled(
+  disabledModels: readonly DisabledModel[],
+  target: DisabledModel,
+): boolean {
+  return disabledModels.some(
+    (entry) =>
+      entry.providerId === target.providerId && entry.model === target.model,
+  );
+}
+
 export const defaultAppSettings: AppSettings = {
   showKeyboardHints: true,
   steerActiveThreadOnEnter: false,

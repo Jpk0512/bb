@@ -29,6 +29,7 @@ import type {
   ThreadSearchSourceKind,
   ThreadEventItemType,
   ThreadEventScopeKind,
+  ThreadEventTurnStatus,
   ThreadEventType,
   WorkspaceProvisionType,
   ProjectKind,
@@ -195,6 +196,17 @@ export const appSettings = sqliteTable("app_settings", {
     .notNull()
     .default(false),
   keybindingOverrides: text("keybinding_overrides").notNull().default("[]"),
+  /**
+   * JSON `DisabledModels`: provider/model pairs the user has curated out of
+   * their catalog. Providers such as pi advertise every model of every
+   * configured sub-provider, so a curation list is the only way to make the
+   * picker (and an orchestrator's model pools) reflect what is actually in use.
+   *
+   * Read as policy, not as truth about existence: a disabled model is demoted
+   * to `selectedOnlyModels` rather than removed, so threads already pinned to
+   * one keep working while nothing new selects it.
+   */
+  disabledModels: text("disabled_models").notNull().default("[]"),
   /** ISO timestamp of the last onboarding completion/dismissal; null = never. */
   onboardingCompletedAt: text("onboarding_completed_at"),
   updatedAt: integer("updated_at").notNull(),
@@ -1238,6 +1250,66 @@ export const notifications = sqliteTable(
     index("notifications_project_created_idx").on(
       table.projectId,
       table.createdAt,
+    ),
+  ],
+);
+
+/**
+ * Durable intent for one parent-facing child-outcome announcement.
+ *
+ * Child completion used to reach the parent agent through an in-process batch
+ * map plus a `setTimeout`, and a parent that could not accept the turn right
+ * then (an unanswered interaction, a status race) dropped the announcement with
+ * no retry. An orchestrator parent that never hears a child settle stalls
+ * forever, so the intent is persisted first and delivery is retried by the
+ * `child-outcome-notification-delivery` sweep until it lands or the parent is
+ * genuinely gone.
+ *
+ * `deliverAfter` carries both the original coalescing delay (several children
+ * settling at once still produce one batched system message) and retry backoff.
+ * `inboxEmittedAt` is set once the human-facing notification row exists so a
+ * retried delivery cannot double-post to the inbox.
+ */
+export const pendingParentNotifications = sqliteTable(
+  "pending_parent_notifications",
+  {
+    id: text("id").primaryKey(),
+    parentThreadId: text("parent_thread_id")
+      .notNull()
+      .references(() => threads.id, { onDelete: "cascade" }),
+    childThreadId: text("child_thread_id")
+      .notNull()
+      .references(() => threads.id, { onDelete: "cascade" }),
+    /** Denormalized: the mention resource needs them after the child is gone. */
+    childProjectId: text("child_project_id").notNull(),
+    childTitle: text("child_title"),
+    turnStatus: text("turn_status").$type<ThreadEventTurnStatus>().notNull(),
+    /**
+     * Captured at settle time, not at delivery time, so the excerpt and the
+     * running-workflow count describe the same instant.
+     */
+    activeWorkflowCount: integer("active_workflow_count").notNull().default(0),
+    terminalOutput: text("terminal_output"),
+    inboxEmittedAt: integer("inbox_emitted_at"),
+    attempts: integer("attempts").notNull().default(0),
+    lastAttemptAt: integer("last_attempt_at"),
+    lastError: text("last_error"),
+    /** Earliest delivery time: coalescing window first, then retry backoff. */
+    deliverAfter: integer("deliver_after").notNull(),
+    claimedAt: integer("claimed_at"),
+    claimToken: text("claim_token"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("pending_parent_notifications_due_idx").on(
+      table.deliverAfter,
+      table.parentThreadId,
+    ),
+    index("pending_parent_notifications_parent_idx").on(
+      table.parentThreadId,
+      table.createdAt,
+      table.id,
     ),
   ],
 );

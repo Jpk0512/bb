@@ -4,12 +4,14 @@ import { formatCustomAcpAgentProviderId } from "@bb/config/bb-app-managed-config
 import {
   getAppSettings,
   getAppKeybindingOverrides,
+  getDisabledModels,
   getExperiments,
   getStoredFaviconColor,
   getStoredThemeId,
   hasActiveThreadAttention,
   setAppSettings,
   setAppKeybindingOverrides,
+  setDisabledModels,
   setExperiments,
   setStoredAppearance,
 } from "@bb/db";
@@ -201,6 +203,18 @@ export function registerSystemRoutes(
     setAppKeybindingOverrides(deps.db, payload);
     deps.hub.notifySystem(["config-changed"]);
     return context.json(getAppKeybindingOverrides(deps.db));
+  });
+
+  get(routes.disabledModels, (context) =>
+    context.json(getDisabledModels(deps.db)),
+  );
+
+  put(routes.setDisabledModels, (context, payload) => {
+    setDisabledModels(deps.db, payload);
+    // Same broadcast the other settings use: every window re-reads its
+    // execution options, so open model pickers drop the disabled entries.
+    deps.hub.notifySystem(["config-changed"]);
+    return context.json(getDisabledModels(deps.db));
   });
 
   put(routes.experiments, (context, payload) => {

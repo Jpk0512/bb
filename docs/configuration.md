@@ -424,6 +424,40 @@ or restart bb. `bb-app config list` prints the entries.
 optional; bb derives the label from the model id when it is omitted. bb skips
 an invalid entry with a warning and keeps the rest of the config.
 
+## Disabled Models
+
+`customModels` adds to the catalog; disabling removes from what it offers.
+Providers that front many sub-providers — pi in particular — advertise every
+model they can reach, which makes the picker unusable when only a few are in
+use. Turn the rest off in **Settings → Models**, or from the CLI:
+
+```bash
+bb provider disabled list
+bb provider disabled add pi anthropic/claude-haiku-4-5
+bb provider disabled remove pi anthropic/claude-haiku-4-5
+```
+
+Unlike `customModels`, this is stored in bb's database rather than
+`config.json`, so it needs no `config refresh`, applies immediately to every
+open window, and is scriptable.
+
+Disabling is curation, not retirement. A disabled model:
+
+- disappears from the model picker, `bb provider models`, and the plugin SDK's
+  model list;
+- is skipped when a new thread resolves a default model, including a project's
+  remembered default;
+- is refused with `model_disabled` if a thread is created asking for it
+  explicitly, which is what makes it enforceable for an orchestrator choosing
+  models per task;
+- is ignored if a plugin tries to rebind a turn onto it;
+- **keeps working for threads that already store it.** It moves to the picker's
+  "More models" group rather than vanishing, so existing work is never
+  reassigned behind your back.
+
+Disabling every model of a provider is allowed but leaves it unusable for new
+threads; bb says so explicitly instead of reporting an empty catalog.
+
 Each entry appears in `bb provider models <providerId>` and in the model
 picker after the provider's own catalog. The provider catalog wins on a model
 id collision.

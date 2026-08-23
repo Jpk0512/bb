@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { createConnection, migrate, setDisabledModels } from "@bb/db";
 import type { LoggedWorkSessionDeps } from "../../../src/types.js";
 import { setPluginAgentContributions } from "../../../src/services/plugins/plugin-agent-contributions.js";
 import {
@@ -13,7 +14,13 @@ const prompt = (text: string) => ({
   mentions: [],
 });
 
+// Preflight consults the model curation list before honoring a plugin's
+// binding override, so this needs a real database rather than a stub.
+const db = createConnection(":memory:");
+migrate(db);
+
 const deps = {
+  db,
   logger: testLogger,
   providerRegistry: new Map([["codex", {}]]),
 } as unknown as LoggedWorkSessionDeps;
@@ -39,6 +46,7 @@ function args(trigger: "user" | "auto-dispatch" = "auto-dispatch") {
 
 afterEach(() => {
   setPluginAgentContributions(undefined);
+  setDisabledModels(db, []);
 });
 
 describe("runTurnPreflight", () => {
@@ -80,6 +88,32 @@ describe("runTurnPreflight", () => {
       inputGroups: undefined,
       bindingOverride: { providerId: "codex", model: "gpt-override" },
     });
+  });
+
+  it("ignores a plugin binding override that names a disabled model", async () => {
+    setDisabledModels(db, [{ providerId: "codex", model: "gpt-banned" }]);
+    setPluginAgentContributions({
+      async runTurnPreflight() {
+        return {
+          timedOut: false,
+          decisions: [
+            {
+              pluginId: "alpha",
+              decision: {
+                kind: "admit-with",
+                binding: { providerId: "codex", model: "gpt-banned" },
+              },
+            },
+          ],
+        };
+      },
+    });
+
+    const outcome = await runTurnPreflight(deps, args());
+
+    // The provider override still applies; only the excluded model is dropped,
+    // so a plugin cannot route a turn onto a model the user curated out.
+    expect(outcome.bindingOverride).toEqual({ providerId: "codex" });
   });
 
   it("refuses user-input replacement but records an explicit rejection", async () => {

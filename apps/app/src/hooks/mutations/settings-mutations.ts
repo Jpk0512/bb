@@ -3,11 +3,13 @@ import {
   type AppKeybindingOverrides,
   type AppSettings,
   type AppThemeSelection,
+  type DisabledModels,
   type Experiments,
 } from "@bb/domain";
 import type { SystemInstallCliSkillsRequest } from "@bb/server-contract";
 import { sdk } from "@/lib/sdk";
 import {
+  invalidateDisabledModels,
   invalidateGeneralSettingsDependencies,
   invalidateSystemConfig,
 } from "../cache-owners/system-cache-effects";
@@ -52,6 +54,26 @@ export function useUpdateGeneralSettings() {
       sdk.system.updateGeneralSettings(settings),
     onSuccess: () => {
       invalidateGeneralSettingsDependencies({ queryClient });
+    },
+  });
+}
+
+/**
+ * Replace the user's model curation list. Disabled models stay usable by
+ * threads that already store them; they are only withdrawn from what can be
+ * newly selected.
+ */
+export function useUpdateDisabledModels() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    meta: {
+      errorMessage: "Failed to update disabled models.",
+    },
+    mutationFn: (disabledModels: DisabledModels) =>
+      sdk.providers.setDisabledModels({ disabledModels }),
+    onSuccess: () => {
+      invalidateDisabledModels({ queryClient });
     },
   });
 }

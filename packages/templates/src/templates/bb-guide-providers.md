@@ -13,6 +13,11 @@ Providers are agent backends (e.g., codex, claude-code). Each supports different
                                           List available providers
   bb provider models [providerId] [--machine <id-or-name> | --environment <id>]
                                           List models for a provider
+  bb provider disabled list [--json]      List models you have turned off
+  bb provider disabled add <providerId> <model>
+                                          Stop offering a model
+  bb provider disabled remove <providerId> <model>
+                                          Offer a model again
 
 Use these before spawning threads if you are unsure which provider or model to use.
 `--host` is an alias for `--machine`. Machine and environment selectors are
@@ -23,6 +28,15 @@ remembered defaults apply. If the project has no remembered choice, bb uses
 the explicitly requested provider or Codex, then resolves the model marked
 default by that provider on the target machine (falling back to the first
 catalog model when none is marked).
+
+Disabled models are curation, not retirement. A model you turn off leaves the
+picker, `bb provider models`, and new-thread default resolution, and thread
+creation refuses it if asked for explicitly. Threads that already store it keep
+running on it, and it stays visible under Settings → Models so it can be turned
+back on. Providers such as pi advertise every model of every configured
+sub-provider, which is what makes curation worth doing. If you disable every
+model of a provider, new threads on it fail with a message saying so rather
+than silently choosing one.
 
 Provider-native memory can be controlled on the separate Settings → Providers
 → Codex and Settings → Providers → Claude Code pages. Codex memory controls

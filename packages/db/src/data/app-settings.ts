@@ -2,8 +2,10 @@ import { eq } from "drizzle-orm";
 import {
   appKeybindingOverridesSchema,
   defaultAppSettings,
+  disabledModelsSchema,
   type AppKeybindingOverrides,
   type AppSettings,
+  type DisabledModels,
 } from "@bb/domain";
 import type { DbConnection } from "../connection.js";
 import { appSettings } from "../schema.js";
@@ -63,6 +65,37 @@ export function setAppSettings(
         onboardingCompletedAt: settings.onboardingCompletedAt,
         updatedAt,
       },
+    })
+    .run();
+}
+
+export function getDisabledModels(db: DbConnection): DisabledModels {
+  const row = db
+    .select({ disabledModels: appSettings.disabledModels })
+    .from(appSettings)
+    .where(eq(appSettings.id, APP_SETTINGS_ROW_ID))
+    .get();
+
+  if (row === undefined) {
+    return [];
+  }
+  return disabledModelsSchema.parse(JSON.parse(row.disabledModels));
+}
+
+export function setDisabledModels(
+  db: DbConnection,
+  disabledModels: DisabledModels,
+): void {
+  const updatedAt = Date.now();
+  db.insert(appSettings)
+    .values({
+      id: APP_SETTINGS_ROW_ID,
+      disabledModels: JSON.stringify(disabledModels),
+      updatedAt,
+    })
+    .onConflictDoUpdate({
+      target: appSettings.id,
+      set: { disabledModels: JSON.stringify(disabledModels), updatedAt },
     })
     .run();
 }

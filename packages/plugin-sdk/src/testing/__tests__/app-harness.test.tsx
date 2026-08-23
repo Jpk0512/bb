@@ -942,7 +942,7 @@ describe("renderSlot", () => {
   });
 
   it("routes scoped cross-plugin realtime events like the real runtime", async () => {
-    const slot = renderSlot(app.homepageSections[1]!, {}, {});
+    const slot = renderSlot(app.homepageSections[1]!, { projectId: null }, {});
 
     // Wrong publisher, wrong channel, and a scope outside the id set: all
     // dropped. That last one is the whole point of scoped subscriptions.
@@ -967,7 +967,7 @@ describe("renderSlot", () => {
   it("reports a declared publisher as live and an undeclared one as unavailable", async () => {
     const live = renderSlot(
       app.homepageSections[1]!,
-      {},
+      { projectId: null },
       { declaredRealtimeChannels: [{ pluginId: "tasks", channel: "task" }] },
     );
     await live.findByText("Publisher: live");
@@ -976,7 +976,7 @@ describe("renderSlot", () => {
     // Publisher disabled, reloading, or no longer declaring the channel.
     const gone = renderSlot(
       app.homepageSections[1]!,
-      {},
+      { projectId: null },
       { declaredRealtimeChannels: [] },
     );
     await gone.findByText("Publisher: unavailable");

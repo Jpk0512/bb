@@ -5,6 +5,7 @@ import type {
   AppThemeSelection,
   AppSettings,
   AppKeybindingOverrides,
+  DisabledModels,
   Environment,
   Experiments,
   Host,
@@ -20,6 +21,7 @@ import {
   appSettingsSchema,
   appKeybindingOverridesSchema,
   appThemeSelectionSchema,
+  disabledModelsSchema,
   experimentsSchema,
 } from "@bb/domain";
 import type {
@@ -1450,6 +1452,23 @@ export const publicApiRoutes = {
         appKeybindingOverridesSchema,
       ),
       response: jsonResponse<AppKeybindingOverrides>(),
+    }),
+    /**
+     * The user's model curation list. Separate from `generalSettings` because
+     * it is a collection rather than a flat preference, mirroring how keyboard
+     * overrides are stored and edited.
+     */
+    disabledModels: defineRoute({
+      path: "/settings/disabled-models",
+      method: "get",
+      request: noRequest(),
+      response: jsonResponse<DisabledModels>(),
+    }),
+    setDisabledModels: defineRoute({
+      path: "/settings/disabled-models",
+      method: "put",
+      request: jsonRequest<EmptyInput, DisabledModels>(disabledModelsSchema),
+      response: jsonResponse<DisabledModels>(),
     }),
     experiments: defineRoute({
       path: "/settings/experiments",

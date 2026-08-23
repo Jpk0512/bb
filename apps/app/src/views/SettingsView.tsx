@@ -46,6 +46,7 @@ import { VoiceInputSettingsSection } from "@/components/settings/VoiceInputSetti
 import { CommunitySettingsSection } from "@/components/settings/CommunitySettingsSection";
 import { UpdatesSettingsSection } from "@/components/settings/UpdatesSettingsSection";
 import { KeyboardSettingsSection } from "@/components/settings/KeyboardSettingsSection";
+import { ModelsSettingsSection } from "@/components/settings/ModelsSettingsSection";
 import { MachinesSettingsSection } from "@/components/settings/MachinesSettingsSection";
 import { ArchivedThreadsSettingsSection } from "@/components/settings/ArchivedThreadsSettingsSection";
 import { CliSkillsSettingsSection } from "@/components/settings/CliSkillsSettingsSection";
@@ -1187,6 +1188,8 @@ export function SettingsView() {
     content = <UsageLimitsSettingsSection />;
   } else if (activeSection === "keyboard") {
     content = <KeyboardSettingsSection />;
+  } else if (activeSection === "models") {
+    content = <ModelsSettingsSection />;
   } else if (activeSection === "files") {
     content = (
       <>

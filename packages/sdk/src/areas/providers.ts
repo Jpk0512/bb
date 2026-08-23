@@ -1,3 +1,4 @@
+import type { DisabledModels } from "@bb/domain";
 import type {
   SystemExecutionOptionsResponse,
   SystemProviderInfo,
@@ -24,8 +25,22 @@ export type ProviderModelsResult = SystemExecutionOptionsResponse;
 export interface ProvidersArea {
   /** List providers on the environment host, explicit host, or primary host. */
   list(args?: ProviderListArgs): Promise<ProviderListResult>;
-  /** List models on the environment host, explicit host, or primary host. */
+  /**
+   * List models on the environment host, explicit host, or primary host.
+   * Models the user has disabled appear in `selectedOnlyModels`, not `models`.
+   */
   models(args?: ProviderModelsArgs): Promise<ProviderModelsResult>;
+  /** The user's model curation list. */
+  disabledModels(args?: { signal?: AbortSignal }): Promise<DisabledModels>;
+  /**
+   * Replace the curation list. Disabled models stay selectable for threads
+   * that already store them, but are no longer offered and are refused when
+   * requested explicitly at thread creation.
+   */
+  setDisabledModels(args: {
+    disabledModels: DisabledModels;
+    signal?: AbortSignal;
+  }): Promise<DisabledModels>;
 }
 
 export function createProvidersArea(args: CreateSdkAreaArgs): ProvidersArea {
@@ -54,6 +69,22 @@ export function createProvidersArea(args: CreateSdkAreaArgs): ProvidersArea {
               providerId: input.providerId,
             },
           },
+          ...signalRequestArgs(input.signal),
+        ),
+      );
+    },
+    async disabledModels(input = {}) {
+      return transport.readJson(
+        transport.api.v1.settings["disabled-models"].$get(
+          {},
+          ...signalRequestArgs(input.signal),
+        ),
+      );
+    },
+    async setDisabledModels(input) {
+      return transport.readJson(
+        transport.api.v1.settings["disabled-models"].$put(
+          { json: input.disabledModels },
           ...signalRequestArgs(input.signal),
         ),
       );

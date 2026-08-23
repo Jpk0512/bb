@@ -48,6 +48,28 @@ import {
 
 const PARENT_SYSTEM_MESSAGE_SOURCE = "tell";
 
+/**
+ * Why a parent-facing system message did or did not land.
+ *
+ * The distinction is load-bearing for durable announcements: `undeliverable`
+ * means the intent can be discharged (the parent is archived or gone and never
+ * coming back), while `deferred` means the parent simply cannot accept a turn
+ * right now — an unanswered interaction, or a status race with a turn that
+ * started underneath us — and the caller must retry rather than drop. Treating
+ * `deferred` as failure is what used to strand orchestrator parents forever.
+ */
+export type ParentSystemMessageDeliveryOutcome =
+  | { status: "delivered" }
+  | {
+      status: "undeliverable";
+      reason: "thread-missing" | "thread-archived" | "thread-deleted";
+    }
+  | { status: "deferred"; reason: "pending-interaction" | "status-changed" };
+
+const PARENT_SYSTEM_MESSAGE_DELIVERED: ParentSystemMessageDeliveryOutcome = {
+  status: "delivered",
+};
+
 // Family-B taxonomy stamping carried alongside the message input from each emit
 // site to the persisted `client/turn/requested` event. `senderThreadId` is null
 // for these `initiator: "system"` messages, so the subject must be stamped at
@@ -259,7 +281,7 @@ function queueActiveParentSystemMessageInTransaction(
 async function queueActiveParentSystemMessage(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: QueueReadyParentSystemMessageArgs,
-): Promise<boolean> {
+): Promise<ParentSystemMessageDeliveryOutcome> {
   const expectedSteerTurnId = getActiveTurnId(deps, args.thread.id);
   const permissionEscalation = resolvePermissionEscalation({
     thread: args.thread,
@@ -298,7 +320,9 @@ async function queueActiveParentSystemMessage(
     { behavior: "immediate" },
   );
   if (!queued.queued || !queued.command) {
-    return false;
+    // The thread moved (or its environment changed) between the pre-check and
+    // this transaction. Retryable, not a failure.
+    return { status: "deferred", reason: "status-changed" };
   }
 
   deps.hub.notifyThread(args.thread.id, ["events-appended"], {
@@ -315,13 +339,13 @@ async function queueActiveParentSystemMessage(
       );
     },
   });
-  return true;
+  return PARENT_SYSTEM_MESSAGE_DELIVERED;
 }
 
 async function queueReadyParentSystemMessage(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: QueueReadyParentSystemMessageArgs,
-): Promise<boolean> {
+): Promise<ParentSystemMessageDeliveryOutcome> {
   if (args.thread.status === "active") {
     return queueActiveParentSystemMessage(deps, args);
   }
@@ -408,23 +432,27 @@ async function queueReadyParentSystemMessage(
       projectId: args.thread.projectId,
     });
   }
-  return true;
+  return PARENT_SYSTEM_MESSAGE_DELIVERED;
 }
 
 export async function queueParentSystemMessage(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: QueueParentSystemMessageArgs,
-): Promise<boolean> {
+): Promise<ParentSystemMessageDeliveryOutcome> {
   const parentThread = getThread(deps.db, args.parentThreadId);
-  if (
-    !parentThread ||
-    parentThread.archivedAt !== null ||
-    parentThread.deletedAt !== null
-  ) {
-    return false;
+  if (!parentThread) {
+    return { status: "undeliverable", reason: "thread-missing" };
+  }
+  if (parentThread.deletedAt !== null) {
+    return { status: "undeliverable", reason: "thread-deleted" };
+  }
+  if (parentThread.archivedAt !== null) {
+    return { status: "undeliverable", reason: "thread-archived" };
   }
   if (deps.pendingInteractions.hasPendingThreadInteraction(parentThread.id)) {
-    return false;
+    // The parent is blocked on the user. Delivering now would be rejected, so
+    // the announcement waits for the interaction to resolve instead.
+    return { status: "deferred", reason: "pending-interaction" };
   }
 
   const { environment } = requireThreadEnvironment(
@@ -452,7 +480,7 @@ export async function queueParentSystemMessage(
       thread: parentThread,
     })
   ) {
-    return true;
+    return PARENT_SYSTEM_MESSAGE_DELIVERED;
   }
 
   const readyEnvironment = requireReadyThreadEnvironment(

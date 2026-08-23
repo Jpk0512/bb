@@ -1,7 +1,11 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryKey } from "@tanstack/react-query";
-import type { AvailableModel, ProviderInfo } from "@bb/domain";
+import type {
+  AvailableModel,
+  DisabledModels,
+  ProviderInfo,
+} from "@bb/domain";
 import { SYSTEM_EXECUTION_OPTIONS_QUERY_KEY } from "@/hooks/queries/query-keys";
 import {
   HIGH_REASONING_EFFORT,
@@ -37,6 +41,7 @@ import {
   onboardingAgentsQueryKey,
   onboardingReposQueryKey,
   systemConfigQueryKey,
+  systemDisabledModelsQueryKey,
   systemExecutionOptionsQueryKey,
   systemProvidersQueryKey,
   systemUsageLimitsQueryKey,
@@ -484,6 +489,20 @@ export function useCliSkillsStatus(options?: QueryOptions) {
   return useQuery<SystemCliSkillsStatusResponse>({
     queryKey: systemCliSkillsQueryKey(),
     queryFn: ({ signal }) => sdk.system.cliSkillsStatus({ signal }),
+    enabled: options?.enabled ?? true,
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * The user's model curation list. Read on demand by the Models settings page;
+ * the catalogs that consume it are separate queries, so a write invalidates
+ * both.
+ */
+export function useDisabledModels(options?: QueryOptions) {
+  return useQuery<DisabledModels>({
+    queryKey: systemDisabledModelsQueryKey(),
+    queryFn: ({ signal }) => sdk.providers.disabledModels({ signal }),
     enabled: options?.enabled ?? true,
     staleTime: 30_000,
   });

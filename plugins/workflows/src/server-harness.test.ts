@@ -220,6 +220,7 @@ describe("workflows plugin", () => {
         title: null,
         parentThreadId: "thread-test",
         sourceThreadId: null,
+        childKind: null,
       },
       project: {
         id: "project-test",
@@ -264,6 +265,7 @@ describe("workflows plugin", () => {
         title: null,
         parentThreadId: null,
         sourceThreadId: null,
+        childKind: null,
       },
       project: {
         id: "project-test",

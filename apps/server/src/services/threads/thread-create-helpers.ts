@@ -161,6 +161,16 @@ export function createThreadRecord(
   args: {
     environmentId: string | null;
     request: ThreadCreateServiceRequest;
+    /**
+     * The model the child will actually run, after defaults are resolved.
+     *
+     * The spawn lifecycle event used to record `request.model`, which is null
+     * in exactly the case that matters — the caller omitted a model and a
+     * default cascade chose one — so a parent watching its children could not
+     * see which model any of them got. Pass the resolved value so the inline
+     * child block and the board can show it.
+     */
+    resolvedModel?: string | null;
     status?: "starting";
   },
 ) {
@@ -203,7 +213,7 @@ export function createThreadRecord(
       appendChildSessionLifecycleEvent(deps, {
         childKind: thread.childKind,
         childThreadId: thread.id,
-        model: args.request.model ?? null,
+        model: args.resolvedModel ?? args.request.model ?? null,
         outputExcerpt: null,
         parentThreadId: thread.parentThreadId,
         providerId: thread.providerId,

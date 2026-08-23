@@ -204,8 +204,10 @@ export type {
 export {
   getAppKeybindingOverrides,
   getAppSettings,
+  getDisabledModels,
   setAppKeybindingOverrides,
   setAppSettings,
+  setDisabledModels,
 } from "./app-settings.js";
 export { getStoredThreadTabs, replaceStoredThreadTabs } from "./thread-tabs.js";
 export type {
@@ -214,6 +216,19 @@ export type {
 } from "./thread-tabs.js";
 export { listThreadPluginAgentConfigRows } from "./thread-plugin-agent-configs.js";
 export type { ThreadPluginAgentConfigRow } from "./thread-plugin-agent-configs.js";
+export {
+  claimDueParentNotifications,
+  countPendingParentNotifications,
+  deferPendingParentNotifications,
+  deletePendingParentNotifications,
+  insertPendingParentNotification,
+  listParentThreadIdsWithDueNotifications,
+  markParentNotificationsInboxEmitted,
+} from "./pending-parent-notifications.js";
+export type {
+  InsertPendingParentNotificationArgs,
+  PendingParentNotificationRow,
+} from "./pending-parent-notifications.js";
 export { getExperiments, setExperiments } from "./experiments.js";
 export {
   deleteInstalledPlugin,

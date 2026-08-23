@@ -62,6 +62,14 @@ export function createPendingInteractionId(): string {
   return createId("pint");
 }
 
+export function createPendingParentNotificationId(): string {
+  return createId("ppn");
+}
+
+export function createPendingParentNotificationClaimToken(): string {
+  return createId("ppnclaim");
+}
+
 export function createNotificationId(): string {
   return createId("notif");
 }

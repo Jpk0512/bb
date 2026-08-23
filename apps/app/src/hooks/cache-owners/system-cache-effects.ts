@@ -27,6 +27,7 @@ import {
   projectsQueryKey,
   sidebarNavigationQueryKey,
   systemConfigQueryKey,
+  systemDisabledModelsQueryKey,
   threadPromptHistoryQueryKeyPrefix,
   threadSearchQueryKeyPrefix,
   threadsQueryKey,
@@ -125,6 +126,20 @@ export function invalidateSystemExecutionOptions({
     queryKey: allSystemExecutionOptionsQueryKeyPrefix(),
     predicate: (query) =>
       query.queryKey[2] === hostId || query.queryKey[2] === null,
+  });
+}
+
+/**
+ * Refresh every cached provider/model catalog plus the curation list itself
+ * after a disabled-models write. Unlike a provider CLI install, curation is
+ * host-independent, so every cached execution-options entry is stale.
+ */
+export function invalidateDisabledModels({
+  queryClient,
+}: QueryClientArg): void {
+  queryClient.invalidateQueries({ queryKey: systemDisabledModelsQueryKey() });
+  queryClient.invalidateQueries({
+    queryKey: allSystemExecutionOptionsQueryKeyPrefix(),
   });
 }
 

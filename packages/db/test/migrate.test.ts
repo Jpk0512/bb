@@ -305,6 +305,7 @@ function dropRewindAddedTables(db: DbConnection): void {
   dropHostMaxPermissionModeColumn(db);
   dropEnvironmentRetireRequestedAtColumn(db);
   dropPhase6CharterSchema(db);
+  dropOrchestratorModelPolicySchema(db);
   dropPluginArtifactGitCheckoutRootColumn(db);
   dropThreadSectionSchema(db);
   restoreWideExperimentsTable(db);
@@ -688,6 +689,28 @@ function dropPhase6CharterSchema(db: DbConnection): void {
   }
 }
 
+/**
+ * Rewind 0901: the durable parent-notification queue and the model curation
+ * column. Needed by every test that deletes ledger rows past the fork
+ * migrations and replays them, since the replay recreates this schema.
+ */
+function dropOrchestratorModelPolicySchema(db: DbConnection): void {
+  db.$client
+    .prepare("DROP TABLE IF EXISTS pending_parent_notifications")
+    .run();
+  const columns = new Set(
+    db.$client
+      .prepare<[], TableInfoRow>("PRAGMA table_info(app_settings)")
+      .all()
+      .map((column) => column.name),
+  );
+  if (columns.has("disabled_models")) {
+    db.$client
+      .prepare("ALTER TABLE app_settings DROP COLUMN disabled_models")
+      .run();
+  }
+}
+
 function dropEnvironmentNameColumn(db: DbConnection): void {
   db.$client.prepare("ALTER TABLE environments DROP COLUMN name").run();
 }
@@ -782,6 +805,7 @@ function dropQueuedMessageSenderThreadIdColumn(db: DbConnection): void {
 function dropPost0023Tables(db: DbConnection): void {
   dropEnvironmentRetireRequestedAtColumn(db);
   dropPhase6CharterSchema(db);
+  dropOrchestratorModelPolicySchema(db);
   dropPluginArtifactGitCheckoutRootColumn(db);
   dropProjectGitRemoteUrlColumn(db);
   db.$client.prepare("DROP TABLE IF EXISTS thread_tabs").run();
@@ -1554,6 +1578,7 @@ describe("migrate", () => {
     dropNewOnboardingExperimentColumn(db);
     dropEnvironmentRetireRequestedAtColumn(db);
     dropPhase6CharterSchema(db);
+    dropOrchestratorModelPolicySchema(db);
     dropPluginArtifactGitCheckoutRootColumn(db);
     dropMarketplaceCatalogSchema(db);
     // Delete by the journal timestamp, not a hash substring: migration hashes
@@ -1848,6 +1873,7 @@ describe("migrate", () => {
       dropHostMaxPermissionModeColumn(db);
       dropEnvironmentRetireRequestedAtColumn(db);
       dropPhase6CharterSchema(db);
+    dropOrchestratorModelPolicySchema(db);
       dropPluginArtifactGitCheckoutRootColumn(db);
       dropMarketplaceCatalogSchema(db);
 
@@ -2251,6 +2277,7 @@ describe("migrate", () => {
       dropHostMaxPermissionModeColumn(db);
       dropEnvironmentRetireRequestedAtColumn(db);
       dropPhase6CharterSchema(db);
+    dropOrchestratorModelPolicySchema(db);
       dropPluginArtifactGitCheckoutRootColumn(db);
       dropMarketplaceCatalogSchema(db);
 
@@ -2351,6 +2378,7 @@ describe("migrate", () => {
       dropHostMaxPermissionModeColumn(db);
       dropEnvironmentRetireRequestedAtColumn(db);
       dropPhase6CharterSchema(db);
+    dropOrchestratorModelPolicySchema(db);
       dropPluginArtifactGitCheckoutRootColumn(db);
       dropMarketplaceCatalogSchema(db);
 

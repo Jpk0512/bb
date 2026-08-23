@@ -13,10 +13,13 @@ import {
   type CustomProviderModel,
 } from "@bb/config/bb-app-managed-config";
 import {
+  isModelDisabled,
   reasoningEffortsForLevels,
   type AvailableModel,
+  type DisabledModels,
   type ProviderInfo,
 } from "@bb/domain";
+import { getDisabledModels } from "@bb/db";
 import { normalizeHostDaemonAcpLaunchSpec } from "@bb/host-daemon-contract";
 import type { LoggedWorkSessionDeps } from "../../types.js";
 import { COMMAND_TIMEOUT_MS } from "../../constants.js";
@@ -59,7 +62,7 @@ interface ExpectedFallbackErrorLogFields {
   errorStatus: number;
 }
 
-type ModelListResult = Pick<
+export type ModelListResult = Pick<
   SystemExecutionOptionsResponse,
   "modelLoadError" | "models" | "selectedOnlyModels"
 >;
@@ -337,15 +340,18 @@ export async function resolveSystemProviderModels(
     hostId: args.hostId,
     provider,
   });
-  const { models, selectedOnlyModels } = appendCustomModels(
-    deps.providerRegistry,
-    {
-      customModels: deps.config.customModels,
-      models: result.models,
-      providerId: provider.id,
-      selectedOnlyModels: result.selectedOnlyModels,
-    },
-  );
+  const withCustomModels = appendCustomModels(deps.providerRegistry, {
+    customModels: deps.config.customModels,
+    models: result.models,
+    providerId: provider.id,
+    selectedOnlyModels: result.selectedOnlyModels,
+  });
+  const { models, selectedOnlyModels } = applyDisabledModels({
+    disabledModels: getDisabledModels(deps.db),
+    models: withCustomModels.models,
+    providerId: provider.id,
+    selectedOnlyModels: withCustomModels.selectedOnlyModels,
+  });
   return {
     models,
     selectedOnlyModels,
@@ -429,6 +435,55 @@ export function appendCustomModels(
   };
 }
 
+interface ApplyDisabledModelsArgs {
+  disabledModels: DisabledModels;
+  models: AvailableModel[];
+  providerId: string;
+  selectedOnlyModels: AvailableModel[];
+}
+
+/**
+ * Apply the user's model curation to one provider's catalog.
+ *
+ * Disabled models are **demoted into `selectedOnlyModels`, never removed**.
+ * That distinction is the whole safety story: `selectedOnlyModels` already
+ * means "not offered, but still renderable and still valid if a thread has it
+ * stored", so a thread pinned to a now-disabled model keeps working and the
+ * picker's unavailable-model recovery never silently reassigns it. Removing
+ * the entry instead would look exactly like the model being retired.
+ *
+ * This runs even when `modelLoadError` is set. Curation is user policy rather
+ * than a claim about what exists, so it is safe on a degraded catalog — unlike
+ * inferring retirement from a model's absence, which is not.
+ */
+export function applyDisabledModels({
+  disabledModels,
+  models,
+  providerId,
+  selectedOnlyModels,
+}: ApplyDisabledModelsArgs): AppendCustomModelsResult {
+  if (disabledModels.length === 0) {
+    return { models, selectedOnlyModels };
+  }
+
+  const kept: AvailableModel[] = [];
+  const demoted: AvailableModel[] = [];
+  for (const model of models) {
+    if (isModelDisabled(disabledModels, { providerId, model: model.model })) {
+      demoted.push(model);
+      continue;
+    }
+    kept.push(model);
+  }
+  if (demoted.length === 0) {
+    return { models, selectedOnlyModels };
+  }
+  return {
+    models: kept,
+    selectedOnlyModels: [...selectedOnlyModels, ...demoted],
+  };
+}
+
 export async function resolveSystemExecutionOptions(
   deps: LoggedWorkSessionDeps,
   query: SystemExecutionOptionsRequest,
@@ -494,15 +549,18 @@ export async function resolveSystemExecutionOptions(
   }
 
   if (hostId === null) {
-    const { models, selectedOnlyModels } = appendCustomModels(
-      deps.providerRegistry,
-      {
-        customModels: deps.config.customModels,
-        models: [],
-        providerId: modelsProvider.id,
-        selectedOnlyModels: [],
-      },
-    );
+    const hostlessCustomModels = appendCustomModels(deps.providerRegistry, {
+      customModels: deps.config.customModels,
+      models: [],
+      providerId: modelsProvider.id,
+      selectedOnlyModels: [],
+    });
+    const { models, selectedOnlyModels } = applyDisabledModels({
+      disabledModels: getDisabledModels(deps.db),
+      models: hostlessCustomModels.models,
+      providerId: modelsProvider.id,
+      selectedOnlyModels: hostlessCustomModels.selectedOnlyModels,
+    });
     return {
       providers,
       permissionCeiling,
@@ -527,15 +585,18 @@ export async function resolveSystemExecutionOptions(
           provider: modelsProvider,
         });
 
-  const { models, selectedOnlyModels } = appendCustomModels(
-    deps.providerRegistry,
-    {
-      customModels: deps.config.customModels,
-      models: modelResult.models,
-      providerId: modelsProvider.id,
-      selectedOnlyModels: modelResult.selectedOnlyModels,
-    },
-  );
+  const withCustomModels = appendCustomModels(deps.providerRegistry, {
+    customModels: deps.config.customModels,
+    models: modelResult.models,
+    providerId: modelsProvider.id,
+    selectedOnlyModels: modelResult.selectedOnlyModels,
+  });
+  const { models, selectedOnlyModels } = applyDisabledModels({
+    disabledModels: getDisabledModels(deps.db),
+    models: withCustomModels.models,
+    providerId: modelsProvider.id,
+    selectedOnlyModels: withCustomModels.selectedOnlyModels,
+  });
 
   return {
     providers,

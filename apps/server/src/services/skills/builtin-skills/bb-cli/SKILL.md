@@ -313,6 +313,12 @@ environment pull-request show <id>`. Diff commands require an explicit target
   (alias `--host`) or `--environment <id>` to inspect the machine where work
   will run; the selectors cannot be combined. With neither selector they
   intentionally inspect the primary machine.
+- The user can curate the catalog: `bb provider disabled list` shows models they
+  turned off, and `add`/`remove` change it. `bb provider models` already omits
+  disabled models, so anything it lists is safe to spawn with. Spawning with a
+  disabled model is refused (`model_disabled`) — pick another rather than
+  retrying, and never work around curation by omitting the model, since the
+  default resolves from the same curated catalog.
 - Known ACP agents can appear automatically when their CLI is installed on the
   host; for example `opencode`, `omp`, Grok Build's `grok` CLI, or Hermes'
   `hermes` CLI on PATH appears as provider `acp-opencode`, `acp-omp`,
@@ -356,6 +362,18 @@ or artifacts, validation performed, and blockers.
 - Spawn independent tasks separately when parallel work is useful.
 - Let threads work after spawning. Do not poll with shell sleeps, repeated log
   reads, or repeated status reads.
+- What you can rely on instead: when a thread you spawned with
+  `--parent-thread` (or `--parent-self`) settles a turn, bb starts a new turn on
+  you carrying that outcome. The announcement is durable — it is retried until
+  it lands, including across a server restart, and it waits rather than
+  disappearing if you are blocked on a permission prompt. So end your turn after
+  spawning; you will be woken. A child spawned *without* a parent is a root
+  thread and reports nothing, which is why delegation should always name a
+  parent.
+- To continue your own work after the current turn ends — the next phase of a
+  multi-step run — queue a message to yourself with
+  `bb thread queue create <your-thread-id> "..."`. It is durable and fires when
+  you go idle, so the run survives a restart.
 - Use `bb thread wait <thread-id>` when you explicitly need to block until a
   thread finishes. It defaults to waiting for `idle` for up to 20 minutes;
   pass `--status` or `--event` for a different target, and `--timeout

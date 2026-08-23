@@ -5,8 +5,16 @@ import type {
   ThreadEventTurnStatus,
 } from "@bb/domain";
 import {
+  claimDueParentNotifications,
   createNotification,
+  createPendingParentNotificationId,
+  deferPendingParentNotifications,
+  deletePendingParentNotifications,
+  insertPendingParentNotification,
   listActiveBackgroundTaskCountsByThreadIds,
+  listParentThreadIdsWithDueNotifications,
+  markParentNotificationsInboxEmitted,
+  type PendingParentNotificationRow,
 } from "@bb/db";
 import { renderTemplate } from "@bb/templates";
 import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
@@ -15,6 +23,7 @@ import {
   buildParentSystemThreadMention,
   parentSystemThreadLabel,
   queueParentSystemMessage,
+  type ParentSystemMessageDeliveryOutcome,
   type ParentSystemInputSegment,
   type ParentSystemMessageTaxonomy,
   type ParentSystemRenderedMention,
@@ -35,9 +44,9 @@ export interface ChildThreadTurnNotificationBatchItem {
   turnStatus: ThreadEventTurnStatus;
 }
 
-interface ChildThreadTurnNotificationBatch {
-  items: ChildThreadTurnNotificationBatchItem[];
-  timer: ReturnType<typeof setTimeout>;
+interface PendingParentNotificationDelivery {
+  item: ChildThreadTurnNotificationBatchItem;
+  row: PendingParentNotificationRow;
 }
 
 interface RenderChildThreadTurnStatusBatchMessageArgs {
@@ -96,9 +105,30 @@ const CHILD_THREAD_RUNNING_WORKFLOW_GUIDANCE =
   "A workflow it started is still running, so this output is not its final result. The thread will report again when the workflow finishes.";
 const CHILD_THREAD_BATCH_RUNNING_WORKFLOW_GUIDANCE =
   "Threads with a workflow still running have not finished; they will report again when their workflow does.";
-const childThreadTurnNotificationBatches = new Map<
+/** Ceiling for error backoff, so a repeatedly failing parent still gets swept. */
+const CHILD_THREAD_NOTIFICATION_MAX_RETRY_DELAY_MS = 60_000;
+/**
+ * Recheck cadence while a parent is blocked on an unanswered interaction. Kept
+ * at roughly the sweep interval so answering the prompt resumes the parent
+ * promptly rather than after an inflated backoff.
+ */
+const CHILD_THREAD_NOTIFICATION_BLOCKED_RECHECK_MS = 5_000;
+/**
+ * A claim older than this is assumed dead (the server died mid-delivery) and
+ * may be taken over. Comfortably longer than one delivery attempt.
+ */
+const CHILD_THREAD_NOTIFICATION_STALE_CLAIM_MS = 120_000;
+const CHILD_THREAD_NOTIFICATION_SWEEP_PARENT_LIMIT = 50;
+
+/**
+ * In-process timers are a latency optimization only: they collapse several
+ * children settling at once into one system message without waiting for the
+ * next sweep tick. Every timer's work is also reachable from the sweep, so
+ * losing the map (restart, reload) delays an announcement but never drops it.
+ */
+const childThreadNotificationFlushTimers = new Map<
   string,
-  ChildThreadTurnNotificationBatch
+  ReturnType<typeof setTimeout>
 >();
 
 function childThreadTurnStatusLabel(turnStatus: ThreadEventTurnStatus): string {
@@ -466,113 +496,213 @@ function emitParentInboxNotification(args: {
   }
 }
 
-async function flushChildThreadTurnNotificationBatch(
+function pendingParentNotificationItem(
+  row: PendingParentNotificationRow,
+): ChildThreadTurnNotificationBatchItem {
+  return {
+    activeWorkflowCount: row.activeWorkflowCount,
+    childThread: {
+      id: row.childThreadId,
+      projectId: row.childProjectId,
+      title: row.childTitle,
+    },
+    terminalOutput: row.terminalOutput,
+    turnStatus: row.turnStatus,
+  };
+}
+
+function childThreadNotificationRetryDelayMs(attempts: number): number {
+  const exponential =
+    CHILD_THREAD_TURN_NOTIFICATION_BATCH_DELAY_MS * 2 ** attempts;
+  return Math.min(exponential, CHILD_THREAD_NOTIFICATION_MAX_RETRY_DELAY_MS);
+}
+
+/**
+ * Announce to the human once per child outcome, on the first delivery attempt,
+ * independent of whether the parent agent could accept its system message yet
+ * (charter D3: the inbox is the human channel, the system message is the agent
+ * channel). `inboxEmittedAt` makes a retried delivery idempotent here.
+ */
+function emitPendingParentInboxNotifications(
   deps: LoggedPendingInteractionWorkSessionDeps,
   parentThreadId: string,
+  deliveries: PendingParentNotificationDelivery[],
+  now: number,
+): void {
+  const emitted: string[] = [];
+  for (const delivery of deliveries) {
+    if (delivery.row.inboxEmittedAt !== null) {
+      continue;
+    }
+    emitParentInboxNotification({
+      category: "worker-finished",
+      childThread: delivery.item.childThread,
+      deps,
+      parentThreadId,
+      title: workerInboxTitle(
+        delivery.item.childThread,
+        delivery.item.turnStatus,
+      ),
+      body:
+        delivery.item.turnStatus === "completed"
+          ? "Open the worker thread to read its result."
+          : CHILD_THREAD_INSPECTION_GUIDANCE,
+      payload: { turnStatus: delivery.item.turnStatus },
+    });
+    emitted.push(delivery.row.id);
+  }
+  if (emitted.length > 0) {
+    markParentNotificationsInboxEmitted(deps.db, { ids: emitted, now });
+  }
+}
+
+/**
+ * Attempt delivery of everything currently owed to one parent. Called from the
+ * post-settle fast path, from the periodic sweep, and when a parent's blocking
+ * interaction resolves. Claiming makes concurrent callers safe.
+ */
+export async function deliverPendingParentNotifications(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  parentThreadId: string,
+  // The sweep's clock, so "due" is evaluated against the same instant used to
+  // select the work. Defaults to now for the post-settle fast path.
+  now: number = Date.now(),
 ): Promise<void> {
-  const batch = childThreadTurnNotificationBatches.get(parentThreadId);
-  if (!batch) {
+  const rows = claimDueParentNotifications(deps.db, {
+    parentThreadId,
+    now,
+    staleClaimBefore: now - CHILD_THREAD_NOTIFICATION_STALE_CLAIM_MS,
+  });
+  if (rows.length === 0) {
     return;
   }
-  childThreadTurnNotificationBatches.delete(parentThreadId);
+  const deliveries = rows.map((row) => ({
+    item: pendingParentNotificationItem(row),
+    row,
+  }));
+  const ids = rows.map((row) => row.id);
 
+  emitPendingParentInboxNotifications(deps, parentThreadId, deliveries, now);
+
+  let outcome: ParentSystemMessageDeliveryOutcome;
   try {
-    await queueParentSystemMessage(deps, {
+    outcome = await queueParentSystemMessage(deps, {
       input: buildChildThreadTurnStatusBatchInput({
-        items: batch.items,
+        items: deliveries.map((delivery) => delivery.item),
       }),
       parentThreadId,
-      ...childThreadTurnStatusBatchTaxonomy(batch.items),
+      ...childThreadTurnStatusBatchTaxonomy(
+        deliveries.map((delivery) => delivery.item),
+      ),
     });
   } catch (error) {
+    // Preparing or dispatching the turn threw (host unreachable, thread moved
+    // to a state that rejects a new request). Retry rather than lose the
+    // announcement.
+    const attempts = Math.max(...rows.map((row) => row.attempts));
+    deferPendingParentNotifications(deps.db, {
+      ids,
+      deliverAfter: now + childThreadNotificationRetryDelayMs(attempts),
+      lastError: error instanceof Error ? error.message : String(error),
+      countsAsAttempt: true,
+      now,
+    });
     deps.logger.error(
       {
         err: error,
         parentThreadId,
-        childThreads: batch.items.map((item) => ({
-          childThreadId: item.childThread.id,
-          turnStatus: item.turnStatus,
+        childThreads: deliveries.map((delivery) => ({
+          childThreadId: delivery.item.childThread.id,
+          turnStatus: delivery.item.turnStatus,
         })),
       },
-      "Failed to queue batched parent turn notifications",
-    );
-  }
-
-  for (const item of batch.items) {
-    emitParentInboxNotification({
-      category: "worker-finished",
-      childThread: item.childThread,
-      deps,
-      parentThreadId,
-      title: workerInboxTitle(item.childThread, item.turnStatus),
-      body:
-        item.turnStatus === "completed"
-          ? "Open the worker thread to read its result."
-          : CHILD_THREAD_INSPECTION_GUIDANCE,
-      payload: { turnStatus: item.turnStatus },
-    });
-  }
-}
-
-function scheduleChildThreadTurnNotificationBatchFlush(
-  deps: LoggedPendingInteractionWorkSessionDeps,
-  parentThreadId: string,
-): ReturnType<typeof setTimeout> {
-  return setTimeout(() => {
-    void flushChildThreadTurnNotificationBatch(deps, parentThreadId);
-  }, CHILD_THREAD_TURN_NOTIFICATION_BATCH_DELAY_MS);
-}
-
-function queueChildThreadTurnNotificationBatchItem(
-  deps: LoggedPendingInteractionWorkSessionDeps,
-  args: QueueChildThreadTurnNotificationArgs,
-): void {
-  const existingBatch = childThreadTurnNotificationBatches.get(
-    args.parentThreadId,
-  );
-  if (existingBatch) {
-    existingBatch.items.push({
-      activeWorkflowCount: getChildThreadActiveWorkflowCount(deps, args),
-      childThread: args.childThread,
-      terminalOutput: getChildThreadCompletionOutput(deps, args),
-      turnStatus: args.turnStatus,
-    });
-    clearTimeout(existingBatch.timer);
-    existingBatch.timer = scheduleChildThreadTurnNotificationBatchFlush(
-      deps,
-      args.parentThreadId,
+      "Deferred batched parent turn notifications after delivery error",
     );
     return;
   }
 
-  childThreadTurnNotificationBatches.set(args.parentThreadId, {
-    items: [
-      {
-        activeWorkflowCount: getChildThreadActiveWorkflowCount(deps, args),
-        childThread: args.childThread,
-        terminalOutput: getChildThreadCompletionOutput(deps, args),
-        turnStatus: args.turnStatus,
+  if (outcome.status === "deferred") {
+    // Waiting on the user is not a failed attempt: keep a short fixed retry so
+    // the orchestrator resumes on the next sweep after the prompt is answered.
+    const waitingOnUser = outcome.reason === "pending-interaction";
+    const attempts = Math.max(...rows.map((row) => row.attempts));
+    deferPendingParentNotifications(deps.db, {
+      ids,
+      deliverAfter:
+        now +
+        (waitingOnUser
+          ? CHILD_THREAD_NOTIFICATION_BLOCKED_RECHECK_MS
+          : childThreadNotificationRetryDelayMs(attempts)),
+      lastError: outcome.reason,
+      countsAsAttempt: !waitingOnUser,
+      now,
+    });
+    deps.logger.debug(
+      { parentThreadId, reason: outcome.reason, count: ids.length },
+      "Deferred parent turn notifications; parent cannot accept a turn yet",
+    );
+    return;
+  }
+
+  if (outcome.status === "undeliverable") {
+    deps.logger.info(
+      { parentThreadId, reason: outcome.reason, count: ids.length },
+      "Discarded parent turn notifications; parent thread is gone",
+    );
+  }
+  deletePendingParentNotifications(deps.db, ids);
+}
+
+function scheduleChildThreadNotificationFlush(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  parentThreadId: string,
+): void {
+  const existing = childThreadNotificationFlushTimers.get(parentThreadId);
+  if (existing) {
+    clearTimeout(existing);
+  }
+  const timer = setTimeout(() => {
+    childThreadNotificationFlushTimers.delete(parentThreadId);
+    void deliverPendingParentNotifications(deps, parentThreadId).catch(
+      (error: unknown) => {
+        deps.logger.error(
+          { err: error, parentThreadId },
+          "Parent notification fast-path flush failed",
+        );
       },
-    ],
-    timer: scheduleChildThreadTurnNotificationBatchFlush(
-      deps,
-      args.parentThreadId,
-    ),
-  });
+    );
+  }, CHILD_THREAD_TURN_NOTIFICATION_BATCH_DELAY_MS);
+  timer.unref?.();
+  childThreadNotificationFlushTimers.set(parentThreadId, timer);
 }
 
 /**
- * Queues a parent-facing notification for child thread turn outcomes.
+ * Records a parent-facing notification for a child thread turn outcome.
  * Normal turn-completion event side effects pass the actual terminal status;
  * command-result failures pass `failed` because no terminal turn event exists.
- * This is best-effort post-commit notification work.
+ *
+ * The row is written synchronously; delivery is asynchronous and retried. Only
+ * writing the row is best-effort here, and a write failure is loud.
  */
 export async function queueChildThreadTurnNotificationBestEffort(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: QueueChildThreadTurnNotificationArgs,
 ): Promise<void> {
   try {
-    queueChildThreadTurnNotificationBatchItem(deps, args);
+    const now = Date.now();
+    insertPendingParentNotification(deps.db, {
+      id: createPendingParentNotificationId(),
+      parentThreadId: args.parentThreadId,
+      childThreadId: args.childThread.id,
+      childProjectId: args.childThread.projectId,
+      childTitle: args.childThread.title,
+      turnStatus: args.turnStatus,
+      activeWorkflowCount: getChildThreadActiveWorkflowCount(deps, args),
+      terminalOutput: getChildThreadCompletionOutput(deps, args),
+      deliverAfter: now + CHILD_THREAD_TURN_NOTIFICATION_BATCH_DELAY_MS,
+      now,
+    });
+    scheduleChildThreadNotificationFlush(deps, args.parentThreadId);
   } catch (error) {
     deps.logger.error(
       {
@@ -583,6 +713,32 @@ export async function queueChildThreadTurnNotificationBestEffort(
       },
       childThreadTurnNotificationLogMessage(args.turnStatus),
     );
+  }
+}
+
+/**
+ * Sweep entry point: deliver every parent notification that is due. This is
+ * the guarantee behind the fast path — a lost timer, a restart, or a parent
+ * that was blocked at settle time all still converge here.
+ */
+export async function deliverDueParentNotifications(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  now: number,
+): Promise<void> {
+  const parentThreadIds = listParentThreadIdsWithDueNotifications(deps.db, {
+    now,
+    limit: CHILD_THREAD_NOTIFICATION_SWEEP_PARENT_LIMIT,
+    staleClaimBefore: now - CHILD_THREAD_NOTIFICATION_STALE_CLAIM_MS,
+  });
+  for (const parentThreadId of parentThreadIds) {
+    try {
+      await deliverPendingParentNotifications(deps, parentThreadId, now);
+    } catch (error) {
+      deps.logger.error(
+        { err: error, parentThreadId },
+        "Parent notification delivery sweep failed for parent thread",
+      );
+    }
   }
 }
 

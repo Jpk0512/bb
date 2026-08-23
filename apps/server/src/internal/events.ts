@@ -63,6 +63,7 @@ import {
 } from "../services/plugins/plugin-agent-contributions.js";
 import {
   appendChildSessionLifecycleEvent,
+  getLastExecutionOptions,
   getLastProviderThreadId,
 } from "../services/threads/thread-events.js";
 import {
@@ -611,7 +612,11 @@ function appendChildSessionLifecycleUpdate(
   appendChildSessionLifecycleEvent(deps, {
     childKind: thread.childKind,
     childThreadId: thread.id,
-    model: null,
+    // The model the child's most recent turn actually ran on. Hardcoding null
+    // here hid model drift from the parent: a child whose model was switched,
+    // or whose model came from a default rather than the spawn request, showed
+    // no model at all in the parent's inline child block.
+    model: getLastExecutionOptions(deps, thread.id)?.model ?? null,
     outputExcerpt: args.outputExcerpt ?? null,
     parentThreadId: thread.parentThreadId,
     providerId: thread.providerId,

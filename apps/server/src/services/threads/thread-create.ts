@@ -1,9 +1,11 @@
 import {
   deleteThread,
   findProjectEnvironmentByHostPath,
+  getDisabledModels,
   getEnvironment,
   getThread,
 } from "@bb/db";
+import { isModelDisabled } from "@bb/domain";
 import type {
   ProjectExecutionDefaults,
   Project,
@@ -114,12 +116,73 @@ interface ResolveCatalogExecutionDefaultsArgs {
   requestedModel: string | null;
 }
 
+/**
+ * Reject a requested model the user has curated out of their catalog.
+ *
+ * Checked from settings rather than from the catalog, so exclusion holds even
+ * when the model list cannot be loaded. A caller that omits the model gets the
+ * default resolved from the already-filtered catalog instead, so both paths
+ * agree on what is selectable.
+ */
+function assertRequestedModelIsNotDisabled(
+  deps: ThreadCreateDeps,
+  args: { providerId: string; requestedModel: string | null },
+): void {
+  if (args.requestedModel === null) {
+    return;
+  }
+  const disabledModels = getDisabledModels(deps.db);
+  if (
+    !isModelDisabled(disabledModels, {
+      providerId: args.providerId,
+      model: args.requestedModel,
+    })
+  ) {
+    return;
+  }
+  throw new ApiError(
+    400,
+    "model_disabled",
+    `Model ${args.requestedModel} is disabled for ${args.providerId}. Enable it in Settings, or pick a model that is still available.`,
+  );
+}
+
+/**
+ * Drop a remembered project default that names a now-disabled model.
+ *
+ * Unlike an explicit request, a stale remembered default is not a user error —
+ * disabling the model *is* the instruction to stop using it. Returning null
+ * makes creation fall through to resolving a fresh default from the filtered
+ * catalog instead of quietly reusing the excluded model.
+ */
+function executionDefaultsUnlessDisabled(
+  deps: ThreadCreateDeps,
+  executionDefaults: ProjectExecutionDefaults | null,
+): ProjectExecutionDefaults | null {
+  if (executionDefaults === null) {
+    return null;
+  }
+  const disabled = isModelDisabled(getDisabledModels(deps.db), {
+    providerId: executionDefaults.providerId,
+    model: executionDefaults.model,
+  });
+  return disabled ? null : executionDefaults;
+}
+
 async function resolveCatalogExecutionDefaults(
   deps: ThreadCreateDeps,
   args: ResolveCatalogExecutionDefaultsArgs,
 ): Promise<ProjectExecutionDefaults | null> {
-  if (args.executionDefaults !== null || args.requestedModel !== null) {
-    return args.executionDefaults;
+  assertRequestedModelIsNotDisabled(deps, {
+    providerId: args.providerId,
+    requestedModel: args.requestedModel,
+  });
+  const executionDefaults = executionDefaultsUnlessDisabled(
+    deps,
+    args.executionDefaults,
+  );
+  if (executionDefaults !== null || args.requestedModel !== null) {
+    return executionDefaults;
   }
   if (args.hostId === null) {
     throw new ApiError(
@@ -146,13 +209,25 @@ async function resolveCatalogExecutionDefaults(
       },
     );
   }
+  // The catalog here is already curated, so `isDefault` can be a model the user
+  // disabled — falling through to the first remaining entry is the point.
   const defaultModel =
     catalog.models.find((model) => model.isDefault) ?? catalog.models[0];
   if (defaultModel === undefined) {
+    // Distinguish "the provider offers nothing" from "you disabled all of it",
+    // otherwise curating too aggressively reads as a broken provider.
+    const disabledEverything = catalog.selectedOnlyModels.some((model) =>
+      isModelDisabled(getDisabledModels(deps.db), {
+        providerId: args.providerId,
+        model: model.model,
+      }),
+    );
     throw new ApiError(
       503,
       "model_catalog_unavailable",
-      `The ${args.providerId} model catalog is empty, so no default model can be resolved.`,
+      disabledEverything
+        ? `Every ${args.providerId} model is disabled, so no default model can be resolved. Re-enable one in Settings.`
+        : `The ${args.providerId} model catalog is empty, so no default model can be resolved.`,
       true,
     );
   }
@@ -510,6 +585,9 @@ async function createProvisioningThread(
   const thread = createThreadRecord(deps, {
     request: args.request,
     environmentId: args.environmentId,
+    // An explicit request wins, then the defaults resolved from the (already
+    // curated) catalog. Either way the child's spawn event names a real model.
+    resolvedModel: args.request.model ?? args.executionDefaults?.model ?? null,
     status: "starting",
   });
   let execution: Awaited<ReturnType<typeof buildExecutionOptions>>;

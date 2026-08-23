@@ -22,6 +22,7 @@ export function makeThreadResponse(
     status: "idle",
     parentThreadId: null,
     sourceThreadId: null,
+    childKind: null,
     originKind: null,
     originPluginId: null,
     visibility: "visible",

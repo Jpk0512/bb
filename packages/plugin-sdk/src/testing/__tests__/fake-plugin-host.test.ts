@@ -740,6 +740,7 @@ describe("agent tools", () => {
       title: null,
       parentThreadId: null,
       sourceThreadId: null,
+      childKind: null,
     },
     project: {
       id: "project-test",

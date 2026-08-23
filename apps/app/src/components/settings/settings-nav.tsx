@@ -19,6 +19,7 @@ export const SETTINGS_NAV_SECTIONS = [
   { icon: "Settings", id: "general", label: "General" },
   { icon: "Palette", id: "appearance", label: "Appearance" },
   { icon: "SlidersHorizontal", id: "keyboard", label: "Keyboard" },
+  { icon: "Brain", id: "models", label: "Models" },
   { icon: "ChartColumn", id: "usage", label: "Usage limits" },
   { icon: "Folder", id: "files", label: "Files" },
   { icon: "Laptop", id: "machines", label: "Machines" },

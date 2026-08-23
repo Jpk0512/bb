@@ -24,6 +24,7 @@ function configurationContext(
       title: null,
       parentThreadId: null,
       sourceThreadId: null,
+      childKind: null,
     },
     project: {
       id: "proj-test",

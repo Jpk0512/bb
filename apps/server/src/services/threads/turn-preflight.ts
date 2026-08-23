@@ -1,8 +1,10 @@
+import { isModelDisabled } from "@bb/domain";
 import type {
   PromptInput,
   ThreadTurnInitiator,
   TurnRequestTarget,
 } from "@bb/domain";
+import { getDisabledModels } from "@bb/db";
 import type {
   TurnPreflightContext,
   TurnPreflightTrigger,
@@ -181,12 +183,36 @@ export async function runTurnPreflight(
           "Plugin turn preflight requested an unknown provider; ignoring the provider override",
         );
       }
+      // A plugin must not be able to route a turn onto a model the user
+      // curated out, so the model override gets the same warn-and-ignore
+      // treatment an unknown provider already gets rather than being applied
+      // unchecked. Existence is not checked here — that needs an async catalog
+      // load, and this runs inside the turn's preflight budget.
+      const requestedModel = decision.binding.model;
+      const effectiveProviderId = providerId ?? args.providerId;
+      const modelIsDisabled =
+        requestedModel !== undefined &&
+        isModelDisabled(getDisabledModels(deps.db), {
+          providerId: effectiveProviderId,
+          model: requestedModel,
+        });
+      if (modelIsDisabled) {
+        deps.logger.warn(
+          {
+            pluginId,
+            providerId: effectiveProviderId,
+            model: requestedModel,
+            threadId: args.threadId,
+          },
+          "Plugin turn preflight requested a disabled model; ignoring the model override",
+        );
+      }
       const nextOverride: NonNullable<TurnPreflightOutcome["bindingOverride"]> =
         {
           ...(bindingOverride ?? {}),
           ...(providerId !== undefined ? { providerId } : {}),
-          ...(decision.binding.model !== undefined
-            ? { model: decision.binding.model }
+          ...(requestedModel !== undefined && !modelIsDisabled
+            ? { model: requestedModel }
             : {}),
         };
       bindingOverride =
