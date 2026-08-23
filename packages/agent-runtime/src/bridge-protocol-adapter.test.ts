@@ -1,4 +1,4 @@
-import type { ThreadEvent } from "@bb/domain";
+import type { ThreadEvent, RuntimeThreadExecutionOptions } from "@bb/domain";
 import { DEFAULT_CLAUDE_CODE_MOCK_CLI_TRAFFIC_CONFIG } from "@bb/domain";
 import { describe, expect, it } from "vitest";
 import { createBridgeProtocolAdapter } from "./bridge-protocol-adapter.js";
@@ -397,3 +397,61 @@ describe("inbound request decoding", () => {
     });
   });
 });
+
+const bridgeExecOptions = {
+  model: "opencode-go/kimi-k3",
+  serviceTier: "default",
+  reasoningLevel: "high",
+  workflowsEnabled: true,
+  memoryEnabled: true,
+  providerSubagentsEnabled: true,
+  permissionMode: "auto",
+  permissionScope: "workspace",
+  approvalReviewer: "automatic",
+  permissionEscalation: "ask",
+} satisfies RuntimeThreadExecutionOptions;
+
+describe("execution setting classification",
+  () => {
+    it("rebuilds the session when the model or reasoning level changes",
+      () => {
+        const adapter = makeAdapter();
+        expect(
+          adapter.classifyExecutionSettingsChange({
+            current: bridgeExecOptions,
+            next: { ...bridgeExecOptions, model: "xai/grok-4.6" },
+          }),
+        ).toBe("session");
+        expect(
+          adapter.classifyExecutionSettingsChange({
+            current: bridgeExecOptions,
+            next: { ...bridgeExecOptions, reasoningLevel: "low" },
+          }),
+        ).toBe("session");
+      },
+    );
+
+    it("keeps permission and instruction-adjacent drift live",
+      () => {
+        const adapter = makeAdapter();
+        expect(
+          adapter.classifyExecutionSettingsChange({
+            current: bridgeExecOptions,
+            next: {
+              ...bridgeExecOptions,
+              permissionMode: "full",
+              workflowsEnabled: false,
+              memoryEnabled: false,
+            },
+          }),
+        ).toBe("live");
+        expect(
+          adapter.classifyExecutionSettingsChange({
+            current: bridgeExecOptions,
+            next: bridgeExecOptions,
+          }),
+        ).toBe("live");
+      },
+    );
+  },
+);

@@ -8,10 +8,12 @@
  * here per process and consulted for gated methods, so a method a bridge did
  * not advertise is never sent.
  *
- * This adapter never diffs execution options (`classifyExecutionSettingsChange`
- * always reports "live"): options ride every command and the bridge
- * reconciles internally, reporting any session rebuild via the mandatory
- * `session/replaced` notification.
+ * Permission and instruction drift stay `live` so a follow-up cannot kill
+ * background work. Model and reasoning level are session construction
+ * inputs on every current bridge (Pi binds them in `createAgentSession` and
+ * never rereads them on `turn/start`), so those two must rebuild. A live
+ * classification here is what made a Pi picker switch look successful while
+ * the next turn kept billing the previous route.
  */
 import type {
   ProviderCapabilities,
@@ -243,8 +245,15 @@ export function createBridgeProtocolAdapter(
     },
     process: options.process,
 
-    // Options ride every command; the bridge reconciles internally.
-    classifyExecutionSettingsChange: () => "live",
+    classifyExecutionSettingsChange: ({ current, next }) => {
+      if (
+        current.model !== next.model ||
+        current.reasoningLevel !== next.reasoningLevel
+      ) {
+        return "session";
+      }
+      return "live";
+    },
 
     buildCommandPlan(command: AdapterCommand): ProviderCommandPlan {
       switch (command.type) {

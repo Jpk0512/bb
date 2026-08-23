@@ -859,6 +859,10 @@ function recordAcceptedTurnInput(
 }
 
 function handleTurnStart(id: string | number, params: TurnStartParams): void {
+  // Model and reasoning are bound when the session is constructed. A picker
+  // change reaches this method only after the runtime's thread/resume rebuilds
+  // that session — do not read `params.options.model` here or a live-classified
+  // follow-up would silently keep the previous route's billing.
   // Requests resolve the session by bb threadId — pi's stable session handle.
   const threadSession = sessions.get(params.threadId);
   if (!threadSession || threadSession.closing) {
