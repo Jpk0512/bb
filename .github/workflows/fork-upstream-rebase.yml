@@ -19,7 +19,9 @@ on:
         default: "upstream/main"
   push:
     branches:
-      - "nsai/**"
+      # Only the living fork branch. Feature/worktree pushes under nsai/
+      # must not each fire a rebase (that is what flooded notifications).
+      - nsai/phase-5-fork
 
 concurrency:
   group: fork-rebase-${{ github.ref }}
@@ -39,7 +41,12 @@ jobs:
       - name: Fetch upstream
         run: |
           git remote add upstream https://github.com/get-bb/bb.git || true
-          git fetch upstream --tags --prune
+          # desktop-latest / desktop-nightly are moving tags on upstream.
+          # A plain --tags fetch fails with "would clobber existing tag" and
+          # never reaches the rebase. Force-update tags in this ephemeral CI
+          # clone only; do not push them back to origin.
+          git fetch upstream --prune
+          git fetch upstream --tags --force --prune
 
       - name: Rebase onto upstream
         env:
