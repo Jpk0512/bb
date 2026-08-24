@@ -3,6 +3,7 @@ import type { Notification } from "@bb/domain";
 import { Button } from "@bb/shared-ui/button";
 import { Icon } from "@bb/shared-ui/icon";
 import { Pill } from "@bb/shared-ui/pill";
+import { ResourceListState } from "@bb/shared-ui/resource-list";
 import { PluginSlotMount } from "@/components/plugin/PluginSlotMount";
 import {
   useDismissNotification,
@@ -191,12 +192,20 @@ export function InboxView() {
 
   if (notifications.isLoading) {
     return (
-      <div className="p-4 text-sm text-muted-foreground">Loading inbox…</div>
+      <div className="mx-auto w-full max-w-3xl px-4 pt-3 md:px-5 md:pt-4">
+        <ResourceListState state="loading" message="Loading inbox" />
+      </div>
     );
   }
   if (notifications.isError) {
     return (
-      <div className="p-4 text-sm text-destructive">Unable to load inbox.</div>
+      <div className="mx-auto w-full max-w-3xl px-4 pt-3 md:px-5 md:pt-4">
+        <ResourceListState
+          state="error"
+          message="Unable to load inbox."
+          onRetry={() => void notifications.refetch()}
+        />
+      </div>
     );
   }
   if (grouped.length === 0) {
