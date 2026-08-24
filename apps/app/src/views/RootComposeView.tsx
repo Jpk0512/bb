@@ -2418,6 +2418,8 @@ function RootComposeSurface({
             activeTab: activeFixedSecondaryTab,
             canUseGitUi: false,
             environmentId: rootPanelEnvironmentId ?? undefined,
+            projectId: isProjectless ? undefined : projectId,
+            hostId: rootProjectHostId,
             metadataContent: rootPanelMetadataContent,
             workspaceRootPath:
               rootPanelEnvironment?.path ??

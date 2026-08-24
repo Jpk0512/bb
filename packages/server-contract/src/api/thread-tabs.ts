@@ -34,6 +34,7 @@ const threadTabEnvironmentFileSourceSchema = z.discriminatedUnion("kind", [
 export const threadTabSchema = z.discriminatedUnion("kind", [
   z.object({ id: threadTabIdSchema, kind: z.literal("thread-info") }).strict(),
   z.object({ id: threadTabIdSchema, kind: z.literal("git-diff") }).strict(),
+  z.object({ id: threadTabIdSchema, kind: z.literal("files") }).strict(),
   z
     .object({
       actionId: z.string().min(1).max(THREAD_TAB_PATH_MAX_LENGTH),

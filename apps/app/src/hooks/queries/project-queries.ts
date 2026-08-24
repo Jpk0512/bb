@@ -50,6 +50,8 @@ interface UseProjectPathSuggestionsArgs {
   limit?: number;
   includeFiles: boolean;
   includeDirectories: boolean;
+  /** List from the workspace root instead of waiting for a typeahead query. */
+  allowEmptyQuery?: boolean;
 }
 
 interface UseProjectCommandsArgs {
@@ -171,9 +173,11 @@ export function useProjectPathSuggestions(args: UseProjectPathSuggestionsArgs) {
     limit = 8,
     includeFiles,
     includeDirectories,
+    allowEmptyQuery = false,
   } = args;
   const trimmedQuery = query?.trim() ?? "";
-  const enabled = Boolean(projectId) && trimmedQuery.length > 0;
+  const enabled =
+    Boolean(projectId) && (allowEmptyQuery || trimmedQuery.length > 0);
   useProjectDetailRealtimeSubscription(projectId, { enabled });
 
   return useQuery<WorkspacePathListResponse>({

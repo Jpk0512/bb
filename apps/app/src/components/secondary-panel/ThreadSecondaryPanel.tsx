@@ -58,6 +58,7 @@ import {
 import { threadSecondaryPanelResizingAtom } from "./threadSecondaryPanelAtoms";
 import { GitDiffToolbar } from "./GitDiffToolbar";
 import {
+  FilesTabContent,
   GitDiffTabContent,
   ThreadInfoTabContent,
 } from "./ThreadSecondaryPanelTabContent";
@@ -214,6 +215,9 @@ export interface ThreadSecondaryPanelProps {
   canUseGitUi: boolean;
   requestedMergeBaseBranch?: string;
   environmentId?: string;
+  /** Project fallback used before a thread has an environment. */
+  projectId?: string;
+  hostId?: string | null;
   metadataContent: ReactNode;
   fileTabs?: SecondaryPanelFileTab[];
   fileTabContent?: ReactNode;
@@ -239,6 +243,7 @@ export interface ThreadSecondaryPanelProps {
   isOpen: boolean;
   showConversationCollapseControl?: boolean;
   showGitDiffTab?: boolean;
+  showFilesTab?: boolean;
   showInfoTab?: boolean;
   showNewTabButton?: boolean;
   /**
@@ -311,6 +316,8 @@ function resolveActiveFixedPanel({
       return "thread-info";
     case "git-diff":
       return canUseGitUi ? "git-diff" : "thread-info";
+    case "files":
+      return "files";
     case "plugin-panel":
     case "workspace-file-preview":
     case "host-file-preview":
@@ -327,6 +334,8 @@ export function ThreadSecondaryPanel({
   canUseGitUi,
   requestedMergeBaseBranch,
   environmentId,
+  projectId,
+  hostId,
   metadataContent,
   fileTabs,
   fileTabContent,
@@ -337,6 +346,7 @@ export function ThreadSecondaryPanel({
   isOpen,
   showConversationCollapseControl = true,
   showGitDiffTab = true,
+  showFilesTab = true,
   showInfoTab = true,
   showNewTabButton = true,
   inlinePanelToggle = "button",
@@ -458,6 +468,7 @@ export function ThreadSecondaryPanel({
   const activeFixedPanel =
     resolveActiveFixedPanel({ activeTab, canUseGitUi }) ?? "thread-info";
   const isDiffPanelActive = activeFixedPanel === "git-diff";
+  const isFilesPanelActive = activeFixedPanel === "files";
   const showsGitDiffToolbar = isDiffPanelActive && !hasActiveFileTab;
   const shouldShowGitDiffTab = canUseGitUi && showGitDiffTab !== false;
   // Keep file content mounted across every close. The compact views defer the
@@ -696,6 +707,18 @@ export function ThreadSecondaryPanel({
                 activeTreatment="fill"
               />
             ) : null}
+            {showFilesTab ? (
+              <PinnedIconTab
+                ariaLabel="Show workspace files"
+                isActive={isFilesPanelActive && !hasActiveFileTab}
+                label="Files"
+                leadingVisual={<Icon name="Folder" />}
+                onClick={() => onPanelChange("files")}
+                title="Workspace files"
+                usesDesktopChrome={usesDesktopChrome}
+                activeTreatment="fill"
+              />
+            ) : null}
             {visibleFileTabs && visibleFileTabs.length > 0 ? (
               <SecondaryPanelTabStrip
                 fileTabs={visibleFileTabs}
@@ -834,6 +857,13 @@ export function ThreadSecondaryPanel({
             onSelectionAddToChat={onSelectionAddToChat}
             pendingGitDiffScrollPath={pendingGitDiffScrollPath}
             workspaceRootPath={workspaceRootPath}
+          />
+        ) : isFilesPanelActive ? (
+          <FilesTabContent
+            environmentId={environmentId}
+            hostId={hostId}
+            projectId={projectId}
+            onOpenFilePreview={onOpenFilePreview}
           />
         ) : (
           <ThreadInfoTabContent metadataContent={metadataContent} />

@@ -298,6 +298,8 @@ interface UseEnvironmentPathSuggestionsArgs {
   limit?: number;
   includeFiles: boolean;
   includeDirectories: boolean;
+  /** List from the workspace root instead of waiting for a typeahead query. */
+  allowEmptyQuery?: boolean;
 }
 
 /**
@@ -314,9 +316,11 @@ export function useEnvironmentPathSuggestions(
     limit = 8,
     includeFiles,
     includeDirectories,
+    allowEmptyQuery = false,
   } = args;
   const trimmedQuery = query?.trim() ?? "";
-  const enabled = Boolean(environmentId) && trimmedQuery.length > 0;
+  const enabled =
+    Boolean(environmentId) && (allowEmptyQuery || trimmedQuery.length > 0);
   useEnvironmentDetailRealtimeSubscription(environmentId, { enabled });
 
   return useQuery<WorkspacePathListResponse>({

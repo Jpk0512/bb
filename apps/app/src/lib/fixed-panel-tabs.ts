@@ -8,6 +8,7 @@ import { createLocalStorageSyncStorage } from "./browser-storage";
 import { useThreadTabs } from "@/hooks/queries/thread-tabs-query";
 import {
   EMPTY_FIXED_PANEL_TABS_STATE,
+  createFilesFixedPanelTab,
   createGitDiffFixedPanelTab,
   createTerminalFixedPanelTab,
   createThreadInfoFixedPanelTab,
@@ -91,6 +92,7 @@ function getFixedPanelTabsStateAtom(threadId: string | null | undefined) {
 }
 
 function buildSecondaryPanelTab(panel: ThreadSecondaryPanel): FixedPanelTab {
+  if (panel === "files") return createFilesFixedPanelTab();
   if (panel === "git-diff") return createGitDiffFixedPanelTab();
   return createThreadInfoFixedPanelTab();
 }

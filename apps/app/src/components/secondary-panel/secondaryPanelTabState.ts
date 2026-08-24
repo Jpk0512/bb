@@ -92,6 +92,7 @@ export function isSecondaryFileTab(
       return true;
     case "thread-info":
     case "git-diff":
+    case "files":
       return false;
   }
 }
