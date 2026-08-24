@@ -59,6 +59,12 @@ interface SharedWorkflowView {
 }
 
 const ACTIVE_POLL_INTERVAL_MS = 1_000;
+/**
+ * A run that starts while the banner is mounted reaches it through no signal
+ * but this poll, so the banner slows down instead of stopping when the thread
+ * has nothing active to watch.
+ */
+const IDLE_POLL_INTERVAL_MS = 10_000;
 const WORKFLOW_PANEL_ACTION_ID = "workflow-run";
 const WORKFLOW_CARD_ROW_HEIGHT = 32;
 const WORKFLOW_HEADER_GROUP_CLASS = activityRowClass(
@@ -420,6 +426,11 @@ function useActiveWorkflowRuns(threadId: string): {
     };
   }, [refresh]);
 
+  const pollIntervalMs =
+    state.status === "error" ||
+    (state.status === "ready" && state.runs.some(isRunActive))
+      ? ACTIVE_POLL_INTERVAL_MS
+      : IDLE_POLL_INTERVAL_MS;
   useEffect(() => {
     let cancelled = false;
     let timeout: number | null = null;
@@ -428,14 +439,14 @@ function useActiveWorkflowRuns(threadId: string): {
         void refresh().finally(() => {
           if (!cancelled) schedule();
         });
-      }, ACTIVE_POLL_INTERVAL_MS);
+      }, pollIntervalMs);
     };
     schedule();
     return () => {
       cancelled = true;
       if (timeout !== null) window.clearTimeout(timeout);
     };
-  }, [refresh]);
+  }, [pollIntervalMs, refresh]);
 
   const setRuns = useCallback(
     (update: (runs: WorkflowRunView[]) => WorkflowRunView[]) => {

@@ -210,6 +210,75 @@ describe("workflow composer banner", () => {
     slot.unmount();
   });
 
+  it("drops to an idle poll with nothing active, then picks a new run back up", async () => {
+    vi.useFakeTimers();
+    let polls = 0;
+    const slot = renderSlot(
+      banner,
+      {},
+      {
+        composer: {
+          scope: { kind: "thread", threadId: "thr_scope" },
+        },
+        rpc: {
+          workflowActiveRuns: () => {
+            polls += 1;
+            return { runs: polls > 2 ? [{ ...run }] : [] };
+          },
+        },
+      },
+    );
+
+    await act(async () => Promise.resolve());
+    expect(polls).toBe(1);
+
+    // An idle thread used to keep the one-second poll running forever.
+    await act(async () => vi.advanceTimersByTimeAsync(9_000));
+    expect(polls).toBe(1);
+
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    expect(polls).toBe(2);
+
+    // Nothing else tells the banner a run started, so the idle poll has to
+    // keep finding one.
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+    expect(polls).toBe(3);
+    expect(slot.getByText("Review the release")).toBeTruthy();
+
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    expect(polls).toBe(4);
+    slot.unmount();
+  });
+
+  it("keeps polling at the active interval after a failed poll", async () => {
+    vi.useFakeTimers();
+    let polls = 0;
+    const slot = renderSlot(
+      banner,
+      {},
+      {
+        composer: {
+          scope: { kind: "thread", threadId: "thr_scope" },
+        },
+        rpc: {
+          workflowActiveRuns: () => {
+            polls += 1;
+            if (polls === 1) throw new Error("outage");
+            return { runs: [{ ...run }] };
+          },
+        },
+      },
+    );
+
+    await act(async () => Promise.resolve());
+    expect(slot.container.childElementCount).toBe(0);
+
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    expect(polls).toBe(2);
+    expect(slot.getByText("Review the release")).toBeTruthy();
+    slot.unmount();
+  });
+
   it("renders null when the scope thread has no active runs", async () => {
     const slot = renderSlot(
       banner,

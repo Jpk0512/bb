@@ -7,10 +7,12 @@ export function validateOptionalUrl(name: string, value: string): string {
 }
 
 /**
- * Parses a comma-separated list of browser origins. Each entry must be a URL
- * whose origin is the whole value, so a path, query, or credentials are
- * rejected rather than silently ignored: an allowlist entry that does not mean
- * what it says is a security defect, not a convenience.
+ * Parses a comma-separated list of browser origins into normalized origins.
+ * Any spelling that denotes a bare origin is accepted — an explicit default
+ * port or an uppercase scheme/host still means the same origin — but a path,
+ * query, fragment, or credentials are rejected rather than silently dropped:
+ * an allowlist entry that does not mean what it says is a security defect, not
+ * a convenience.
  */
 export function validateOriginList(
   name: string,
@@ -33,7 +35,15 @@ export function validateOriginList(
     if (url.protocol !== "http:" && url.protocol !== "https:") {
       throw new Error(`${name} entries must be http or https, received "${entry}"`);
     }
-    if (url.origin !== entry.replace(/\/+$/u, "")) {
+    // `new URL` gives a bare origin the pathname "/", so only a path with a
+    // segment counts as carrying more than an origin.
+    const carriesMoreThanOrigin =
+      !/^\/*$/u.test(url.pathname) ||
+      url.search.length > 0 ||
+      url.hash.length > 0 ||
+      url.username.length > 0 ||
+      url.password.length > 0;
+    if (carriesMoreThanOrigin) {
       throw new Error(
         `${name} entries must be bare origins such as https://host, received "${entry}"`,
       );

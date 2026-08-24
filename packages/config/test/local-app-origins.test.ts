@@ -62,6 +62,20 @@ describe("validateOriginList", () => {
     ).toEqual(["http://bb.local:8080"]);
   });
 
+  // These spellings all denote a bare origin, so refusing them would abort
+  // startup over a value that means exactly what the operator intended.
+  it("normalizes an explicit default port", () => {
+    expect(
+      validateOriginList("BB_ADDITIONAL_APP_ORIGINS", "https://bb.local:443,http://bb.local:80"),
+    ).toEqual(["https://bb.local", "http://bb.local"]);
+  });
+
+  it("normalizes an uppercase scheme and host", () => {
+    expect(
+      validateOriginList("BB_ADDITIONAL_APP_ORIGINS", "HTTPS://BB.LOCAL,Http://BB.Local:80"),
+    ).toEqual(["https://bb.local", "http://bb.local"]);
+  });
+
   it("rejects an entry that is not a URL", () => {
     expect(() =>
       validateOriginList("BB_ADDITIONAL_APP_ORIGINS", "bb.local"),
@@ -79,8 +93,11 @@ describe("validateOriginList", () => {
   it("rejects entries that carry more than an origin", () => {
     for (const value of [
       "https://bb.local/admin",
+      "https://bb.local:443/admin",
       "https://user:pass@bb.local",
+      "https://user@bb.local",
       "https://bb.local?x=1",
+      "https://bb.local#fragment",
     ]) {
       expect(() =>
         validateOriginList("BB_ADDITIONAL_APP_ORIGINS", value),
