@@ -193,7 +193,7 @@ export function useProjectPathSuggestions(args: UseProjectPathSuggestionsArgs) {
     queryFn: ({ signal }) =>
       sdk.projects.paths({
         projectId: projectId ?? "",
-        query: trimmedQuery,
+        ...(trimmedQuery.length > 0 ? { query: trimmedQuery } : {}),
         limit: String(limit),
         includeFiles: includeFiles ? "true" : "false",
         includeDirectories: includeDirectories ? "true" : "false",

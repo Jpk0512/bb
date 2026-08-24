@@ -337,7 +337,7 @@ export function useEnvironmentPathSuggestions(
           environmentId,
           "useEnvironmentPathSuggestions",
         ),
-        query: trimmedQuery,
+        ...(trimmedQuery.length > 0 ? { query: trimmedQuery } : {}),
         limit: String(limit),
         includeFiles: includeFiles ? "true" : "false",
         includeDirectories: includeDirectories ? "true" : "false",
