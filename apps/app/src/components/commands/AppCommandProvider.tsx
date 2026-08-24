@@ -381,6 +381,11 @@ export function useAppCommandHandler(
   }, [command, priority, registerHandler]);
 }
 
+/** Access the shared dispatcher to invoke an app command programmatically. */
+export function useAppCommandProvider(): AppCommandProviderValue | null {
+  return useContext(AppCommandContextValue);
+}
+
 export function useIndexedAppCommandHandlers(
   commands: readonly AppCommandId[],
   handler: (index: number, invocation: AppCommandInvocation) => boolean,

@@ -52,6 +52,7 @@ import {
   getSkillDetailRoutePath,
 } from "./lib/route-paths";
 import { AppCommandProvider } from "./components/commands/AppCommandProvider";
+import { CommandPalette } from "./components/commands/CommandPalette";
 import { OnboardingHost } from "@/components/onboarding/OnboardingHost";
 import { ProviderCliInstallLogDialogHost } from "./components/provider-cli/provider-cli-install";
 import { PluginSettingsCompatibilityRoute } from "./components/settings/PluginSettingsCompatibilityRoute";
@@ -369,6 +370,7 @@ export function App() {
           {/* First-run onboarding. Outside <Routes> so it is not tied to a
               page. It self-gates on the experiment and completion timestamp. */}
           <OnboardingHost />
+          <CommandPalette />
         </RouteNavigationProvider>
       </AppCommandProvider>
     </QuickCreateProjectProvider>
