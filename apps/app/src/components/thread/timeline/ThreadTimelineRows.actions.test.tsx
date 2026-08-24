@@ -284,6 +284,7 @@ afterEach(() => {
 
 describe("ThreadTimelineRows actions", () => {
   it("uses inline mobile actions only for the last assistant message", () => {
+    mockSelectionMenuMedia({ isCompactViewport: true, isPointerCoarse: true });
     const { container } = renderWithRouter(
       <ThreadTimelineRows
         timelineRows={[
@@ -313,11 +314,16 @@ describe("ThreadTimelineRows actions", () => {
       '[data-timeline-row-id="latest_agent_message"]',
     );
 
+    // An older message folds every action, copy included, behind its single
+    // overflow trigger; only the newest one keeps a permanent icon row.
     expect(
       earlierMessage?.querySelector('[aria-label="Message actions"]'),
     ).not.toBeNull();
     expect(
-      latestMessage?.querySelector('[aria-label="Message actions"]'),
+      earlierMessage?.querySelector('[aria-label="Copy message"]'),
+    ).toBeNull();
+    expect(
+      earlierMessage?.querySelector('[aria-label="Add to chat"]'),
     ).toBeNull();
     expect(
       latestMessage?.querySelector('[aria-label="Copy message"]')?.className,
@@ -328,6 +334,7 @@ describe("ThreadTimelineRows actions", () => {
   });
 
   it("uses inline mobile actions only for the last user message", () => {
+    mockSelectionMenuMedia({ isCompactViewport: true, isPointerCoarse: true });
     const { container } = renderWithRouter(
       <ThreadTimelineRows
         timelineRows={[
@@ -358,6 +365,11 @@ describe("ThreadTimelineRows actions", () => {
     expect(
       earlierMessage?.querySelector('[aria-label="Message actions"]'),
     ).not.toBeNull();
+    expect(
+      earlierMessage?.querySelector('[aria-label="Copy message"]'),
+    ).toBeNull();
+    // Copy plus one primary is the whole set here, so the newest message needs
+    // no overflow at all.
     expect(
       latestMessage?.querySelector('[aria-label="Message actions"]'),
     ).toBeNull();
@@ -1280,7 +1292,7 @@ describe("ThreadTimelineRows actions", () => {
     expect(markup).not.toContain('aria-label="Summarize"');
   });
 
-  it("contains plugin message action errors without breaking the timeline", () => {
+  it("contains plugin message action errors without breaking the timeline", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     setPluginSlotRegistrations(
       "demo",
@@ -1318,8 +1330,15 @@ describe("ThreadTimelineRows actions", () => {
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('messageAction "explodes" failed: kaboom'),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Rejects" }));
-    return waitFor(() =>
+
+    // Copy plus one primary stay inline, so the second plugin action is reached
+    // through the shared overflow.
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "Message actions" }),
+      { button: 0 },
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rejects" }));
+    await waitFor(() =>
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining('messageAction "rejects" failed: async kaboom'),
       ),

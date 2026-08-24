@@ -122,6 +122,7 @@ import {
 } from "./threadDetailPromptSubmission";
 
 const ignorePromptBannerFileClick = () => {};
+const noopPreviewProvider = () => {};
 
 export interface ThreadDetailSentMessageEdit {
   draft: PromptDraftState;
@@ -611,29 +612,19 @@ export function ThreadDetailPromptArea({
   // provider session on a stray click. The switch is intended when the user
   // then picks a model from that previewed catalog, which is the same gesture
   // that commits a model on the current provider.
-  const [previewedProviderId, setPreviewedProviderId] = useState<string | null>(
-    null,
-  );
   const [pendingProviderSwitch, setPendingProviderSwitch] = useState<{
     model: string;
     providerId: string;
   } | null>(null);
   const switchThreadProvider = useSwitchThreadProvider();
-  const handlePreviewProvider = useCallback(
-    (providerId: string) => {
-      setPreviewedProviderId(
-        providerId === thread.providerId ? null : providerId,
-      );
-    },
-    [thread.providerId],
-  );
   const handleModelChange = useCallback(
-    (model: string) => {
-      if (
-        previewedProviderId !== null &&
-        previewedProviderId !== thread.providerId
-      ) {
-        setPendingProviderSwitch({ model, providerId: previewedProviderId });
+    (model: string, sourceProviderId: string) => {
+      // The catalog the model came from decides this. Tracking the previewed tab
+      // instead would misread the cycle chords, which change the model from the
+      // COMMITTED catalog while a preview is still open, as a switch carrying a
+      // model the target provider does not have.
+      if (sourceProviderId !== thread.providerId) {
+        setPendingProviderSwitch({ model, providerId: sourceProviderId });
         return;
       }
       if (fallbackIdentity !== null) {
@@ -641,11 +632,10 @@ export function ThreadDetailPromptArea({
       }
       setSelectedModel(model);
     },
-    [fallbackIdentity, previewedProviderId, setSelectedModel, thread.providerId],
+    [fallbackIdentity, setSelectedModel, thread.providerId],
   );
   const handleCancelProviderSwitch = useCallback(() => {
     setPendingProviderSwitch(null);
-    setPreviewedProviderId(null);
   }, []);
   const handleConfirmProviderSwitch = useCallback(() => {
     if (!pendingProviderSwitch) return;
@@ -658,7 +648,6 @@ export function ThreadDetailPromptArea({
       {
         onSettled: () => {
           setPendingProviderSwitch(null);
-          setPreviewedProviderId(null);
         },
       },
     );
@@ -1111,9 +1100,10 @@ export function ThreadDetailPromptArea({
         hasMultiple: hasMultipleProviders,
         displayName: selectedProviderDisplayName,
         // Supplying onChange is what unlocks the picker's existing provider
-        // tabs and cross-provider preview in thread detail. It records the
-        // intent; the switch itself is confirmed on model selection.
-        onChange: handlePreviewProvider,
+        // tabs and cross-provider preview in thread detail. Browsing a tab
+        // needs nothing recorded here: the switch is decided by the catalog the
+        // chosen model came from, which handleModelChange reads directly.
+        onChange: noopPreviewProvider,
       },
       model: {
         active: effectiveSelectedModel
@@ -1149,7 +1139,6 @@ export function ThreadDetailPromptArea({
       hasMultipleProviders,
       handleHandoffToNewThread,
       handleModelChange,
-      handlePreviewProvider,
       isLoadingModels,
       modelLoadFailed,
       modelLoadError,

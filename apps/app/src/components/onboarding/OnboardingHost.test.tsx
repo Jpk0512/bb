@@ -2,6 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { defaultAppSettings, defaultExperiments } from "@bb/domain";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createQueryClientTestHarness } from "@/test/queryClientTestHarness";
 import { OnboardingHost } from "./OnboardingHost";
 
 const mocks = vi.hoisted(() => ({
@@ -62,6 +63,13 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+// The host owns a provider-login terminal, so it needs a real react-query
+// client the way the app shell provides one.
+function renderOnboardingHost() {
+  const { wrapper } = createQueryClientTestHarness();
+  return render(<OnboardingHost />, { wrapper });
+}
+
 describe("OnboardingHost", () => {
   it("does not show or run provider checks while the experiment is off", () => {
     mocks.useSystemConfig.mockReturnValue({
@@ -71,7 +79,7 @@ describe("OnboardingHost", () => {
       },
     });
 
-    render(<OnboardingHost />);
+    renderOnboardingHost();
 
     expect(screen.queryByText("Onboarding flow")).toBeNull();
     expect(mocks.useHostProviderCliStatus).toHaveBeenCalledWith({
@@ -88,7 +96,7 @@ describe("OnboardingHost", () => {
       },
     });
 
-    render(<OnboardingHost />);
+    renderOnboardingHost();
 
     expect(screen.getByText("Onboarding flow")).toBeTruthy();
     expect(mocks.useHostProviderCliStatus).toHaveBeenCalledWith({

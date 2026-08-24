@@ -65,6 +65,9 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
   unarchiveThreadMutate: vi.fn(),
   providerOptions: [] as { label: string; value: string }[],
+  // The real picker owns the previewed tab and reports the catalog a chosen
+  // model came from; this stands in for that state.
+  previewedProviderId: null as string | null,
   switchThreadProviderMutate: vi.fn(),
   uploadPromptAttachmentMutateAsync: vi.fn(),
   updateQueuedMessageMutateAsync: vi.fn(),
@@ -120,7 +123,7 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", () => ({
       };
       model: {
         active?: { model: string } | null;
-        onChange: (value: string) => void;
+        onChange: (value: string, sourceProviderId: string) => void;
       };
       reasoning: { value: string };
       serviceTier?: { value?: string };
@@ -256,16 +259,35 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", () => ({
         <button
           key={option.value}
           type="button"
-          onClick={() => execution.provider?.onChange?.(option.value)}
+          onClick={() => {
+            mocks.previewedProviderId = option.value;
+            execution.provider?.onChange?.(option.value);
+          }}
         >
           {`Preview ${option.label}`}
         </button>
       ))}
       <button
         type="button"
-        onClick={() => execution.model.onChange("target-provider-model")}
+        onClick={() =>
+          execution.model.onChange(
+            "target-provider-model",
+            mocks.previewedProviderId ?? execution.provider?.selectedId ?? "",
+          )
+        }
       >
         Pick model
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          execution.model.onChange(
+            "committed-provider-model",
+            execution.provider?.selectedId ?? "",
+          )
+        }
+      >
+        Cycle model
       </button>
     </div>
   ),
@@ -743,6 +765,7 @@ function deferred<T>() {
 beforeEach(() => {
   mocks.defaultExecutionOptions = null;
   mocks.providerOptions = [];
+  mocks.previewedProviderId = null;
   mocks.pluginComposerHost = null;
   mocks.promptDraft.text = "";
   mocks.promptDraft.getCurrent.mockImplementation(() => ({
@@ -1729,6 +1752,22 @@ describe("ThreadDetailPromptArea", () => {
     expect(
       screen.getByRole("button", { name: "Handoff to new thread" }),
     ).toBeTruthy();
+  });
+
+  it("does not switch providers for a model picked from the committed catalog while a preview is open", () => {
+    mocks.providerOptions = [
+      { label: "Codex", value: "codex" },
+      { label: "Claude Code", value: "claude-code" },
+    ];
+    renderPromptArea();
+
+    // The cycle chords rotate the committed provider's models with a preview
+    // still open, so the model does not belong to the previewed catalog.
+    fireEvent.click(screen.getByRole("button", { name: "Preview Claude Code" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cycle model" }));
+
+    expect(screen.queryByText("Start a new Claude Code session?")).toBeNull();
+    expect(mocks.switchThreadProviderMutate).not.toHaveBeenCalled();
   });
 
   it("opens root compose with a handoff seed for the current thread", () => {

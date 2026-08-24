@@ -30,7 +30,8 @@ export interface ExecutionModelConfig {
   isLoading: boolean;
   loadFailed: boolean;
   loadError?: SystemExecutionOptionsModelLoadError | null;
-  onChange: (value: string) => void;
+  /** `sourceProviderId` names the catalog `value` came from; see `onModelChange`. */
+  onChange: (value: string, sourceProviderId: string) => void;
 }
 
 export interface ExecutionServiceTierConfig {

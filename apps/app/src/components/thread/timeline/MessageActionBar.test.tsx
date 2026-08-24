@@ -107,11 +107,13 @@ describe("MessageActionBar", () => {
     const content =
       document.body.querySelector<HTMLElement>('[data-side="top"]');
     if (!content) throw new Error("Missing mobile message action menu");
+    // An older message has no inline row on a coarse pointer, so its overflow
+    // carries the full set in bar order.
     expect(
       within(content)
         .getAllByRole("button")
         .map((button) => button.textContent),
-    ).toEqual(["Fork into new thread"]);
+    ).toEqual(["Copy message", "Add to chat", "Fork into new thread"]);
   });
 
   it("places additional plugin actions in the shared overflow", async () => {
@@ -320,11 +322,18 @@ describe("MessageActionBar", () => {
       />,
     );
 
-    const addToChat = screen.getByRole("button", { name: "Add to chat" });
-    expect(addToChat.className).toContain("max-md:pointer-coarse:size-7");
-    fireEvent.click(addToChat);
-    expect(onAddToChat).toHaveBeenCalledWith("Quote this message.");
+    const trigger = screen.getByRole("button", { name: "Message actions" });
+    expect(trigger.className).toContain("max-md:pointer-coarse:size-7");
+    fireEvent.click(trigger);
+    const content =
+      document.body.querySelector<HTMLElement>('[data-side="top"]');
+    if (!content) throw new Error("Missing mobile message action menu");
     expect(document.body.querySelector("[data-vaul-drawer]")).toBeNull();
+
+    fireEvent.click(
+      within(content).getByRole("button", { name: "Add to chat" }),
+    );
+    expect(onAddToChat).toHaveBeenCalledWith("Quote this message.");
   });
 
   it("confirms a mobile overflow copy on the trigger instead of toasting", async () => {
@@ -339,9 +348,20 @@ describe("MessageActionBar", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+    const trigger = screen.getByRole("button", { name: "Message actions" });
+    fireEvent.click(trigger);
+    const content =
+      document.body.querySelector<HTMLElement>('[data-side="top"]');
+    if (!content) throw new Error("Missing mobile message action menu");
+    fireEvent.click(
+      within(content).getByRole("button", { name: "Copy message" }),
+    );
+
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith("Copy this answer."),
+    );
+    await waitFor(() =>
+      expect(trigger.querySelector('[data-icon="Check"]')).not.toBeNull(),
     );
   });
 

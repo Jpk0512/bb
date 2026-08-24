@@ -308,7 +308,7 @@ describe("ModelReasoningPicker", () => {
     expect(
       commandHandlers.get("modelPicker.cycleModelBackward")?.({ target }),
     ).toBe(true);
-    expect(onModelChange).toHaveBeenCalledWith("gpt-5.2");
+    expect(onModelChange).toHaveBeenCalledWith("gpt-5.2", "codex");
   });
 
   it("cycles reasoning backward in canonical order and wraps", () => {
@@ -454,7 +454,7 @@ describe("ModelReasoningPicker", () => {
     );
     fireEvent.click(screen.getByText("5.2"));
 
-    expect(onModelChange).toHaveBeenCalledWith("gpt-5.2");
+    expect(onModelChange).toHaveBeenCalledWith("gpt-5.2", "codex");
     expect(screen.getByRole("dialog")).not.toBeNull();
 
     fireEvent.click(screen.getByText("High"));
@@ -495,7 +495,53 @@ describe("ModelReasoningPicker", () => {
     fireEvent.click(screen.getByText("Opus 4.7"));
 
     expect(onSelectedProviderChange).toHaveBeenCalledTimes(1);
-    expect(onModelChange).toHaveBeenCalledWith("claude-opus-4-7");
+    expect(onModelChange).toHaveBeenCalledWith("claude-opus-4-7", "claude-code");
+  });
+
+  it("retracts a previewed provider when the picker is dismissed unpicked", async () => {
+    const { onSelectedProviderChange, onModelChange } = renderPicker();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Provider, model and reasoning",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Claude Code" }));
+    expect(await screen.findByText("Opus 4.7")).not.toBeNull();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    // A parent that only PREVIEWS the tab (thread detail) mirrors this state and
+    // has no other signal that the picker closed. A latched preview would turn
+    // the next pick from the committed catalog into a provider switch.
+    expect(onSelectedProviderChange).toHaveBeenNthCalledWith(1, "claude-code");
+    expect(onSelectedProviderChange).toHaveBeenNthCalledWith(2, "codex");
+    expect(onSelectedProviderChange).toHaveBeenCalledTimes(2);
+    expect(onModelChange).not.toHaveBeenCalled();
+  });
+
+  it("retracts a previewed provider when a reasoning chord drops it", async () => {
+    const { onSelectedProviderChange, onModelChange, onReasoningChange } =
+      renderPicker();
+    const trigger = screen.getByRole("button", {
+      name: "Provider, model and reasoning",
+    });
+
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("button", { name: "Claude Code" }));
+    expect(await screen.findByText("Opus 4.7")).not.toBeNull();
+
+    // The chord rotates the committed provider's reasoning list and drops the
+    // preview, so the mirroring parent must hear the retract here too.
+    expect(
+      commandHandlers.get("modelPicker.cycleReasoning")?.({ target: trigger }),
+    ).toBe(true);
+
+    expect(onReasoningChange).toHaveBeenCalledTimes(1);
+    expect(onSelectedProviderChange).toHaveBeenNthCalledWith(1, "claude-code");
+    expect(onSelectedProviderChange).toHaveBeenNthCalledWith(2, "codex");
+    expect(onSelectedProviderChange).toHaveBeenCalledTimes(2);
+    expect(onModelChange).not.toHaveBeenCalled();
   });
 
   it("loads provider models on the compose-selected host", async () => {
@@ -544,7 +590,7 @@ describe("ModelReasoningPicker", () => {
 
     fireEvent.click(apiQualifier);
 
-    expect(onModelChange).toHaveBeenCalledWith(apiModel);
+    expect(onModelChange).toHaveBeenCalledWith(apiModel, "pi");
   });
 
   it("fuzzy-filters a long model list and selects the match by keyboard", () => {
@@ -564,7 +610,7 @@ describe("ModelReasoningPicker", () => {
     fireEvent.keyDown(search, { key: "ArrowDown" });
     fireEvent.keyDown(search, { key: "Enter" });
 
-    expect(onModelChange).toHaveBeenCalledWith("o4-mini");
+    expect(onModelChange).toHaveBeenCalledWith("o4-mini", "codex");
   });
 
   it("resets retained mobile browse state after the drawer closes", () => {
@@ -622,7 +668,7 @@ describe("ModelReasoningPicker", () => {
     fireEvent.keyDown(search, { key: "ArrowDown" });
     fireEvent.keyDown(search, { key: "Enter" });
 
-    expect(onModelChange).toHaveBeenCalledWith("gpt-4.1-legacy");
+    expect(onModelChange).toHaveBeenCalledWith("gpt-4.1-legacy", "codex");
   });
 
   it("does not render the search box for short model lists", () => {

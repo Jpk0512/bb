@@ -7,6 +7,7 @@ import {
   useState,
   type Key,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { useAtomValue } from "jotai";
 import {
@@ -45,6 +46,69 @@ export function isConversationTooNarrowForSecondaryPanel(
     width > 0 &&
     width < NARROW_CONVERSATION_AUTO_COLLAPSE_WIDTH_PX
   );
+}
+
+export interface CloseWhenConversationSettlesNarrowArgs {
+  conversationRef: RefObject<HTMLElement | null>;
+  enabled: boolean;
+  onSettledNarrow: () => void;
+}
+
+/**
+ * Closes the secondary panel once the conversation's width has settled narrow.
+ *
+ * Only a settled width may close the panel. The main panel animates its
+ * flex-basis (PANEL_COLLAPSE_TRANSITION_CLASS) and is also drag-resized, so both
+ * sweep through the narrow range on the way to a wide or zero target; acting on
+ * an intermediate width closes the panel the user is opening. Both the animation
+ * and this two-frame quiet window advance on rendered frames, so the check
+ * cannot outrun a transition of any duration.
+ *
+ * Shared with the split-pane host, which owns this behavior whenever a pane
+ * hosts the panel: the two observers closing over the same rule is what keeps
+ * one of them from drifting back to reacting to intermediate widths.
+ */
+export function useCloseWhenConversationSettlesNarrow({
+  conversationRef,
+  enabled,
+  onSettledNarrow,
+}: CloseWhenConversationSettlesNarrowArgs): void {
+  useEffect(() => {
+    if (!enabled) return;
+    const element = conversationRef.current;
+    if (element === null) return;
+
+    let settleFrame: number | null = null;
+    const cancelSettleFrame = () => {
+      if (settleFrame === null) return;
+      window.cancelAnimationFrame(settleFrame);
+      settleFrame = null;
+    };
+    const closeWhenSettledNarrow = () => {
+      cancelSettleFrame();
+      settleFrame = window.requestAnimationFrame(() => {
+        settleFrame = window.requestAnimationFrame(() => {
+          settleFrame = null;
+          if (
+            isConversationTooNarrowForSecondaryPanel(
+              element.getBoundingClientRect().width,
+            )
+          ) {
+            onSettledNarrow();
+          }
+        });
+      });
+    };
+
+    closeWhenSettledNarrow();
+    if (typeof ResizeObserver === "undefined") return cancelSettleFrame;
+    const observer = new ResizeObserver(closeWhenSettledNarrow);
+    observer.observe(element);
+    return () => {
+      cancelSettleFrame();
+      observer.disconnect();
+    };
+  }, [conversationRef, enabled, onSettledNarrow]);
 }
 
 function noopToggleMainCollapse(): void {}
@@ -138,24 +202,11 @@ export function SecondaryPanelLayout({
     group.setLayout([FULL_PANEL_SIZE_PERCENT - secondaryWidth, secondaryWidth]);
   }, [isMainCollapsed, open, renderAsDrawer]);
 
-  useEffect(() => {
-    if (secondaryPanelHost !== null || renderAsDrawer || !open) return;
-    const element = mainPanelContentRef.current;
-    if (element === null) return;
-    const collapseWhenNarrow = (width: number) => {
-      if (isConversationTooNarrowForSecondaryPanel(width)) {
-        onClose();
-      }
-    };
-
-    collapseWhenNarrow(element.getBoundingClientRect().width);
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry !== undefined) collapseWhenNarrow(entry.contentRect.width);
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [onClose, open, renderAsDrawer, secondaryPanelHost]);
+  useCloseWhenConversationSettlesNarrow({
+    conversationRef: mainPanelContentRef,
+    enabled: secondaryPanelHost === null && !renderAsDrawer && open,
+    onSettledNarrow: onClose,
+  });
 
   const [isCompactDrawerContentSettled, setIsCompactDrawerContentSettled] =
     useState(false);

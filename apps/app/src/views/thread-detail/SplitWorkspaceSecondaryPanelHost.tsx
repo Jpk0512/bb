@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -28,7 +29,7 @@ import {
   THREAD_SECONDARY_PANEL_MAX_SIZE_PERCENT,
   THREAD_SECONDARY_PANEL_MIN_SIZE_PERCENT,
 } from "@/components/secondary-panel/ThreadSecondaryPanel";
-import { isConversationTooNarrowForSecondaryPanel } from "@/components/secondary-panel/SecondaryPanelLayout";
+import { useCloseWhenConversationSettlesNarrow } from "@/components/secondary-panel/SecondaryPanelLayout";
 import {
   SecondaryPanelHostLayoutContext,
   type SecondaryPanelHostLayout,
@@ -152,29 +153,19 @@ export function SplitWorkspaceSecondaryPanelHost({
     panelWidthPercent,
   ]);
 
-  useEffect(() => {
-    if (!isOpen || isPaneMaximized) return;
-    const element = mainPanelContentRef.current;
-    if (element === null) return;
-    const collapseWhenNarrow = (width: number) => {
-      if (!isConversationTooNarrowForSecondaryPanel(width)) {
-        return;
-      }
-      if (model !== null) {
-        model.onToggle();
-      } else {
-        setIsPanelVisible(false);
-      }
-    };
+  const collapseWhenSettledNarrow = useCallback(() => {
+    if (model !== null) {
+      model.onToggle();
+      return;
+    }
+    setIsPanelVisible(false);
+  }, [model, setIsPanelVisible]);
 
-    collapseWhenNarrow(element.getBoundingClientRect().width);
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry !== undefined) collapseWhenNarrow(entry.contentRect.width);
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [isOpen, isPaneMaximized, model]);
+  useCloseWhenConversationSettlesNarrow({
+    conversationRef: mainPanelContentRef,
+    enabled: isOpen && !isPaneMaximized,
+    onSettledNarrow: collapseWhenSettledNarrow,
+  });
 
   // A pane without a panel keeps the control working: the toggle drives the
   // window visibility directly, so the empty state opens and closes like any

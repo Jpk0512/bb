@@ -303,14 +303,21 @@ export function MessageActionBar({
     })),
   ];
   const useMobileOverflowPopover = isCompactViewport && isPointerCoarse;
+  // A coarse pointer never hovers, so an inline bar there is permanent chrome.
+  // `mobileActionDisplay` reserves that for the newest message and folds every
+  // older message's actions — copy included — into its one overflow trigger.
+  const collapseIntoOverflow =
+    useMobileOverflowPopover && mobileActionDisplay === "overflow";
   // Copy plus one contextual action keeps hover chrome focused; additional
   // actions retain their full labels in a single predictable overflow.
-  const primaryContextAction = overflowActions.find(
-    (action) => action.key !== "copy",
-  );
-  const overflowMenuActions = overflowActions.filter(
-    (action) => action.key !== "copy" && action !== primaryContextAction,
-  );
+  const primaryContextAction = collapseIntoOverflow
+    ? undefined
+    : overflowActions.find((action) => action.key !== "copy");
+  const overflowMenuActions = collapseIntoOverflow
+    ? overflowActions
+    : overflowActions.filter(
+        (action) => action.key !== "copy" && action !== primaryContextAction,
+      );
   const isPrimaryContextAction = (key: string): boolean =>
     primaryContextAction?.key === key;
 
@@ -335,7 +342,7 @@ export function MessageActionBar({
           alignment === "end" ? "justify-end" : "justify-start",
         )}
       >
-        {hasCopy ? (
+        {hasCopy && !collapseIntoOverflow ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <CopyButton

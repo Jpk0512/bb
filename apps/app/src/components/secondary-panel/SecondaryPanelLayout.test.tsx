@@ -99,6 +99,7 @@ interface RenderLayoutArgs {
   collapseActive?: boolean;
   isCompactViewport: boolean;
   isFocusedHosted?: boolean;
+  onClose?: () => void;
   open: boolean;
   renderPanel: (args: SecondaryPanelRenderArgs) => ReactNode;
   resetKey: string;
@@ -149,7 +150,7 @@ function renderLayout(args: RenderLayoutArgs) {
         <SecondaryPanelLayout
           open={renderArgs.open}
           onToggle={noop}
-          onClose={noop}
+          onClose={renderArgs.onClose ?? noop}
           resetKey={renderArgs.resetKey}
           contentKey={renderArgs.resetKey}
           drawerLabel="Details"
@@ -238,6 +239,53 @@ function installAnimationFrameQueue(order?: string[]): QueuedAnimationFrames {
   };
 }
 
+function installFakeResizeObserver(): { notify: (width: number) => void } {
+  let notifyObserver: ((width: number) => void) | null = null;
+
+  class FakeResizeObserver implements ResizeObserver {
+    #target: Element | null = null;
+
+    constructor(callback: ResizeObserverCallback) {
+      notifyObserver = (width) => {
+        const target = this.#target;
+        if (target === null) return;
+        callback(
+          [
+            {
+              borderBoxSize: [],
+              contentBoxSize: [],
+              contentRect: new DOMRect(0, 0, width, 600),
+              devicePixelContentBoxSize: [],
+              target,
+            },
+          ],
+          this,
+        );
+      };
+    }
+    observe(target: Element) {
+      this.#target = target;
+    }
+    unobserve() {
+      this.#target = null;
+    }
+    disconnect() {
+      this.#target = null;
+      notifyObserver = null;
+    }
+  }
+  vi.stubGlobal("ResizeObserver", FakeResizeObserver);
+
+  return {
+    notify(width) {
+      if (notifyObserver === null) {
+        throw new Error("No ResizeObserver was created");
+      }
+      notifyObserver(width);
+    },
+  };
+}
+
 function realizeDrawerPanel(frames: QueuedAnimationFrames) {
   act(() => {
     frames.flushAll();
@@ -267,6 +315,7 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
   drawerShellState.onContentAnimationEnd = undefined;
 });
 
@@ -326,6 +375,52 @@ describe("SecondaryPanelLayout", () => {
     view.rerenderWith({ collapseActive: false });
     expect(panelGroupState.setLayout).toHaveBeenCalledTimes(1);
     expect(panelGroupState.setLayout).toHaveBeenLastCalledWith([60, 40]);
+  });
+
+  it("auto-collapses on a settled conversation width, never mid-transition", () => {
+    const frames = installAnimationFrameQueue();
+    const resizeObserver = installFakeResizeObserver();
+    const onClose = vi.fn();
+    renderLayout({
+      collapseActive: false,
+      isCompactViewport: false,
+      onClose,
+      open: true,
+      renderPanel: createPanelRenderer(),
+      resetKey: "thread-1",
+    });
+    const conversation = screen.getByTestId("main-content").parentElement;
+    if (conversation === null) {
+      throw new Error("Conversation element was not rendered");
+    }
+    let width = 600;
+    vi.spyOn(conversation, "getBoundingClientRect").mockImplementation(
+      () => new DOMRect(0, 0, width, 600),
+    );
+    const resizeTo = (nextWidth: number) => {
+      width = nextWidth;
+      act(() => resizeObserver.notify(nextWidth));
+    };
+    const settle = () => {
+      act(() => {
+        frames.flushAll();
+        frames.flushAll();
+      });
+    };
+
+    // Collapsing the conversation animates its width to zero, reporting a new
+    // (briefly narrow) width every frame on the way.
+    for (const animatedWidth of [420, 300, 120]) {
+      resizeTo(animatedWidth);
+      act(() => frames.flushAll());
+    }
+    resizeTo(0);
+    settle();
+    expect(onClose).not.toHaveBeenCalled();
+
+    resizeTo(300);
+    settle();
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("publishes one hosted panel model and gates native content on pane focus", () => {

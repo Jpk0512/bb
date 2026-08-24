@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -215,7 +216,14 @@ interface ModelReasoningPickerProps {
   modelIsLoading?: boolean;
   modelLoadFailed?: boolean;
   modelLoadError?: SystemExecutionOptionsModelLoadError | null;
-  onModelChange: (value: string) => void;
+  /**
+   * `sourceProviderId` is the provider whose catalog `value` came from. A
+   * consumer that treats a foreign model as a provider switch must read it
+   * rather than track the previewed tab: the cycle chords change the model from
+   * the COMMITTED catalog while a preview is still open, so a mirror of the
+   * preview names the wrong provider for exactly that call.
+   */
+  onModelChange: (value: string, sourceProviderId: string) => void;
   /**
    * Optional case-normaliser for raw model names returned during a provider
    * handoff. The picker itself drops the brand prefix at render — callers only
@@ -533,15 +541,43 @@ export function ModelReasoningPicker({
       ? hasActiveModelOptions && !activeModelIsLoading
       : hasSelectedModel && !modelIsLoading && !selectedModelLoadFailed);
 
+  // `resetBrowseState` must keep one stable identity — see
+  // ResetBrowseStateOnContentUnmount, which fires it from an effect cleanup —
+  // so the values it reads arrive through a ref instead of dependencies.
+  const browseResetStateRef = useRef({
+    isPreviewing,
+    onSelectedProviderChange,
+    selectedProviderId,
+  });
+  useLayoutEffect(() => {
+    browseResetStateRef.current = {
+      isPreviewing,
+      onSelectedProviderChange,
+      selectedProviderId,
+    };
+  }, [isPreviewing, onSelectedProviderChange, selectedProviderId]);
+
   // Reset the per-open browse state after the close animation. Desktop content
   // unmounts at that point. The compact drawer stays mounted, so its settlement
   // callback performs the same reset without changing the visible close frame.
   const resetBrowseState = useCallback(() => {
+    const {
+      isPreviewing: wasPreviewing,
+      onSelectedProviderChange: reportProviderChange,
+      selectedProviderId: committedProviderId,
+    } = browseResetStateRef.current;
     setPreviewProviderId(null);
     setShowMoreModels(false);
     setMoreModelsOpen(false);
     setSearchQuery("");
     setActiveIndex(-1);
+    // A parent that treats a provider tab as a PREVIEW (thread detail) mirrors
+    // this preview and has no other signal that the picker closed. Leaving its
+    // copy latched would make the next model pick — taken from the committed
+    // provider's own catalog — read as a switch to the previewed provider.
+    if (wasPreviewing) {
+      reportProviderChange?.(committedProviderId);
+    }
   }, []);
   const handleMobileContentAnimationEnd = useCallback(
     (isOpen: boolean) => {
@@ -558,11 +594,11 @@ export function ModelReasoningPicker({
 
   const handleModelSelect = useCallback(
     (model: string) => {
-      onModelChange(model);
+      onModelChange(model, activeProviderId);
       setMoreModelsOpen(false);
       setPreviewProviderId(null);
     },
-    [onModelChange],
+    [activeProviderId, onModelChange],
   );
 
   const handleProviderSelect = useCallback(
@@ -654,7 +690,7 @@ export function ModelReasoningPicker({
           ? nextCycleValue(modelOptions, modelValue)
           : previousCycleValue(modelOptions, modelValue);
       if (next !== null) {
-        onModelChange(next);
+        onModelChange(next, selectedProviderId);
         setPreviewProviderId(null);
       }
       return true;
@@ -689,6 +725,13 @@ export function ModelReasoningPicker({
       );
       if (next !== null) {
         onReasoningChange(next);
+        // This chord drops the preview without committing a model, so it is the
+        // one other exit that has to report the retract (see `resetBrowseState`):
+        // a mirroring parent would otherwise read the next pick from the
+        // committed catalog as a switch to the dropped provider.
+        if (isPreviewing) {
+          onSelectedProviderChange?.(selectedProviderId);
+        }
         setPreviewProviderId(null);
       }
       return true;
@@ -701,7 +744,7 @@ export function ModelReasoningPicker({
       // still needs a concrete model when the user immediately picks one of
       // the new provider's reasoning levels.
       if (isPreviewing && previewDefaultModel) {
-        onModelChange(previewDefaultModel.model);
+        onModelChange(previewDefaultModel.model, activeProviderId);
       }
       onReasoningChange(level);
       // Keep the combined picker open so the model and reasoning effort can be
@@ -709,7 +752,13 @@ export function ModelReasoningPicker({
       setPreviewProviderId(null);
       setMoreModelsOpen(false);
     },
-    [isPreviewing, previewDefaultModel, onModelChange, onReasoningChange],
+    [
+      activeProviderId,
+      isPreviewing,
+      previewDefaultModel,
+      onModelChange,
+      onReasoningChange,
+    ],
   );
 
   const handleFooterActionClick = useCallback(() => {
