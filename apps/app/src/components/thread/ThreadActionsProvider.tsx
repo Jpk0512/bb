@@ -128,7 +128,7 @@ export function ThreadActionsProvider({
   const { mutate: unarchiveMutate } = unarchiveThreadMutation;
   const { mutate: markReadMutate } = markThreadRead;
   const { mutate: markUnreadMutate } = markThreadUnread;
-  const { mutate: pinMutate, mutateAsync: pinMutateAsync } = pinThread;
+  const { mutateAsync: pinMutateAsync } = pinThread;
   const { mutate: unpinMutate, mutateAsync: unpinMutateAsync } = unpinThread;
   const sidebarNavigationQuery = useSidebarNavigation();
   const { mutate: deleteMutate } = deleteThread;

@@ -1713,10 +1713,11 @@ function ProjectListComponent({
         threads,
       }),
     [
-    pinnedSidebarState.effectivePinnedThreadIds,
-    threads,
-    workingSetModesByProject,
-  ]);
+      pinnedSidebarState.effectivePinnedThreadIds,
+      threads,
+      workingSetModesByProject,
+    ],
+  );
   const visibleThreads = sidebarWorkingSet.threads;
   const {
     isPending: isPinnedReorderPending,
@@ -2212,23 +2213,23 @@ function ProjectListComponent({
     <ProjectListShell titleMentionResources={titleMentionResources}>
       {workingSetMode === "working" ? (
         <>
-        <WorkingSetSections
-          actions={threadsSectionActions}
-          activeThreads={workingSetActiveThreads}
-          recentThreads={workingSetRecentThreads}
-          pinnedSection={pinnedSection}
-          draftThreadIds={draftThreadIds}
-          selectedThreadId={selectedThreadId}
-          collapsedThreadIds={collapsedThreadIds}
-          collapsedEnvironmentIds={collapsedEnvironmentIds}
-          compareThreads={sidebarThreadComparator}
-          onProjectSelect={onProjectSelect}
-          onToggleThreadCollapsed={toggleThreadCollapsed}
-          onToggleEnvironmentCollapsed={toggleEnvironmentCollapsed}
-        />
-        {sectionCreateDialog}
-        {sectionRenameDialogContent}
-        {sectionDeleteDialogContent}
+          <WorkingSetSections
+            actions={threadsSectionActions}
+            activeThreads={workingSetActiveThreads}
+            recentThreads={workingSetRecentThreads}
+            pinnedSection={pinnedSection}
+            draftThreadIds={draftThreadIds}
+            selectedThreadId={selectedThreadId}
+            collapsedThreadIds={collapsedThreadIds}
+            collapsedEnvironmentIds={collapsedEnvironmentIds}
+            compareThreads={sidebarThreadComparator}
+            onProjectSelect={onProjectSelect}
+            onToggleThreadCollapsed={toggleThreadCollapsed}
+            onToggleEnvironmentCollapsed={toggleEnvironmentCollapsed}
+          />
+          {sectionCreateDialog}
+          {sectionRenameDialogContent}
+          {sectionDeleteDialogContent}
         </>
       ) : (
         <ActiveSidebarModeSections

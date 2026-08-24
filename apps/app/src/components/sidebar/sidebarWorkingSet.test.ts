@@ -169,32 +169,28 @@ describe("buildSidebarWorkingSet", () => {
     });
   });
 
-  it("reports older counts independently per project",
-    () => {
-      const result = summarizeWorkingSetsByProject({
-        modesByProject: {},
-        now,
-        threads: [
-          ...Array.from({ length: SIDEBAR_WORKING_SET_LIMIT + 1 }, (_, index) =>
-            createThread({
-              id: `a-${index}`,
-              projectId: "proj_a",
-              updatedAt: now,
-            }),
-          ),
-          ...Array.from({ length: 2 }, (_, index) =>
-            createThread({
-              id: `b-${index}`,
-              projectId: "proj_b",
-              updatedAt: now,
-            }),
-          ),
-        ],
-      });
-      expect(result.olderByProject).toEqual([
-        { projectId: "proj_a", count: 1 },
-      ]);
-      expect(result.olderThreadCount).toBe(1);
-    },
-  );
+  it("reports older counts independently per project", () => {
+    const result = summarizeWorkingSetsByProject({
+      modesByProject: {},
+      now,
+      threads: [
+        ...Array.from({ length: SIDEBAR_WORKING_SET_LIMIT + 1 }, (_, index) =>
+          createThread({
+            id: `a-${index}`,
+            projectId: "proj_a",
+            updatedAt: now,
+          }),
+        ),
+        ...Array.from({ length: 2 }, (_, index) =>
+          createThread({
+            id: `b-${index}`,
+            projectId: "proj_b",
+            updatedAt: now,
+          }),
+        ),
+      ],
+    });
+    expect(result.olderByProject).toEqual([{ projectId: "proj_a", count: 1 }]);
+    expect(result.olderThreadCount).toBe(1);
+  });
 });
