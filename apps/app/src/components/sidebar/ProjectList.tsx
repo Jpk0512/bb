@@ -107,11 +107,16 @@ import {
   sidebarCollapsedMachinesAtom,
   sidebarOrganizationModeAtom,
   sidebarProjectDateGroupingEnabledAtom,
+  sidebarWorkingSetModeByProjectAtom,
   type SidebarChronologicalSort,
   type CollapsibleSidebarSectionId,
   type SidebarOrganizationMode,
   type SidebarSectionId,
 } from "./sidebarCollapsedAtoms";
+import {
+  buildSidebarWorkingSet,
+  type SidebarWorkingSetMode,
+} from "./sidebarWorkingSet";
 import { sectionKeyForThreadSection } from "./sectionKeys";
 import {
   buildMachineThreadGroups,
@@ -205,6 +210,8 @@ interface ProjectListThreadsSectionActionsProps {
 interface SidebarDisplayOptionsMenuProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  workingSetMode: SidebarWorkingSetMode;
+  onWorkingSetModeChange: (mode: SidebarWorkingSetMode) => void;
 }
 
 interface ProjectListNavigationLoadingRowProps {
@@ -678,6 +685,8 @@ function SidebarDisplayMenuTrigger({
 export function SidebarDisplayOptionsMenu({
   open,
   onOpenChange,
+  workingSetMode,
+  onWorkingSetModeChange,
 }: SidebarDisplayOptionsMenuProps) {
   const [organizationMode, setOrganizationMode] = useAtom(
     sidebarOrganizationModeAtom,
@@ -699,6 +708,24 @@ export function SidebarDisplayOptionsMenu({
         tooltip="Display options"
       />
       <DropdownMenuContent align="end" mobileTitle="Display options">
+        <DropdownMenuLabel className={CHROME_SECTION_LABEL_CLASS}>
+          Sessions
+        </DropdownMenuLabel>
+        <DropdownMenuGroup aria-label="Sessions">
+          <DropdownMenuCheckboxItem
+            checked={workingSetMode === "working"}
+            onCheckedChange={() => onWorkingSetModeChange("working")}
+          >
+            Working set
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={workingSetMode === "all"}
+            onCheckedChange={() => onWorkingSetModeChange("all")}
+          >
+            Show all sessions
+          </DropdownMenuCheckboxItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
         <DropdownMenuLabel className={CHROME_SECTION_LABEL_CLASS}>
           Organize
         </DropdownMenuLabel>
@@ -758,6 +785,8 @@ interface SidebarThreadsSectionActionsProps {
   isCreatingProject: boolean;
   onNewProject?: () => void;
   onNewThread: () => void;
+  workingSetMode: SidebarWorkingSetMode;
+  onWorkingSetModeChange: (mode: SidebarWorkingSetMode) => void;
 }
 
 // The complete Threads-section header cluster. Every organization mode and
@@ -771,12 +800,16 @@ function SidebarThreadsSectionActions({
   isCreatingProject,
   onNewProject,
   onNewThread,
+  workingSetMode,
+  onWorkingSetModeChange,
 }: SidebarThreadsSectionActionsProps) {
   return (
     <>
       <SidebarDisplayOptionsMenu
         open={displayOptionsOpen}
         onOpenChange={onDisplayOptionsOpenChange}
+        workingSetMode={workingSetMode}
+        onWorkingSetModeChange={onWorkingSetModeChange}
       />
       {onNewProject ? (
         <ProjectListProjectsSectionActions
@@ -1567,7 +1600,28 @@ function ProjectListComponent({
       sidebarNavigationQuery.error,
     ),
   });
-  const { threadId: selectedThreadId } = useRouteState();
+  const { projectId: routeProjectId, threadId: selectedThreadId } =
+    useRouteState();
+  const [workingSetModesByProject, setWorkingSetModesByProject] = useAtom(
+    sidebarWorkingSetModeByProjectAtom,
+  );
+  const workingSetProjectId = routeProjectId ?? PERSONAL_PROJECT_ID;
+  const workingSetMode =
+    workingSetModesByProject[workingSetProjectId] ?? "working";
+  const setWorkingSetMode = useCallback(
+    (mode: SidebarWorkingSetMode) => {
+      setWorkingSetModesByProject((current) => ({
+        ...current,
+        [workingSetProjectId]: mode,
+      }));
+    },
+    [setWorkingSetModesByProject, workingSetProjectId],
+  );
+  const sidebarWorkingSet = useMemo(
+    () => buildSidebarWorkingSet({ mode: workingSetMode, threads }),
+    [threads, workingSetMode],
+  );
+  const visibleThreads = sidebarWorkingSet.threads;
   const {
     isPending: isPinnedReorderPending,
     mutate: reorderPinnedThreadMutate,
@@ -1759,6 +1813,8 @@ function ProjectListComponent({
       <SidebarDisplayOptionsMenu
         open={openSidebarMenu === menuId}
         onOpenChange={(open) => setSidebarMenuOpen(menuId, open)}
+        workingSetMode={workingSetMode}
+        onWorkingSetModeChange={setWorkingSetMode}
       />
     );
   };
@@ -1813,8 +1869,8 @@ function ProjectListComponent({
     }
   }, [chronologicalSort, setChronologicalSort]);
   const pinnedSidebarState = useMemo(
-    () => buildPinnedSidebarState({ draftThreadIds, threads }),
-    [draftThreadIds, threads],
+    () => buildPinnedSidebarState({ draftThreadIds, threads: visibleThreads }),
+    [draftThreadIds, visibleThreads],
   );
   const pinnedRootThreads = useMemo(
     () => pinnedSidebarState.rootNodes.map((node) => node.thread),
@@ -1967,6 +2023,8 @@ function ProjectListComponent({
       isCreatingProject={isCreatingProject}
       onNewProject={onNewProject}
       onNewThread={handleCreateProjectlessThread}
+      workingSetMode={workingSetMode}
+      onWorkingSetModeChange={setWorkingSetMode}
     />
   );
   const pinnedSection: BuiltInSidebarSectionOptions = {
@@ -2056,7 +2114,7 @@ function ProjectListComponent({
         mode={organizationMode}
         renderMachine={() => (
           <MachineModeSections
-            threads={threads}
+            threads={visibleThreads}
             draftThreadIds={draftThreadIds}
             effectivePinnedThreadIds={
               pinnedSidebarState.effectivePinnedThreadIds
@@ -2082,7 +2140,7 @@ function ProjectListComponent({
         renderChronological={() => (
           <>
             <SectionModeSections
-              threads={threads}
+              threads={visibleThreads}
               effectivePinnedThreadIds={
                 pinnedSidebarState.effectivePinnedThreadIds
               }
@@ -2127,7 +2185,7 @@ function ProjectListComponent({
           <>
             <ProjectModeSections
               projects={projects ?? EMPTY_PROJECTS}
-              threads={threads}
+              threads={visibleThreads}
               draftThreadIds={draftThreadIds}
               effectivePinnedThreadIds={
                 pinnedSidebarState.effectivePinnedThreadIds
@@ -2156,6 +2214,17 @@ function ProjectListComponent({
           </>
         )}
       />
+      {workingSetMode === "working" &&
+      sidebarWorkingSet.olderThreadCount > 0 ? (
+        <button
+          type="button"
+          className="mx-2 mt-1 rounded-md px-2 py-1 text-left text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+          onClick={() => setWorkingSetMode("all")}
+        >
+          {sidebarWorkingSet.olderThreadCount} older session
+          {sidebarWorkingSet.olderThreadCount === 1 ? "" : "s"}
+        </button>
+      ) : null}
     </ProjectListShell>
   );
 }

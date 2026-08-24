@@ -2458,6 +2458,7 @@ function RootComposeSurface({
             <RootComposeEmptyWelcome
               onCompose={handleStartComposing}
               onAddProject={quickCreateProject.openCreateDialog}
+              threads={mobileRecentThreads}
               addProjectDisabled={
                 !quickCreateProject.isAvailable || quickCreateProject.isCreating
               }

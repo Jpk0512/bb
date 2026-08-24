@@ -701,12 +701,14 @@ function ThreadRowComponent({
         aria-keyshortcuts={shortcut?.ariaKeyshortcuts}
         className="absolute inset-0 rounded-md outline-none ring-sidebar-ring focus-visible:ring-2"
       />
-      <span
-        className={cn(
-          "relative z-10",
-          SIDEBAR_ROW_LEADING_SLOT_CLASS,
-        )}
-      >
+      <span className={cn("relative z-10", SIDEBAR_ROW_LEADING_SLOT_CLASS)}>
+        {thread.pinnedAt !== null ? (
+          <Icon
+            name="Pin"
+            aria-label="Pinned to sidebar"
+            className="size-3 shrink-0 text-muted-foreground"
+          />
+        ) : null}
         <ThreadStatusDot thread={thread} />
       </span>
       <span className="flex min-w-0 flex-1 items-center gap-1.5">

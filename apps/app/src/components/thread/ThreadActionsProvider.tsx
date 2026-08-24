@@ -27,6 +27,7 @@ import {
 } from "@/hooks/mutations/thread-state-mutations";
 import { sdk } from "@/lib/sdk";
 import { useRouteState } from "@/hooks/useRouteState";
+import { useSidebarNavigation } from "@/hooks/queries/sidebar-navigation-query";
 import { useDialogState } from "@/hooks/useDialogState";
 import {
   getMutationErrorMessage,
@@ -92,6 +93,7 @@ interface ThreadActionContext {
  * action remains available while its environment is still retiring.
  */
 const ARCHIVE_UNDO_TOAST_DURATION_MS = 10_000;
+const MAX_PINNED_SIDEBAR_THREADS = 5;
 
 export function ThreadActionsProvider({
   children,
@@ -126,7 +128,8 @@ export function ThreadActionsProvider({
   const { mutate: markReadMutate } = markThreadRead;
   const { mutate: markUnreadMutate } = markThreadUnread;
   const { mutate: pinMutate } = pinThread;
-  const { mutate: unpinMutate } = unpinThread;
+  const { mutate: unpinMutate, mutateAsync: unpinMutateAsync } = unpinThread;
+  const sidebarNavigationQuery = useSidebarNavigation();
   const { mutate: deleteMutate } = deleteThread;
   const { mutate: updateMutate } = updateThread;
 
@@ -428,9 +431,40 @@ export function ThreadActionsProvider({
         unpinMutate({ id: thread.id });
         return;
       }
-      pinMutate({ id: thread.id });
+      const sidebarThreads = sidebarNavigationQuery.data
+        ? [
+            ...sidebarNavigationQuery.data.personalProject.threads,
+            ...sidebarNavigationQuery.data.projects.flatMap(
+              (project) => project.threads,
+            ),
+          ]
+        : [];
+      const pinnedThreads = sidebarThreads
+        .filter((candidate) => candidate.pinnedAt !== null)
+        .sort((left, right) => (left.pinnedAt ?? 0) - (right.pinnedAt ?? 0));
+      const oldestPinnedThread = pinnedThreads[0];
+      if (
+        pinnedThreads.length < MAX_PINNED_SIDEBAR_THREADS ||
+        !oldestPinnedThread
+      ) {
+        pinMutate({ id: thread.id });
+        return;
+      }
+      void unpinMutateAsync({ id: oldestPinnedThread.id })
+        .then(() => {
+          pinMutate({ id: thread.id });
+          appToast.success("Oldest pinned thread removed from the sidebar.");
+        })
+        .catch((error: unknown) => {
+          appToast.error(
+            getMutationErrorMessage({
+              error,
+              fallbackMessage: "Failed to update sidebar pins",
+            }),
+          );
+        });
     },
-    [pinMutate, unpinMutate],
+    [pinMutate, sidebarNavigationQuery.data, unpinMutate, unpinMutateAsync],
   );
 
   const value = useMemo<ThreadActionsContextValue>(

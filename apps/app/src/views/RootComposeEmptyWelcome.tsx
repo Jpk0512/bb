@@ -1,4 +1,11 @@
 import { Icon, type IconName } from "@bb/shared-ui/icon";
+import type { ThreadListEntry } from "@bb/domain";
+import { Link } from "react-router-dom";
+import { ThreadStatusDot } from "@/components/sidebar/ThreadStatusDot";
+import { isRuntimeBusyThread } from "@/lib/thread-activity";
+import { getThreadRoutePath } from "@/lib/route-paths";
+import { getThreadDisplayTitle } from "@/lib/thread-title";
+import { CHROME_SECTION_LABEL_CLASS } from "@/components/ui/chromeStyleTokens";
 import { usePrefersReducedMotion } from "@bb/shared-ui/hooks/use-media-query";
 import bbLogoUrl from "../../../../assets/bb-logo.svg";
 
@@ -7,6 +14,7 @@ interface RootComposeEmptyWelcomeProps {
   onCompose: (prompt?: string) => void;
   onAddProject: () => void;
   addProjectDisabled?: boolean;
+  threads?: readonly ThreadListEntry[];
 }
 
 const IMPORT_PROJECTS_PROMPT =
@@ -14,6 +22,7 @@ const IMPORT_PROJECTS_PROMPT =
 
 const LEARN_PROMPT =
   "What can bb do, and how can you (my agent) interact with it? Summarize bb's capabilities and how you'd use the bb CLI to work with threads and projects.";
+const RECENT_THREAD_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 interface WelcomeActionProps {
   icon: IconName;
@@ -59,8 +68,28 @@ export function RootComposeEmptyWelcome({
   onCompose,
   onAddProject,
   addProjectDisabled,
+  threads = [],
 }: RootComposeEmptyWelcomeProps) {
   const reducedMotion = usePrefersReducedMotion();
+  const recentSince = Date.now() - RECENT_THREAD_WINDOW_MS;
+  const activeThreads = [...threads]
+    .filter(
+      (thread) =>
+        thread.archivedAt === null &&
+        thread.deletedAt === null &&
+        (thread.status === "active" ||
+          thread.hasPendingInteraction ||
+          isRuntimeBusyThread(thread) ||
+          thread.updatedAt >= recentSince),
+    )
+    .sort((left, right) => {
+      const attentionDelta = right.latestAttentionAt - left.latestAttentionAt;
+      if (attentionDelta !== 0) return attentionDelta;
+      const createdDelta = right.createdAt - left.createdAt;
+      if (createdDelta !== 0) return createdDelta;
+      return left.id.localeCompare(right.id);
+    })
+    .slice(0, 3);
   return (
     <div className="flex flex-col items-center gap-12 duration-500 animate-in fade-in-0 slide-in-from-bottom-2">
       <svg aria-hidden className="absolute h-0 w-0" focusable="false">
@@ -134,6 +163,38 @@ export function RootComposeEmptyWelcome({
           className="size-full object-contain dark:invert"
         />
       </div>
+      {activeThreads.length > 0 ? (
+        <section
+          aria-labelledby="root-compose-continue"
+          className="flex w-full max-w-[360px] flex-col gap-1"
+        >
+          <h2 id="root-compose-continue" className={CHROME_SECTION_LABEL_CLASS}>
+            Continue
+          </h2>
+          <ul className="flex flex-col gap-1">
+            {activeThreads.map((thread) => {
+              const title = getThreadDisplayTitle(thread);
+              return (
+                <li key={thread.id}>
+                  <Link
+                    to={getThreadRoutePath({
+                      projectId: thread.projectId,
+                      threadId: thread.id,
+                    })}
+                    className="group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    aria-label={`Continue ${title}`}
+                  >
+                    <ThreadStatusDot thread={thread} />
+                    <span className="min-w-0 truncate text-sm font-medium text-foreground">
+                      {title}
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
       <div className="flex w-full max-w-[360px] flex-col gap-1">
         <WelcomeAction
           icon="MessageSquarePlus"
