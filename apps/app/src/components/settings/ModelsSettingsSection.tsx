@@ -42,7 +42,7 @@ export function ModelsSettingsSection() {
   if (providersQuery.isLoading) {
     return (
       <SettingsSection title="Models">
-        <p className="text-xs text-subtle-foreground/75">Loading providers…</p>
+        <p className="text-xs text-subtle-foreground">Loading providers…</p>
       </SettingsSection>
     );
   }
@@ -52,7 +52,7 @@ export function ModelsSettingsSection() {
         title="Models"
         description="Choose which models bb offers in the model picker."
       >
-        <p className="text-xs text-subtle-foreground/75">
+        <p className="text-xs text-subtle-foreground">
           No providers are available on this machine yet.
         </p>
       </SettingsSection>
@@ -157,12 +157,12 @@ function ProviderModelList({
 
   if (executionOptionsQuery.isLoading) {
     return (
-      <p className="text-xs text-subtle-foreground/75">Loading models…</p>
+      <p className="text-xs text-subtle-foreground">Loading models…</p>
     );
   }
   if (executionOptionsQuery.data?.modelLoadError) {
     return (
-      <div className="flex items-start gap-2 text-xs text-subtle-foreground/75">
+      <div className="flex items-start gap-2 text-xs text-subtle-foreground">
         <Icon name="AlertTriangle" className="mt-0.5 size-3.5 shrink-0" />
         <p>
           The model list could not be loaded for this provider, so it cannot be
@@ -173,7 +173,7 @@ function ProviderModelList({
   }
   if (rows.length === 0) {
     return (
-      <p className="text-xs text-subtle-foreground/75">
+      <p className="text-xs text-subtle-foreground">
         This provider reports no models.
       </p>
     );
@@ -185,7 +185,7 @@ function ProviderModelList({
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-subtle-foreground/75">
+      <p className="text-xs text-subtle-foreground">
         {enabledCount} of {rows.length} offered
       </p>
       <SettingsRowList>
@@ -218,7 +218,7 @@ function ProviderModelList({
         })}
       </SettingsRowList>
       {enabledCount === 0 ? (
-        <div className="flex items-start gap-2 text-xs text-subtle-foreground/75">
+        <div className="flex items-start gap-2 text-xs text-subtle-foreground">
           <Icon name="AlertTriangle" className="mt-0.5 size-3.5 shrink-0" />
           <p>
             Every model here is off, so new threads on this provider cannot pick

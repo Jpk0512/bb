@@ -51,7 +51,7 @@ function PluginSettingsSectionPanel({
   return (
     <ResourceDetailPanel surface="recessed" className="px-3 py-3">
       {section.description !== undefined ? (
-        <p className="mb-3 text-xs leading-snug text-subtle-foreground/75">
+        <p className="mb-3 text-xs leading-snug text-subtle-foreground">
           {section.description}
         </p>
       ) : null}

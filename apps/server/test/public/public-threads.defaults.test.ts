@@ -8,6 +8,7 @@ import {
   getProjectExecutionDefaults,
   listThreads,
   setExperiments,
+  setThreadSupersededBy,
   upsertProjectExecutionDefaults,
 } from "@bb/db";
 import { defaultExperiments, threadSchema } from "@bb/domain";
@@ -673,6 +674,44 @@ describe("public thread default routes", () => {
       );
       expect(sidebarProject?.threads.map((thread) => thread.id)).not.toContain(
         hiddenThread.id,
+      );
+    });
+  });
+
+  it("excludes retired (superseded) threads from sidebar bootstrap", async () => {
+    await withTestHarness(async (harness) => {
+      const { host } = seedHostSession(harness.deps);
+      const { project } = seedProjectWithSource(harness.deps, {
+        hostId: host.id,
+        path: "/tmp/thread-defaults-sidebar-retired",
+      });
+      const predecessorThread = seedThread(harness.deps, {
+        projectId: project.id,
+        title: "Predecessor",
+      });
+      const successorThread = seedThread(harness.deps, {
+        projectId: project.id,
+        title: "Successor",
+      });
+      setThreadSupersededBy(harness.deps.db, harness.deps.hub, {
+        threadId: predecessorThread.id,
+        supersededByThreadId: successorThread.id,
+      });
+
+      const response = await harness.app.request("/api/v1/sidebar-bootstrap");
+
+      expect(response.status).toBe(200);
+      const bootstrap = sidebarBootstrapResponseSchema.parse(
+        await readJson(response),
+      );
+      const sidebarProject = bootstrap.projects.find(
+        (candidate) => candidate.id === project.id,
+      );
+      expect(sidebarProject?.threads.map((thread) => thread.id)).toContain(
+        successorThread.id,
+      );
+      expect(sidebarProject?.threads.map((thread) => thread.id)).not.toContain(
+        predecessorThread.id,
       );
     });
   });

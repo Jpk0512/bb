@@ -160,8 +160,8 @@ export function ProjectListProjects({
             }
             icon="Folder"
             className="px-2 py-1.5"
-            iconClassName="size-3.5 text-subtle-foreground/50"
-            messageClassName="text-xs text-subtle-foreground/60"
+            iconClassName="size-3.5 text-decoration-foreground"
+            messageClassName="text-xs text-decoration-foreground"
           />
         </SidebarMenuItem>
       )}

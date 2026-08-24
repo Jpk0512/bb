@@ -1632,7 +1632,7 @@ export function PromptBoxInternal({
           autocomplete: "off",
           class: cn(
             "min-h-full whitespace-pre-wrap break-words outline-none",
-            "placeholder:select-none placeholder:text-subtle-foreground",
+            "placeholder:select-none placeholder:text-decoration-foreground",
           ),
           enterkeyhint: editorEnterKeyHint,
           ...(id ? { id } : {}),

@@ -214,7 +214,7 @@ function buildProjectsWithThreadsResponseFromRows(
   const projectIds = projects.map((project) => project.id);
   const threadRows = listThreadsWithPendingInteractionStateForProjects(
     deps.db,
-    { archived: false, projectIds },
+    { archived: false, retired: false, projectIds },
   );
   const threadResponses = toThreadListEntryResponses(deps, {
     threads: threadRows,

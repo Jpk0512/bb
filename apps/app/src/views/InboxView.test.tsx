@@ -8,8 +8,11 @@ import { InboxView } from "./InboxView";
 const mocks = vi.hoisted(() => ({
   dismiss: vi.fn(),
   open: vi.fn(),
+  refetch: vi.fn(),
   notifications: [] as Notification[],
   unreadCount: 0,
+  isLoading: false,
+  isError: false,
 }));
 
 vi.mock("@/hooks/queries/notification-queries", () => ({
@@ -18,8 +21,9 @@ vi.mock("@/hooks/queries/notification-queries", () => ({
       notifications: mocks.notifications,
       unreadCount: mocks.unreadCount,
     },
-    isLoading: false,
-    isError: false,
+    isLoading: mocks.isLoading,
+    isError: mocks.isError,
+    refetch: mocks.refetch,
   }),
   useDismissNotification: () => ({
     isPending: false,
@@ -65,6 +69,9 @@ describe("InboxView", () => {
   beforeEach(() => {
     mocks.dismiss.mockReset();
     mocks.open.mockReset();
+    mocks.refetch.mockReset();
+    mocks.isLoading = false;
+    mocks.isError = false;
     mocks.dismiss.mockResolvedValue(notification());
     mocks.open.mockResolvedValue({
       outcome: "focused",
@@ -100,5 +107,22 @@ describe("InboxView", () => {
     expect(
       screen.getByRole("button", { name: "Open" }).hasAttribute("disabled"),
     ).toBe(true);
+  });
+
+  it("renders a distinct loading state", () => {
+    mocks.isLoading = true;
+    render(<InboxView />);
+
+    expect(screen.getByRole("status").textContent).toBe("Loading inbox");
+    expect(screen.queryByText("Unable to load inbox.")).toBeNull();
+  });
+
+  it("renders a distinct error state with retry", () => {
+    mocks.isError = true;
+    render(<InboxView />);
+
+    expect(screen.getByText("Unable to load inbox.")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(mocks.refetch).toHaveBeenCalled();
   });
 });
