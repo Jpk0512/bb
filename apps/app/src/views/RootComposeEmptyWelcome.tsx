@@ -72,27 +72,27 @@ export function RootComposeEmptyWelcome({
 }: RootComposeEmptyWelcomeProps) {
   const reducedMotion = usePrefersReducedMotion();
   const recentSince = Date.now() - RECENT_THREAD_WINDOW_MS;
-  const nonIdleThreads = threads.filter(
-    (thread) =>
-      thread.archivedAt === null &&
-      thread.deletedAt === null &&
-      hasSidebarWorkingActivity(thread),
+  const byAttention = (left: ThreadListEntry, right: ThreadListEntry) => {
+    const attentionDelta = right.latestAttentionAt - left.latestAttentionAt;
+    if (attentionDelta !== 0) return attentionDelta;
+    const createdDelta = right.createdAt - left.createdAt;
+    if (createdDelta !== 0) return createdDelta;
+    return left.id.localeCompare(right.id);
+  };
+  const visible = threads.filter(
+    (thread) => thread.archivedAt === null && thread.deletedAt === null,
   );
-  const activeThreads = (nonIdleThreads.length > 0 ? nonIdleThreads : threads)
+  const live = visible
+    .filter((thread) => hasSidebarWorkingActivity(thread))
+    .sort(byAttention);
+  const idleRecent = visible
     .filter(
       (thread) =>
-        thread.archivedAt === null &&
-        thread.deletedAt === null &&
-        (nonIdleThreads.length > 0 || thread.updatedAt >= recentSince),
+        !hasSidebarWorkingActivity(thread) && thread.updatedAt >= recentSince,
     )
-    .sort((left, right) => {
-      const attentionDelta = right.latestAttentionAt - left.latestAttentionAt;
-      if (attentionDelta !== 0) return attentionDelta;
-      const createdDelta = right.createdAt - left.createdAt;
-      if (createdDelta !== 0) return createdDelta;
-      return left.id.localeCompare(right.id);
-    })
-    .slice(0, 3);
+    .sort(byAttention);
+  // Live work first; leftover slots are recent idle, never the reverse.
+  const activeThreads = [...live, ...idleRecent].slice(0, 3);
   return (
     <div className="flex flex-col items-center gap-12 duration-500 animate-in fade-in-0 slide-in-from-bottom-2">
       <svg aria-hidden className="absolute h-0 w-0" focusable="false">

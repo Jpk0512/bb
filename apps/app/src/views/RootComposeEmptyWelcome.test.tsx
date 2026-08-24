@@ -121,7 +121,7 @@ describe("RootComposeEmptyWelcome", () => {
     );
 
     expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(
-      ["Needs input", "Running thread"],
+      ["Needs input", "Running thread", "Idle recent"],
     );
   });
 });

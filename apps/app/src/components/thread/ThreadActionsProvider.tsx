@@ -118,6 +118,7 @@ export function ThreadActionsProvider({
   const deleteThread = useDeleteThread();
   const updateThread = useUpdateThread();
   const threadActionContextAbortRef = useRef<AbortController | null>(null);
+  const pinReplaceInFlightRef = useRef(false);
   // Destructure `.mutate` so useCallback deps see stable references across
   // renders. Depending on the full mutation objects would churn callback
   // identities on every isPending flip and force every useThreadActions()
@@ -450,6 +451,10 @@ export function ThreadActionsProvider({
         pinMutate({ id: thread.id });
         return;
       }
+      if (pinReplaceInFlightRef.current) {
+        return;
+      }
+      pinReplaceInFlightRef.current = true;
       void (async () => {
         try {
           // Mutate in server-confirmed order. If pinning fails after a confirmed
@@ -462,8 +467,7 @@ export function ThreadActionsProvider({
             try {
               await pinMutateAsync({ id: oldestPinnedThread.id });
             } catch {
-              // The original failure is more useful; query invalidation will
-              // reconcile the sidebar if the compensating request also fails.
+              appToast.error("Could not restore the previous pin.");
             }
             throw error;
           }
@@ -474,6 +478,8 @@ export function ThreadActionsProvider({
               fallbackMessage: "Failed to update sidebar pins",
             }),
           );
+        } finally {
+          pinReplaceInFlightRef.current = false;
         }
       })();
     },

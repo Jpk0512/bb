@@ -1028,6 +1028,7 @@ export function ActiveSidebarModeSections({
 }
 
 interface WorkingSetSectionsProps {
+  actions?: ReactNode;
   activeThreads: ThreadListEntry[];
   compareThreads: ThreadComparator;
   draftThreadIds: ReadonlySet<string>;
@@ -1047,6 +1048,7 @@ interface WorkingSetSectionsProps {
  * why an otherwise idle session is still visible.
  */
 function WorkingSetSections({
+  actions,
   activeThreads,
   collapsedEnvironmentIds,
   collapsedThreadIds,
@@ -1088,6 +1090,7 @@ function WorkingSetSections({
 
   return (
     <>
+      {actions}
       <TopLevelSidebarSection
         label={pinnedSection.label}
         labelVariant="section"
@@ -1710,20 +1713,29 @@ function ProjectListComponent({
       else threadsByProject.set(thread.projectId, [thread]);
     }
 
-    const projectWorkingSets = [...threadsByProject.entries()].map(
-      ([projectId, projectThreads]) =>
-        buildSidebarWorkingSet({
-          mode: workingSetModesByProject[projectId] ?? "working",
-          pinnedThreadIds: pinnedSidebarState.effectivePinnedThreadIds,
-          threads: projectThreads,
-        }),
-    );
+    const olderByProject: { projectId: string; count: number }[] = [];
+    const visible: ThreadListEntry[] = [];
+    for (const [projectId, projectThreads] of threadsByProject) {
+      const result = buildSidebarWorkingSet({
+        mode: workingSetModesByProject[projectId] ?? "working",
+        pinnedThreadIds: pinnedSidebarState.effectivePinnedThreadIds,
+        threads: projectThreads,
+      });
+      visible.push(...result.threads);
+      if (result.olderThreadCount > 0) {
+        olderByProject.push({
+          projectId,
+          count: result.olderThreadCount,
+        });
+      }
+    }
     return {
-      olderThreadCount: projectWorkingSets.reduce(
-        (total, result) => total + result.olderThreadCount,
+      olderByProject,
+      olderThreadCount: olderByProject.reduce(
+        (total, entry) => total + entry.count,
         0,
       ),
-      threads: projectWorkingSets.flatMap((result) => result.threads),
+      threads: visible,
     };
   }, [
     pinnedSidebarState.effectivePinnedThreadIds,
@@ -2227,6 +2239,7 @@ function ProjectListComponent({
     <ProjectListShell titleMentionResources={titleMentionResources}>
       {workingSetMode === "working" ? (
         <WorkingSetSections
+          actions={threadsSectionActions}
           activeThreads={workingSetActiveThreads}
           recentThreads={workingSetRecentThreads}
           pinnedSection={pinnedSection}
@@ -2345,17 +2358,29 @@ function ProjectListComponent({
           )}
         />
       )}
-      {workingSetMode === "working" &&
-      sidebarWorkingSet.olderThreadCount > 0 ? (
-        <button
-          type="button"
-          className="mx-2 mt-1 rounded-md px-2 py-1 text-left text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
-          onClick={() => setWorkingSetMode("all")}
-        >
-          {sidebarWorkingSet.olderThreadCount} older session
-          {sidebarWorkingSet.olderThreadCount === 1 ? "" : "s"}
-        </button>
-      ) : null}
+      {sidebarWorkingSet.olderByProject.map(({ projectId, count }) => {
+        const projectName =
+          sidebarNavigation?.personalProject.id === projectId
+            ? (sidebarNavigation.personalProject.name ?? "Personal")
+            : (sidebarNavigation?.projects.find(
+                (project) => project.id === projectId,
+              )?.name ?? projectId);
+        return (
+          <button
+            key={projectId}
+            type="button"
+            className="mx-2 mt-1 rounded-md px-2 py-1 text-left text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+            onClick={() =>
+              setWorkingSetModesByProject((current) => ({
+                ...current,
+                [projectId]: "all",
+              }))
+            }
+          >
+            {count} older session{count === 1 ? "" : "s"} in {projectName}
+          </button>
+        );
+      })}
     </ProjectListShell>
   );
 }
