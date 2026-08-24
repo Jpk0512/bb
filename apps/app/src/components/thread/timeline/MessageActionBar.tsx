@@ -184,9 +184,8 @@ const HOVER_REVEAL_CLASS =
   "opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100";
 const MOBILE_INLINE_ACTION_CLASS =
   "max-md:pointer-coarse:size-7 max-md:pointer-coarse:opacity-100 max-md:pointer-coarse:disabled:opacity-40 max-md:pointer-coarse:[&_svg]:size-4";
-const MOBILE_OVERFLOW_ACTION_CLASS = "max-md:pointer-coarse:hidden";
 const MOBILE_OVERFLOW_TRIGGER_CLASS =
-  "hidden size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:text-foreground data-[state=open]:bg-state-active data-[state=open]:text-foreground max-md:pointer-coarse:inline-flex max-md:pointer-coarse:[&_svg]:size-4";
+  "inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:text-foreground data-[state=open]:bg-state-active data-[state=open]:text-foreground group-hover/message:opacity-100 group-focus-within/message:opacity-100 max-md:pointer-coarse:size-7 max-md:pointer-coarse:opacity-100 max-md:pointer-coarse:[&_svg]:size-4";
 const ACTION_TOOLTIP_SIDE = "bottom";
 const MOBILE_OVERFLOW_CONTENT_CLASS =
   "z-50 flex max-h-[50dvh] w-44 flex-col gap-0.5 overflow-y-auto rounded-md border bg-popover p-0.5 text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95";
@@ -208,7 +207,6 @@ export function findMessageActionTooltipCollisionBoundary(
 export function MessageActionBar({
   messageText,
   alignment,
-  mobileActionDisplay,
   addToChatAttachments = [],
   onAddToChat,
   onEdit,
@@ -225,10 +223,6 @@ export function MessageActionBar({
   const [collisionBoundary, setCollisionBoundary] = useState<
     HTMLElement | undefined
   >();
-  const mobileDirectActionClass =
-    mobileActionDisplay === "inline"
-      ? MOBILE_INLINE_ACTION_CLASS
-      : MOBILE_OVERFLOW_ACTION_CLASS;
   const containerRef = useCallback((node: HTMLDivElement | null) => {
     setCollisionBoundary(findMessageActionTooltipCollisionBoundary(node));
   }, []);
@@ -245,6 +239,7 @@ export function MessageActionBar({
       ? [
           {
             icon: "Copy" as const,
+            key: "copy",
             label: "Copy message",
             onSelect: () => {
               void copyToClipboardWithToast(messageText, {
@@ -260,6 +255,7 @@ export function MessageActionBar({
       ? [
           {
             icon: "Edit" as const,
+            key: "edit",
             label: "Edit message",
             onSelect: onEdit,
           },
@@ -269,6 +265,7 @@ export function MessageActionBar({
       ? [
           {
             icon: "MessageSquarePlus" as const,
+            key: "add-to-chat",
             label: "Add to chat",
             onSelect: handleAddToChat,
           },
@@ -278,6 +275,7 @@ export function MessageActionBar({
       ? [
           {
             icon: "ArrowTurnBackward" as const,
+            key: "send-to-main",
             label: "Send to main thread",
             onSelect: onSendToMain,
           },
@@ -287,6 +285,7 @@ export function MessageActionBar({
       ? [
           {
             icon: "Fork" as const,
+            key: "fork",
             label: "Fork into new thread",
             onSelect: onFork,
             disabled,
@@ -303,6 +302,16 @@ export function MessageActionBar({
     })),
   ];
   const useMobileOverflowPopover = isCompactViewport && isPointerCoarse;
+  // Copy plus one contextual action keeps hover chrome focused; additional
+  // actions retain their full labels in a single predictable overflow.
+  const primaryContextAction = overflowActions.find(
+    (action) => action.key !== "copy",
+  );
+  const overflowMenuActions = overflowActions.filter(
+    (action) => action.key !== "copy" && action !== primaryContextAction,
+  );
+  const isPrimaryContextAction = (key: string): boolean =>
+    primaryContextAction?.key === key;
 
   if (
     !hasCopy &&
@@ -330,7 +339,7 @@ export function MessageActionBar({
               <CopyButton
                 text={messageText}
                 label="Copy message"
-                className={cn(HOVER_REVEAL_CLASS, mobileDirectActionClass)}
+                className={cn(HOVER_REVEAL_CLASS, MOBILE_INLINE_ACTION_CLASS)}
               />
             </TooltipTrigger>
             <TooltipContent
@@ -341,7 +350,7 @@ export function MessageActionBar({
             </TooltipContent>
           </Tooltip>
         ) : null}
-        {onEdit ? (
+        {onEdit && isPrimaryContextAction("edit") ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -349,7 +358,7 @@ export function MessageActionBar({
                 className={cn(
                   ACTION_BUTTON_CLASS,
                   HOVER_REVEAL_CLASS,
-                  mobileDirectActionClass,
+                  MOBILE_INLINE_ACTION_CLASS,
                 )}
                 onClick={onEdit}
                 aria-label="Edit message"
@@ -365,7 +374,7 @@ export function MessageActionBar({
             </TooltipContent>
           </Tooltip>
         ) : null}
-        {hasAddToChat ? (
+        {hasAddToChat && isPrimaryContextAction("add-to-chat") ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -373,7 +382,7 @@ export function MessageActionBar({
                 className={cn(
                   ACTION_BUTTON_CLASS,
                   HOVER_REVEAL_CLASS,
-                  mobileDirectActionClass,
+                  MOBILE_INLINE_ACTION_CLASS,
                 )}
                 onClick={handleAddToChat}
                 aria-label="Add to chat"
@@ -389,7 +398,7 @@ export function MessageActionBar({
             </TooltipContent>
           </Tooltip>
         ) : null}
-        {onSendToMain ? (
+        {onSendToMain && isPrimaryContextAction("send-to-main") ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -397,7 +406,7 @@ export function MessageActionBar({
                 className={cn(
                   ACTION_BUTTON_CLASS,
                   HOVER_REVEAL_CLASS,
-                  mobileDirectActionClass,
+                  MOBILE_INLINE_ACTION_CLASS,
                 )}
                 onClick={onSendToMain}
                 aria-label="Send to main thread"
@@ -413,7 +422,7 @@ export function MessageActionBar({
             </TooltipContent>
           </Tooltip>
         ) : null}
-        {onFork ? (
+        {onFork && isPrimaryContextAction("fork") ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -421,7 +430,7 @@ export function MessageActionBar({
                 className={cn(
                   ACTION_BUTTON_CLASS,
                   HOVER_REVEAL_CLASS,
-                  mobileDirectActionClass,
+                  MOBILE_INLINE_ACTION_CLASS,
                 )}
                 onClick={onFork}
                 disabled={disabled}
@@ -438,38 +447,40 @@ export function MessageActionBar({
             </TooltipContent>
           </Tooltip>
         ) : null}
-        {pluginActions.map((action) => (
-          <Tooltip key={action.key}>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className={cn(
-                  ACTION_BUTTON_CLASS,
-                  HOVER_REVEAL_CLASS,
-                  mobileDirectActionClass,
-                )}
-                onClick={action.onSelect}
-                aria-label={action.label}
+        {pluginActions
+          .filter((action) => isPrimaryContextAction(action.key))
+          .map((action) => (
+            <Tooltip key={action.key}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    ACTION_BUTTON_CLASS,
+                    HOVER_REVEAL_CLASS,
+                    MOBILE_INLINE_ACTION_CLASS,
+                  )}
+                  onClick={action.onSelect}
+                  aria-label={action.label}
+                >
+                  <PluginActionIcon
+                    pluginId={action.pluginId}
+                    icon={action.icon}
+                    className="size-3"
+                  />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent
+                side={ACTION_TOOLTIP_SIDE}
+                collisionBoundary={collisionBoundary}
               >
-                <PluginActionIcon
-                  pluginId={action.pluginId}
-                  icon={action.icon}
-                  className="size-3"
-                />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent
-              side={ACTION_TOOLTIP_SIDE}
-              collisionBoundary={collisionBoundary}
-            >
-              {action.label}
-            </TooltipContent>
-          </Tooltip>
-        ))}
-        {mobileActionDisplay === "overflow" ? (
+                {action.label}
+              </TooltipContent>
+            </Tooltip>
+          ))}
+        {overflowMenuActions.length > 0 ? (
           useMobileOverflowPopover ? (
             <MobileMessageOverflowPopover
-              actions={overflowActions}
+              actions={overflowMenuActions}
               alignment={alignment}
             />
           ) : (
@@ -489,7 +500,7 @@ export function MessageActionBar({
                 mobileTitle="Message actions"
                 className="w-48"
               >
-                {overflowActions.map((action) => (
+                {overflowMenuActions.map((action) => (
                   <DropdownMenuItem
                     key={action.key ?? action.label}
                     disabled={action.disabled}

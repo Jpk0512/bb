@@ -38,6 +38,8 @@ export type TimelineTitleLinkResolver = (
 export interface TimelineTitleViewProps {
   title: TimelineTitle;
   className?: string;
+  /** Commands and tools reserve a compact duration column in their headers. */
+  alignDuration?: boolean;
   onTitleAction?: TimelineTitleActionResolver;
   resolveSegmentLinkHref?: TimelineTitleLinkResolver;
 }
@@ -236,14 +238,23 @@ function renderDecoration(
   decoration: TimelineTitleDecoration,
   index: number,
   tone: TimelineTitleTone,
+  alignDuration: boolean,
 ): ReactNode {
   const baseClass = cn("shrink-0 whitespace-pre", decorationToneClass(tone));
 
   switch (decoration.kind) {
     case "duration": {
       const durationClass = decoration.em
-        ? cn("shrink-0 whitespace-pre tabular-nums", emToneClass(tone))
-        : cn(baseClass, "tabular-nums");
+        ? cn(
+            "shrink-0 whitespace-pre tabular-nums",
+            alignDuration && "ml-auto w-12 text-right",
+            emToneClass(tone),
+          )
+        : cn(
+            baseClass,
+            "tabular-nums",
+            alignDuration && "ml-auto w-12 text-right",
+          );
       return (
         <span key={index} className={durationClass}>
           {decoration.completedAt !== null ? (
@@ -345,6 +356,7 @@ function renderDecoration(
 export function TimelineTitleView({
   title,
   className,
+  alignDuration = false,
   onTitleAction,
   resolveSegmentLinkHref,
 }: TimelineTitleViewProps) {
@@ -379,7 +391,7 @@ export function TimelineTitleView({
       {title.decorations.map((decoration, index) => (
         <Fragment key={`decoration-${index}`}>
           {" "}
-          {renderDecoration(decoration, index, title.tone)}
+          {renderDecoration(decoration, index, title.tone, alignDuration)}
         </Fragment>
       ))}
     </span>

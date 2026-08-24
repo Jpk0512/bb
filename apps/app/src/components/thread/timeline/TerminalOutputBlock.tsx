@@ -109,6 +109,31 @@ function terminalScrollContentKey({
   ].join(":");
 }
 
+function ShellCommandLine({ commandLine }: { commandLine: string }) {
+  // Command rows retain the exact copyable string while stepping shell syntax
+  // down one tone, making the executable and its arguments easier to scan.
+  const promptPrefix = commandLine.startsWith("$ ") ? "$ " : "";
+  const parts = commandLine
+    .slice(promptPrefix.length)
+    .split(/(\s(?:&&|\|\||\||;)\s)/g);
+  return (
+    <>
+      {promptPrefix ? (
+        <span className="text-subtle-foreground">{promptPrefix}</span>
+      ) : null}
+      {parts.map((part, index) =>
+        /\s(?:&&|\|\||\||;)\s/.test(part) ? (
+          <span key={index} className="text-subtle-foreground">
+            {part}
+          </span>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
+
 export function TerminalOutputBlock({
   commandLine,
   exitCode = null,
@@ -145,7 +170,7 @@ export function TerminalOutputBlock({
               getDetailScrollMaxHeightClass("base"),
             )}
           >
-            {commandLine}
+            <ShellCommandLine commandLine={commandLine} />
           </ExpandableLine>
         ) : null}
         {metadataLines.map((line, index) => (
