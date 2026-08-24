@@ -1,4 +1,5 @@
 import type { Thread, ThreadListEntry, ThreadWithRuntime } from "@bb/domain";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@bb/shared-ui/tooltip";
 import { cn } from "@bb/shared-ui/lib/utils";
 import {
   hasActiveBackgroundAgentActivity,
@@ -75,17 +76,21 @@ export function ThreadStatusDot({
   const label = THREAD_STATUS_DOT_LABEL[kind];
 
   return (
-    <span
-      role="img"
-      aria-label={label}
-      title={label}
-      className={cn(
-        "size-1.5 shrink-0 rounded-full",
-        kind === "running" && "motion-safe:animate-pulse bg-attention",
-        kind === "needs-input" && "border border-warning bg-transparent",
-        kind === "background-work" && "bg-attention/50",
-        kind === "unread" && "bg-attention",
-      )}
-    />
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          role="img"
+          aria-label={label}
+          className={cn(
+            "size-1.5 shrink-0 rounded-full",
+            kind === "running" && "motion-safe:animate-pulse bg-attention",
+            kind === "needs-input" && "border border-warning bg-transparent",
+            kind === "background-work" && "bg-attention/50",
+            kind === "unread" && "bg-attention",
+          )}
+        />
+      </TooltipTrigger>
+      <TooltipContent side="top">{label}</TooltipContent>
+    </Tooltip>
   );
 }

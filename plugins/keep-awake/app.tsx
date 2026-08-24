@@ -154,7 +154,6 @@ function KeepAwakeSettings() {
         </div>
         <Switch
           checked={view.enabled}
-          size="default"
           aria-label="Keep Awake"
           onCheckedChange={(enabled) => {
             updateConfiguration((current) => ({ ...current, enabled }));

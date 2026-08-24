@@ -743,7 +743,6 @@ function ThreadRowComponent({
           <span
             className="inline-flex h-5 min-w-5 items-center justify-center rounded border border-border bg-secondary px-1 text-xs text-secondary-foreground"
             aria-label={`${thread.unreadNotificationCount ?? 0} unread notifications`}
-            title={`${thread.unreadNotificationCount ?? 0} unread notifications`}
           >
             {thread.unreadNotificationCount}
           </span>

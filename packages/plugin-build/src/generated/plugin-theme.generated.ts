@@ -24,6 +24,10 @@ export const PLUGIN_THEME_CSS = `@theme inline {
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-subtle-foreground: var(--subtle-foreground);
+  /* Decoration-only tier: placeholder/disabled-only chrome that never carries
+   * real text, so it can sit below the 4.5:1 AA floor that --subtle-foreground
+   * must clear. Never use this for legible text. */
+  --color-decoration-foreground: var(--decoration-foreground);
   /* Cadence (thread design refresh): a recede tier between muted and subtle for
    * settled/closed-turn machinery, and a text-only destructive that clears AA in
    * dark mode (the --destructive fill is below the 4.5:1 text floor there). */
