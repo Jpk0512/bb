@@ -33,6 +33,35 @@ interface ActiveSubscription {
   target: RealtimeSubscriptionTarget;
 }
 
+/**
+ * How long the socket may stay silent before realtime is treated as unproven.
+ *
+ * The server answers no application ping — an unrecognized client message is a
+ * 1008 close (see onClientSocketMessage) — so liveness can only be inferred
+ * from what the server sends. Silence is therefore not proof of a dead socket,
+ * and this window is deliberately short: the only consumer is a mutation
+ * success path that degrades to invalidating caches, so guessing "not live" on
+ * an idle-but-healthy socket costs one refetch, while guessing "live" on a
+ * TCP-dead socket that has not fired onclose yet loses the update entirely.
+ */
+const REALTIME_SILENCE_LIMIT_MS = 10_000;
+
+/**
+ * Close codes the server uses to reject something this client sent, as opposed
+ * to a transport failure. Replaying the same subscription set into the next
+ * socket reproduces them, so these need attribution rather than a retry.
+ */
+const SUBSCRIPTION_REJECTING_CLOSE_CODES = new Set([
+  1002, 1003, 1007, 1008, 1009,
+]);
+
+/**
+ * How long a socket must survive after a subscribe before the server counts as
+ * having accepted it. The server acknowledges nothing on success, so staying
+ * open is the only available signal.
+ */
+const SUBSCRIPTION_ACCEPTANCE_MS = 5_000;
+
 export class WebSocketManager {
   private socket: ReconnectingWebSocket | null = null;
   private subscriptions = new Map<string, ActiveSubscription>();
@@ -48,6 +77,12 @@ export class WebSocketManager {
   private connectionStateCallbacks = new Set<ConnectionStateCallback>();
   private hasConnected = false;
   private connectionState: WebSocketConnectionState = "connecting";
+  private lastServerMessageAt = 0;
+  private acceptedSubscriptionKeys = new Set<string>();
+  private rejectedSubscriptionKeys = new Set<string>();
+  private unacceptedSubscriptionKeysSent: string[] = [];
+  private acceptanceTimer: ReturnType<typeof setTimeout> | null = null;
+  private stagingSubscriptionReplay = false;
 
   connect(): void {
     if (this.socket) return;
@@ -70,11 +105,10 @@ export class WebSocketManager {
     this.socket.onopen = () => {
       const reconnected = this.hasConnected;
       this.hasConnected = true;
+      this.lastServerMessageAt = Date.now();
+      this.clearSubscriptionAcceptance();
       this.setConnectionState("connected");
-      // Re-subscribe to all active subscriptions
-      for (const subscription of this.subscriptions.values()) {
-        this.sendMessage({ type: "subscribe", target: subscription.target });
-      }
+      this.replaySubscriptions();
       for (const callback of this.connectedCallbacks) {
         callback({ reconnected });
       }
@@ -85,7 +119,12 @@ export class WebSocketManager {
       this.handleIncomingMessage(event.data);
     };
 
-    this.socket.onclose = () => {
+    this.socket.onclose = (event: CloseEvent) => {
+      const suspects = this.unacceptedSubscriptionKeysSent;
+      this.clearSubscriptionAcceptance();
+      if (SUBSCRIPTION_REJECTING_CLOSE_CODES.has(event.code)) {
+        this.attributeSubscriptionRejection(event, suspects);
+      }
       this.setConnectionState(
         this.hasConnected ? "reconnecting" : "connecting",
       );
@@ -93,10 +132,121 @@ export class WebSocketManager {
   }
 
   /**
+   * Re-establish the active subscriptions on a fresh socket. While a rejection
+   * is being attributed, only one not-yet-accepted target goes out per socket
+   * so a later close names exactly one suspect.
+   */
+  private replaySubscriptions(): void {
+    let sentUnaccepted = false;
+    for (const [key, subscription] of this.subscriptions) {
+      if (this.rejectedSubscriptionKeys.has(key)) continue;
+      if (!this.acceptedSubscriptionKeys.has(key)) {
+        if (this.stagingSubscriptionReplay && sentUnaccepted) continue;
+        sentUnaccepted = true;
+      }
+      this.sendSubscription(key, subscription.target);
+    }
+    if (!sentUnaccepted) {
+      // Staging means exactly one candidate is being probed. With none left
+      // (they were all accepted, quarantined, or unsubscribed) nothing can
+      // clear the flag, and it would hold isRealtimeLive() at false forever.
+      this.stagingSubscriptionReplay = false;
+    }
+  }
+
+  private sendSubscription(
+    key: string,
+    target: RealtimeSubscriptionTarget,
+  ): void {
+    this.sendMessage({ type: "subscribe", target });
+    if (this.acceptedSubscriptionKeys.has(key)) {
+      return;
+    }
+    this.unacceptedSubscriptionKeysSent.push(key);
+    this.clearAcceptanceTimer();
+    this.acceptanceTimer = setTimeout(() => {
+      this.acceptanceTimer = null;
+      this.acceptOutstandingSubscriptions();
+    }, SUBSCRIPTION_ACCEPTANCE_MS);
+  }
+
+  private acceptOutstandingSubscriptions(): void {
+    this.clearAcceptanceTimer();
+    for (const key of this.unacceptedSubscriptionKeysSent) {
+      this.acceptedSubscriptionKeys.add(key);
+    }
+    this.unacceptedSubscriptionKeysSent = [];
+    if (!this.stagingSubscriptionReplay) {
+      return;
+    }
+    for (const [key, subscription] of this.subscriptions) {
+      if (this.rejectedSubscriptionKeys.has(key)) continue;
+      if (this.acceptedSubscriptionKeys.has(key)) continue;
+      this.sendSubscription(key, subscription.target);
+      return;
+    }
+    this.stagingSubscriptionReplay = false;
+  }
+
+  private clearAcceptanceTimer(): void {
+    if (this.acceptanceTimer === null) {
+      return;
+    }
+    clearTimeout(this.acceptanceTimer);
+    this.acceptanceTimer = null;
+  }
+
+  private clearSubscriptionAcceptance(): void {
+    this.clearAcceptanceTimer();
+    this.unacceptedSubscriptionKeysSent = [];
+  }
+
+  private attributeSubscriptionRejection(
+    event: CloseEvent,
+    suspects: readonly string[],
+  ): void {
+    const [onlySuspect] = suspects;
+    if (suspects.length === 1 && onlySuspect !== undefined) {
+      this.rejectedSubscriptionKeys.add(onlySuspect);
+      this.stagingSubscriptionReplay = false;
+      console.error(
+        `Server rejected realtime subscription ${onlySuspect} (close ${event.code} ${event.reason}). It will not be replayed; reload after upgrading the server.`,
+      );
+      return;
+    }
+    if (suspects.length === 0) {
+      // Nothing was in flight, so the rejected target is one this client had
+      // already recorded as accepted — acceptance proved something about a
+      // server this one is not (an in-place downgrade, or a different instance
+      // behind the same URL). Keeping that record replays the set verbatim and
+      // the close repeats with no suspect to name: the invisible loop. Drop it
+      // so the next sockets re-prove each target one at a time.
+      if (this.acceptedSubscriptionKeys.size === 0) {
+        return;
+      }
+      this.acceptedSubscriptionKeys.clear();
+      this.stagingSubscriptionReplay = true;
+      console.error(
+        `Server closed the realtime socket (close ${event.code} ${event.reason}) with no subscribe outstanding, so a previously accepted target is no longer accepted. Re-establishing the set one at a time to identify it.`,
+      );
+      return;
+    }
+    this.stagingSubscriptionReplay = true;
+    console.error(
+      `Server closed the realtime socket (close ${event.code} ${event.reason}) while establishing ${suspects.length} subscriptions. Re-establishing them one at a time to identify the rejected target.`,
+    );
+  }
+
+  /**
    * Parse and dispatch one raw server message. Public only so tests can
    * exercise the routing without a live socket.
    */
   handleIncomingMessage(data: string): void {
+    // Any server traffic is the only liveness evidence available, and it also
+    // proves the subscribes sent before it were accepted.
+    this.lastServerMessageAt = Date.now();
+    this.acceptOutstandingSubscriptions();
+
     let parsed: unknown;
     try {
       parsed = JSON.parse(data);
@@ -159,6 +309,8 @@ export class WebSocketManager {
       this.socket.close();
       this.socket = null;
     }
+    this.clearSubscriptionAcceptance();
+    this.lastServerMessageAt = 0;
     this.setConnectionState("connecting");
   }
 
@@ -188,8 +340,14 @@ export class WebSocketManager {
     }
 
     this.subscriptions.set(key, { count: 1, target });
+    // A quarantined target is one this server closes the socket over, so a
+    // remount must not send it again: the refcount is kept (so unsubscribe
+    // stays balanced) but the wire stays quiet until the tab reloads.
+    if (this.rejectedSubscriptionKeys.has(key)) {
+      return;
+    }
     if (this.socket?.readyState === WebSocket.OPEN) {
-      this.sendMessage({ type: "subscribe", target });
+      this.sendSubscription(key, target);
     }
   }
 
@@ -205,6 +363,12 @@ export class WebSocketManager {
     }
 
     this.subscriptions.delete(key);
+    // The server never accepted a quarantined target, and an unsubscribe
+    // carries the same payload the server rejects, so sending it would close
+    // the socket the other subscriptions are sharing.
+    if (this.rejectedSubscriptionKeys.has(key)) {
+      return;
+    }
     if (this.socket?.readyState === WebSocket.OPEN) {
       this.sendMessage({ type: "unsubscribe", target });
     }
@@ -268,6 +432,27 @@ export class WebSocketManager {
 
   getConnectionState(): WebSocketConnectionState {
     return this.connectionState;
+  }
+
+  /**
+   * Whether realtime delivery is currently proven, not merely assumed.
+   *
+   * `connectionState` only moves on the socket's open/close callbacks, so a
+   * TCP-dead socket keeps reporting "connected" until the browser notices —
+   * which is why callers that skip work "because realtime will deliver it"
+   * must ask this instead. Pull-only on purpose: it can go stale without an
+   * event, so it is read at the moment a decision depends on it.
+   */
+  isRealtimeLive(): boolean {
+    if (this.connectionState !== "connected") {
+      return false;
+    }
+    // Mid-attribution the subscription set is deliberately incomplete, so the
+    // events a caller would rely on may not be flowing yet.
+    if (this.stagingSubscriptionReplay) {
+      return false;
+    }
+    return Date.now() - this.lastServerMessageAt <= REALTIME_SILENCE_LIMIT_MS;
   }
 
   private sendMessage(msg: ClientMessage): void {

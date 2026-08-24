@@ -106,9 +106,7 @@ const CACHE_OWNER_QUERY_KEY_IMPORTS: CacheOwnerQueryKeyImportRegistry = {
     "environmentQueryKey",
     "threadSearchQueryKeyPrefix",
   ],
-  "hooks/cache-owners/host-directory-cache-owner.ts": [
-    "hostDirectoryQueryKey",
-  ],
+  "hooks/cache-owners/host-directory-cache-owner.ts": ["hostDirectoryQueryKey"],
   "hooks/cache-owners/mutation-cache-effects.ts": [
     "hostsQueryKey",
     "projectPathsQueryKeyPrefix",
@@ -123,6 +121,10 @@ const CACHE_OWNER_QUERY_KEY_IMPORTS: CacheOwnerQueryKeyImportRegistry = {
     "threadTimelineQueryKeyPrefix",
     "threadTimelineTurnSummaryDetailsQueryKeyPrefix",
     "threadsQueryKey",
+  ],
+  "hooks/cache-owners/notification-cache-owner.ts": [
+    "notificationListQueryKey",
+    "sidebarNavigationQueryKey",
   ],
   "hooks/cache-owners/project-cache-owner.ts": [
     "projectsQueryKey",
@@ -157,6 +159,7 @@ const CACHE_OWNER_QUERY_KEY_IMPORTS: CacheOwnerQueryKeyImportRegistry = {
   ],
   "hooks/cache-owners/realtime-cache-registry.ts": [
     "allHostQueryKeyPrefix",
+    "allNotificationListQueryKeyPrefix",
     "allPluginCatalogSearchQueryKeyPrefix",
     "allPluginContributionsQueryKeyPrefix",
     "allPluginListQueryKeyPrefix",
@@ -198,6 +201,7 @@ const CACHE_OWNER_QUERY_KEY_IMPORTS: CacheOwnerQueryKeyImportRegistry = {
     "allEnvironmentQueryKeyPrefix",
     "allEnvironmentWorkStatusQueryKeyPrefix",
     "allHostQueryKeyPrefix",
+    "allNotificationListQueryKeyPrefix",
     "allProjectPathsQueryKeyPrefix",
     "allSystemExecutionOptionsQueryKeyPrefix",
     "allSystemProvidersQueryKeyPrefix",
@@ -213,6 +217,7 @@ const CACHE_OWNER_QUERY_KEY_IMPORTS: CacheOwnerQueryKeyImportRegistry = {
     "allThreadStoragePathsQueryKeyPrefix",
     "allThreadTimelineQueryKeyPrefix",
     "allThreadTimelineTurnSummaryDetailsQueryKeyPrefix",
+    "allThreadTurnsQueryKeyPrefix",
     "hostsQueryKey",
     "hostPathExistenceQueryKeyPrefix",
     "projectsQueryKey",

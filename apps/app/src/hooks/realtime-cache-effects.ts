@@ -11,7 +11,7 @@ import {
 import {
   invalidateRealtimeQueriesAfterServerReconnect,
   invalidateRealtimeQueriesFetchedBeforeInitialConnect,
-  refetchErroredRealtimeQueriesOnInitialConnect,
+  recoverErroredRealtimeQueries,
 } from "./cache-owners/system-cache-effects";
 import { createBufferedEnvironmentInvalidator } from "./buffered-environment-invalidator";
 import {
@@ -30,6 +30,9 @@ const INVALIDATION_DEBOUNCE_MS = 50;
 const INVALIDATION_MAX_WAIT_MS = 200;
 const ENVIRONMENT_INVALIDATION_DEBOUNCE_MS = 250;
 const ENVIRONMENT_INVALIDATION_MAX_WAIT_MS = 500;
+// A flapping socket fires connected repeatedly; without this floor each flap
+// would re-retry the same failing queries.
+const ERRORED_QUERY_RECOVERY_COOLDOWN_MS = 5_000;
 
 export interface RealtimeConnectedEvent {
   reconnected: boolean;
@@ -225,6 +228,7 @@ export function createRealtimeCacheEffects({
   queryClient,
 }: RealtimeCacheEffectsOptions): RealtimeCacheEffects {
   const threadChangeState = createThreadChangeState();
+  let lastErroredQueryRecoveryAt = 0;
   const invalidationScheduler = createDebouncedCallbackScheduler({
     debounceMs: INVALIDATION_DEBOUNCE_MS,
     maxWaitMs: INVALIDATION_MAX_WAIT_MS,
@@ -304,15 +308,27 @@ export function createRealtimeCacheEffects({
     handleConnected: ({ reconnected }) => {
       if (reconnected) {
         invalidateRealtimeQueriesAfterServerReconnect({ queryClient });
+      } else {
+        // The ws manager flushes subscribe messages before this callback runs,
+        // so "now" is the watermark after which change events are delivered.
+        invalidateRealtimeQueriesFetchedBeforeInitialConnect({
+          connectedAt: Date.now(),
+          queryClient,
+        });
+      }
+      // Runs on every connect, not just the first: a never-succeeded query is
+      // never refetched by invalidation (there is nothing to mark stale) and
+      // its staleTime keeps mount and focus from retrying it, so realtime
+      // coming back is the app's only recovery point.
+      const now = Date.now();
+      if (
+        now - lastErroredQueryRecoveryAt <
+        ERRORED_QUERY_RECOVERY_COOLDOWN_MS
+      ) {
         return;
       }
-      refetchErroredRealtimeQueriesOnInitialConnect({ queryClient });
-      // The ws manager flushes subscribe messages before this callback runs,
-      // so "now" is the watermark after which change events are delivered.
-      invalidateRealtimeQueriesFetchedBeforeInitialConnect({
-        connectedAt: Date.now(),
-        queryClient,
-      });
+      lastErroredQueryRecoveryAt = now;
+      void recoverErroredRealtimeQueries({ queryClient });
     },
   };
 }

@@ -195,7 +195,7 @@ export function useSendThreadMessage() {
     onSuccess: (_data, variables, context) => {
       applySendThreadMessageSuccess({
         queryClient,
-        realtimeConnected: wsManager.getConnectionState() === "connected",
+        realtimeConnected: wsManager.isRealtimeLive(),
         request: variables,
         transaction: context,
       });
@@ -214,7 +214,7 @@ export function useEditThreadMessage() {
     mutationFn: ({ id, ...request }: EditMessageMutationRequest) =>
       sdk.threads.editMessage({ threadId: id, ...request }),
     onSuccess: (_result, variables) => {
-      if (wsManager.getConnectionState() === "connected") {
+      if (wsManager.isRealtimeLive()) {
         return;
       }
       invalidateThreadHistoryRewriteQueries({

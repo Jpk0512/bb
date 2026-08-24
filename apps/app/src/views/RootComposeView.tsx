@@ -58,6 +58,7 @@ import type { BrowserAddressFocusRequest } from "@/components/secondary-panel/Br
 import { NewTabPage } from "@/components/secondary-panel/NewTabPage";
 import { EmptyStatePanel } from "@bb/shared-ui/empty-state";
 import { Icon } from "@bb/shared-ui/icon";
+import { ResourceListState } from "@bb/shared-ui/resource-list";
 import { PageShell } from "@/components/ui/page-shell.js";
 import { Button } from "@bb/shared-ui/button";
 import { useIsCompactViewport } from "@bb/shared-ui/hooks/use-compact-viewport";
@@ -80,6 +81,7 @@ import {
 } from "@/hooks/queries/thread-terminal-queries";
 import { useEnvironment } from "@/hooks/queries/environment-queries";
 import { useHostProviderCliStatus } from "@/hooks/queries/system-queries";
+import { useSidebarNavigation } from "@/hooks/queries/sidebar-navigation-query";
 import { useHostDaemon } from "@/hooks/useHostDaemon";
 import { useLocalOpenTargets } from "@/hooks/useLocalOpenTargets";
 import {
@@ -783,6 +785,9 @@ function RootComposeSurface({
   const navigate = useNavigate();
   const isPointerCoarse = usePointerCoarse();
   const quickCreateProject = useQuickCreateProjectController();
+  // The composer state below is derived from this same shared bootstrap query;
+  // it is read here only so the failure state can offer a retry.
+  const sidebarNavigationQuery = useSidebarNavigation();
   const {
     projectId,
     isProjectless,
@@ -2349,9 +2354,11 @@ function RootComposeSurface({
   if (!projects && sidebarNavigationError) {
     return (
       <PageShell contentClassName="min-h-full items-center justify-center">
-        <p className="py-12 text-center text-sm text-destructive">
-          Failed to load projects.
-        </p>
+        <ResourceListState
+          state="error"
+          message="Failed to load projects."
+          onRetry={() => void sidebarNavigationQuery.refetch()}
+        />
       </PageShell>
     );
   }

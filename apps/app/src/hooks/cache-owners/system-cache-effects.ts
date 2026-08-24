@@ -7,6 +7,7 @@ import {
   allEnvironmentQueryKeyPrefix,
   allEnvironmentWorkStatusQueryKeyPrefix,
   allHostQueryKeyPrefix,
+  allNotificationListQueryKeyPrefix,
   allProjectPathsQueryKeyPrefix,
   allSystemExecutionOptionsQueryKeyPrefix,
   allSystemProvidersQueryKeyPrefix,
@@ -22,6 +23,7 @@ import {
   allThreadStoragePathsQueryKeyPrefix,
   allThreadTimelineQueryKeyPrefix,
   allThreadTimelineTurnSummaryDetailsQueryKeyPrefix,
+  allThreadTurnsQueryKeyPrefix,
   hostPathExistenceQueryKeyPrefix,
   hostsQueryKey,
   projectsQueryKey,
@@ -33,7 +35,7 @@ import {
   threadsQueryKey,
 } from "../queries/query-keys";
 import { allThreadDefaultExecutionOptionsQueryKeyPrefix } from "../queries/thread-default-execution-options-query";
-import type { QueryClientArg } from "../cache-effect-types";
+import type { QueryClientArg, QueryKeysArg } from "../cache-effect-types";
 import { bumpAllDiffPatchEvictionGenerations } from "./environment-diff-patch-cache-owner";
 import { invalidateSystemVersion } from "./system-version-cache-owner";
 import {
@@ -70,13 +72,56 @@ export function invalidateRealtimeQueriesAfterServerReconnect({
   });
 }
 
-export function refetchErroredRealtimeQueriesOnInitialConnect({
+/**
+ * Retry realtime-owned queries that have never succeeded, once realtime
+ * connectivity is established.
+ *
+ * `refetchFailedActiveQueryKeys` can only act on a query that has already
+ * settled, and the first-load window is exactly when that is not true: the
+ * socket opens in a few ms while the bootstrap HTTP requests are still in
+ * flight, so a request that fails a moment later is invisible to the first
+ * pass. With `staleTime: Infinity` on those queries nothing else ever retries
+ * them. Awaiting the in-flight first loads and running one more pass is what
+ * closes that window.
+ *
+ * Bounded to those two passes per call: a query that keeps failing is left in
+ * its error state for the UI to surface rather than retried in a loop.
+ */
+export async function recoverErroredRealtimeQueries({
   queryClient,
-}: QueryClientArg): void {
-  refetchFailedActiveQueryKeys({
+}: QueryClientArg): Promise<void> {
+  const queryKeys = getServerReconnectInvalidationQueryKeys();
+  refetchFailedActiveQueryKeys({ queryClient, queryKeys });
+  const inFlightFirstLoads = collectInFlightFirstLoads({
     queryClient,
-    queryKeys: getServerReconnectInvalidationQueryKeys(),
+    queryKeys,
   });
+  if (inFlightFirstLoads.length === 0) {
+    return;
+  }
+  await Promise.allSettled(inFlightFirstLoads);
+  refetchFailedActiveQueryKeys({ queryClient, queryKeys });
+}
+
+function collectInFlightFirstLoads({
+  queryClient,
+  queryKeys,
+}: QueryKeysArg): Promise<unknown>[] {
+  const promises = new Set<Promise<unknown>>();
+  for (const queryKey of queryKeys) {
+    for (const query of queryClient.getQueryCache().findAll({
+      queryKey,
+      type: "active",
+      predicate: (candidate) =>
+        candidate.state.dataUpdatedAt === 0 &&
+        candidate.state.fetchStatus === "fetching",
+    })) {
+      if (query.promise) {
+        promises.add(query.promise);
+      }
+    }
+  }
+  return [...promises];
 }
 
 interface InitialConnectInvalidationArgs extends QueryClientArg {
@@ -171,6 +216,9 @@ function getServerReconnectInvalidationQueryKeys(): QueryKey[] {
     allThreadTimelineQueryKeyPrefix(),
     allThreadConversationOutlineQueryKeyPrefix(),
     allThreadTimelineTurnSummaryDetailsQueryKeyPrefix(),
+    // Turn telemetry is realtime-owned with staleTime Infinity, so a strip whose
+    // events landed during the disconnect stays empty until a full reload.
+    allThreadTurnsQueryKeyPrefix(),
     allThreadQueuedMessagesQueryKeyPrefix(),
     threadPromptHistoryQueryKeyPrefix(),
     allThreadPendingInteractionsQueryKeyPrefix(),
@@ -192,5 +240,6 @@ function getServerReconnectInvalidationQueryKeys(): QueryKey[] {
     hostPathExistenceQueryKeyPrefix(),
     allSystemProvidersQueryKeyPrefix(),
     allSystemExecutionOptionsQueryKeyPrefix(),
+    allNotificationListQueryKeyPrefix(),
   ];
 }

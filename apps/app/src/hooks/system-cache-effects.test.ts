@@ -25,6 +25,7 @@ import {
 import {
   invalidateRealtimeQueriesAfterServerReconnect,
   invalidateRealtimeQueriesFetchedBeforeInitialConnect,
+  recoverErroredRealtimeQueries,
 } from "./cache-owners/system-cache-effects";
 
 function createCacheEffectQueryClient() {
@@ -277,6 +278,54 @@ describe("system cache effects", () => {
     expect(queryClient.getQueryState(neverFetchedKey)).toBeUndefined();
   });
 
+  // First load: the socket opens in a few ms while the bootstrap request is
+  // still in flight, so its failure lands after the recovery pass has already
+  // looked. With staleTime Infinity nothing else retries it, and the sidebar
+  // stays on "Failed to load projects." until the page is reloaded.
+  it("retries a first load that was still in flight when realtime connected", async () => {
+    const queryClient = createCacheEffectQueryClient();
+    queryClient.mount();
+    let failFirstLoad: (() => void) | undefined;
+    const queryFn = vi
+      .fn<() => Promise<string>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            failFirstLoad = () => reject(new Error("offline"));
+          }),
+      )
+      .mockImplementation(() => Promise.reject(new Error("still offline")));
+    const observer = new QueryObserver(queryClient, {
+      queryKey: sidebarNavigationQueryKey(),
+      queryFn,
+      refetchOnWindowFocus: false,
+      staleTime: Infinity,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    await vi.waitFor(() => {
+      expect(queryFn).toHaveBeenCalledTimes(1);
+    });
+
+    const recovery = recoverErroredRealtimeQueries({ queryClient });
+    failFirstLoad?.();
+    await recovery;
+
+    await vi.waitFor(() => {
+      expect(queryFn).toHaveBeenCalledTimes(2);
+    });
+    // Bounded: the retry failing too does not start another round.
+    await vi.waitFor(() => {
+      expect(
+        queryClient.getQueryState(sidebarNavigationQueryKey())?.status,
+      ).toBe("error");
+    });
+    expect(queryFn).toHaveBeenCalledTimes(2);
+
+    unsubscribe();
+    queryClient.unmount();
+    queryClient.clear();
+  });
+
   it("refetches an active diff TOC query but evicts the observer-less patch cache after reconnect", async () => {
     const queryClient = createCacheEffectQueryClient();
     const diffFilesKey = environmentDiffFilesQueryKey("env-1", "all", "main");
@@ -316,9 +365,7 @@ describe("system cache effects", () => {
     invalidateRealtimeQueriesAfterServerReconnect({ queryClient });
 
     // The TOC has an observer, so reconnect invalidation refetches it.
-    await vi.waitFor(() =>
-      expect(diffFilesQueryFn).toHaveBeenCalledTimes(1),
-    );
+    await vi.waitFor(() => expect(diffFilesQueryFn).toHaveBeenCalledTimes(1));
     // The observer-less patch entry is evicted so a stale patch can't survive
     // the reconnect.
     expect(queryClient.getQueryData(diffPatchKey)).toBeUndefined();

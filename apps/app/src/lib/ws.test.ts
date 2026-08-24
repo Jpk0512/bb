@@ -3,7 +3,7 @@ import { clientMessageSchema, type ClientMessage } from "@bb/domain";
 import type { RealtimeSubscriptionTarget } from "@bb/server-contract";
 
 const fakeSocketState = vi.hoisted(() => {
-  type CloseHandler = () => void;
+  type CloseHandler = (event: CloseEvent) => void;
   type MessageHandler = (event: MessageEvent) => void;
   type OpenHandler = () => void;
 
@@ -18,9 +18,11 @@ const fakeSocketState = vi.hoisted(() => {
       instances.push(this);
     }
 
-    close(): void {
+    // 1006 is what a dropped transport reports; a rejecting server close passes
+    // its own code.
+    close(code = 1006, reason = ""): void {
       this.readyState = 3;
-      this.onclose?.();
+      this.onclose?.(new CloseEvent("close", { code, reason }));
     }
 
     open(): void {
@@ -89,7 +91,7 @@ interface ConnectedManager {
 
 interface FakeSocket {
   readonly sentMessages: string[];
-  close: () => void;
+  close: (code?: number, reason?: string) => void;
   open: () => void;
 }
 
@@ -277,6 +279,193 @@ describe("WebSocketManager subscriptions", () => {
     expect(readClientMessages(socket)).toEqual([
       { type: "subscribe", target: PLUGIN_CHANNEL_TARGET },
     ]);
+  });
+});
+
+// The server answers no ping (an unrecognized client message is a 1008 close),
+// so "connected" is only ever the socket's own claim: a TCP-dead socket keeps
+// reporting it until the browser notices. Callers that skip cache work because
+// realtime will deliver it need the receive-side evidence instead.
+describe("WebSocketManager realtime liveness", () => {
+  const originalWebSocket = globalThis.WebSocket;
+
+  beforeEach(() => {
+    fakeSocketState.instances.length = 0;
+    installOpenWebSocketConstructor();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    Object.defineProperty(globalThis, "WebSocket", {
+      configurable: true,
+      value: originalWebSocket,
+    });
+  });
+
+  it("reports not-live once a connected socket has gone silent, and live again on server traffic", () => {
+    const { manager } = createConnectedManager();
+
+    expect(manager.isRealtimeLive()).toBe(true);
+
+    vi.advanceTimersByTime(11_000);
+
+    expect(manager.getConnectionState()).toBe("connected");
+    expect(manager.isRealtimeLive()).toBe(false);
+
+    manager.handleIncomingMessage(
+      JSON.stringify({
+        type: "changed",
+        entity: "thread",
+        id: "thr_1",
+        changes: ["events-appended"],
+      }),
+    );
+
+    expect(manager.isRealtimeLive()).toBe(true);
+  });
+});
+
+// Version skew: the server closes with 1008 on a subscribe target it cannot
+// parse. Replaying the same set verbatim on every reconnect is an endless
+// connect/replay/close loop with realtime permanently dead.
+describe("WebSocketManager rejected subscriptions", () => {
+  const originalWebSocket = globalThis.WebSocket;
+
+  beforeEach(() => {
+    fakeSocketState.instances.length = 0;
+    installOpenWebSocketConstructor();
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    Object.defineProperty(globalThis, "WebSocket", {
+      configurable: true,
+      value: originalWebSocket,
+    });
+  });
+
+  it("stops replaying the single subscription outstanding when the server rejected it", () => {
+    const { manager, socket } = createConnectedManager();
+    manager.subscribe(PROJECT_TARGET);
+    // The socket survives long enough for the server to have accepted it.
+    vi.advanceTimersByTime(5_000);
+    manager.subscribe(THREAD_TARGET);
+    socket.sentMessages.length = 0;
+
+    socket.close(1008, "invalid-message");
+    socket.open();
+
+    expect(readClientMessages(socket)).toEqual([
+      { type: "subscribe", target: PROJECT_TARGET },
+    ]);
+    expect(console.error).toHaveBeenCalled();
+    expect(manager.isRealtimeLive()).toBe(true);
+  });
+
+  it("re-establishes subscriptions one at a time when a rejecting close names no single suspect", () => {
+    const { manager, socket } = createConnectedManager();
+    manager.subscribe(PROJECT_TARGET);
+    manager.subscribe(THREAD_TARGET);
+    socket.sentMessages.length = 0;
+
+    socket.close(1008, "invalid-message");
+    socket.open();
+
+    // Both were in flight, so neither is provably at fault: only the first goes
+    // back out, and realtime is not claimed until the set is whole again.
+    expect(readClientMessages(socket)).toEqual([
+      { type: "subscribe", target: PROJECT_TARGET },
+    ]);
+    expect(manager.isRealtimeLive()).toBe(false);
+
+    vi.advanceTimersByTime(5_000);
+
+    expect(readClientMessages(socket)).toEqual([
+      { type: "subscribe", target: PROJECT_TARGET },
+      { type: "subscribe", target: THREAD_TARGET },
+    ]);
+
+    // Now the rejected target is alone on the socket, so the next close names
+    // it and the loop ends with the good subscription intact.
+    socket.close(1008, "invalid-message");
+    socket.sentMessages.length = 0;
+    socket.open();
+
+    expect(readClientMessages(socket)).toEqual([
+      { type: "subscribe", target: PROJECT_TARGET },
+    ]);
+  });
+
+  it("keeps replaying the whole set after a transport drop", () => {
+    const { manager, socket } = createConnectedManager();
+    manager.subscribe(PROJECT_TARGET);
+    manager.subscribe(THREAD_TARGET);
+    socket.sentMessages.length = 0;
+
+    socket.close();
+    socket.open();
+
+    expect(readClientMessages(socket)).toEqual([
+      { type: "subscribe", target: PROJECT_TARGET },
+      { type: "subscribe", target: THREAD_TARGET },
+    ]);
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  // A quarantine that only the reconnect replay honors is not a quarantine: the
+  // subscriber remounting, or unmounting and sending the same target back as an
+  // unsubscribe, closes the socket every other feed is sharing.
+  it("sends nothing for a quarantined target when its subscriber remounts", () => {
+    const { manager, socket } = createConnectedManager();
+    manager.subscribe(PROJECT_TARGET);
+    vi.advanceTimersByTime(5_000);
+    manager.subscribe(THREAD_TARGET);
+    socket.close(1008, "invalid-message");
+    socket.open();
+    socket.sentMessages.length = 0;
+
+    manager.unsubscribe(THREAD_TARGET);
+    manager.subscribe(THREAD_TARGET);
+
+    expect(readClientMessages(socket)).toEqual([]);
+  });
+
+  // A rejecting close with nothing in flight means a target this client had
+  // already recorded as accepted is no longer accepted — an in-place server
+  // downgrade. Replaying that record verbatim is the invisible loop.
+  it("re-proves the accepted set when a rejecting close names no suspect", () => {
+    const { manager, socket } = createConnectedManager();
+    manager.subscribe(PROJECT_TARGET);
+    manager.subscribe(THREAD_TARGET);
+    vi.advanceTimersByTime(5_000);
+    socket.sentMessages.length = 0;
+
+    socket.close(1008, "invalid-message");
+    socket.open();
+
+    expect(readClientMessages(socket)).toEqual([
+      { type: "subscribe", target: PROJECT_TARGET },
+    ]);
+    expect(console.error).toHaveBeenCalled();
+  });
+
+  // Staging means one candidate is being probed; with the candidates gone the
+  // flag has nothing left to converge on and would strand isRealtimeLive().
+  it("stops staging when the outstanding candidates are unsubscribed", () => {
+    const { manager, socket } = createConnectedManager();
+    manager.subscribe(PROJECT_TARGET);
+    manager.subscribe(THREAD_TARGET);
+
+    socket.close(1008, "invalid-message");
+    manager.unsubscribe(PROJECT_TARGET);
+    manager.unsubscribe(THREAD_TARGET);
+    socket.open();
+
+    expect(manager.isRealtimeLive()).toBe(true);
   });
 });
 

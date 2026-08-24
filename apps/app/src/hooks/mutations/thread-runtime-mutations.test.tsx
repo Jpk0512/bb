@@ -46,7 +46,7 @@ vi.mock("@/lib/sdk", async (importOriginal) => {
 
 vi.mock("@/lib/ws", () => ({
   wsManager: {
-    getConnectionState: vi.fn(() => "connected"),
+    isRealtimeLive: vi.fn(() => true),
   },
 }));
 
@@ -116,7 +116,7 @@ const executionInputSources = {
 } satisfies ExistingThreadExecutionInputSources;
 
 beforeEach(() => {
-  vi.mocked(wsManager.getConnectionState).mockReturnValue("connected");
+  vi.mocked(wsManager.isRealtimeLive).mockReturnValue(true);
   vi.mocked(sdk.threads.cancelPlan).mockResolvedValue({ ok: true });
   vi.mocked(sdk.threads.clearGoal).mockResolvedValue({ ok: true });
   vi.mocked(sdk.threads.editMessage).mockResolvedValue({
@@ -179,8 +179,8 @@ describe("thread runtime mutations", () => {
     expect(invalidateQueries).not.toHaveBeenCalled();
   });
 
-  it("invalidates rewritten history after edit success when realtime is disconnected", async () => {
-    vi.mocked(wsManager.getConnectionState).mockReturnValue("reconnecting");
+  it("invalidates rewritten history after edit success when realtime is not live", async () => {
+    vi.mocked(wsManager.isRealtimeLive).mockReturnValue(false);
     const { queryClient, wrapper } = createQueryClientTestHarness();
     const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
     const { result } = renderHook(() => useEditThreadMessage(), { wrapper });
@@ -292,6 +292,29 @@ describe("thread runtime mutations", () => {
         executionInputSources,
         threadId: "thread-1",
       }),
+    );
+  });
+
+  // The reported symptom of trusting the socket's own "connected": the send
+  // succeeds, the timeline is never invalidated, and the response only appears
+  // once a second send forces a fetch.
+  it("invalidates the timeline after a send when realtime is not live", async () => {
+    vi.mocked(wsManager.isRealtimeLive).mockReturnValue(false);
+    const { queryClient, wrapper } = createQueryClientTestHarness();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useSendThreadMessage(), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        id: "thread-1",
+        mode: "auto",
+        input: [{ type: "text", text: "Run this", mentions: [] }],
+        executionInputSources,
+      });
+    });
+
+    expect(invalidateQueries).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: threadTimelineQueryKey("thread-1") }),
     );
   });
 
