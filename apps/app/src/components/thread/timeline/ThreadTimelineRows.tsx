@@ -1007,8 +1007,7 @@ function ConversationRow({
   // in the same scroll container. Those rows are read-only: edit and fork both
   // address the SURFACE thread by source sequence, and a predecessor's
   // sequences name a different thread's events entirely.
-  const isPriorLineageRow =
-    threadId !== undefined && row.threadId !== threadId;
+  const isPriorLineageRow = threadId !== undefined && row.threadId !== threadId;
   // The narrow, stable message reference plugin actions receive — sourced
   // from row fields, never the row object itself.
   const messageReference: ThreadChatMessageReference = {
@@ -1375,33 +1374,31 @@ function TurnRowBody({
   showAssistantMessageActions,
   showTurnTelemetry = false,
 }: TurnRowBodyProps) {
-  const details = row.children === null ? (
-    <LazyTurnRowBody
-      compactActivityIntents={compactActivityIntents}
-      row={row}
-      showAssistantMessageActions={showAssistantMessageActions}
-    />
-  ) : (
-    <TimelineRowsList
-      rows={row.children}
-      scopeActive={false}
-      showAssistantMessageActions={showAssistantMessageActions}
-      compactActivityIntents={compactActivityIntents}
-      spacing="nested"
-      className={NESTED_TIMELINE_GROUP_LINE_CLASS_NAME}
-      unreadDividerAutoScroll={false}
-      unreadDividerPlacement={null}
-    />
-  );
+  const details =
+    row.children === null ? (
+      <LazyTurnRowBody
+        compactActivityIntents={compactActivityIntents}
+        row={row}
+        showAssistantMessageActions={showAssistantMessageActions}
+      />
+    ) : (
+      <TimelineRowsList
+        rows={row.children}
+        scopeActive={false}
+        showAssistantMessageActions={showAssistantMessageActions}
+        compactActivityIntents={compactActivityIntents}
+        spacing="nested"
+        className={NESTED_TIMELINE_GROUP_LINE_CLASS_NAME}
+        unreadDividerAutoScroll={false}
+        unreadDividerPlacement={null}
+      />
+    );
   if (!showTurnTelemetry) {
     return details;
   }
   return (
     <div className="flex flex-col gap-3">
-      <TurnTelemetryExpandedBody
-        threadId={row.threadId}
-        turnId={row.turnId}
-      />
+      <TurnTelemetryExpandedBody threadId={row.threadId} turnId={row.turnId} />
       {details}
     </div>
   );
@@ -1710,6 +1707,9 @@ function TimelineRowView({
     scopeActive,
     spacing,
   });
+  const isToolOrCommandRow =
+    row.kind === "work" &&
+    (row.workKind === "command" || row.workKind === "tool");
 
   if (row.kind === "conversation") {
     return (
@@ -1741,6 +1741,8 @@ function TimelineRowView({
               />
               <TimelineTitleView
                 title={entry.title}
+                className="font-mono text-xs"
+                alignDuration
                 onTitleAction={onTitleAction}
                 resolveSegmentLinkHref={resolveSegmentLinkHref}
               />
@@ -1772,6 +1774,8 @@ function TimelineRowView({
           ) : null}
           <TimelineTitleView
             title={titleState.title}
+            className={isToolOrCommandRow ? "font-mono text-xs" : undefined}
+            alignDuration={isToolOrCommandRow}
             onTitleAction={onTitleAction}
             resolveSegmentLinkHref={resolveSegmentLinkHref}
           />
@@ -1854,6 +1858,16 @@ function TimelineExpandableRowView({
   return (
     <ExpandableTimelineRow
       title={title}
+      titleClassName={
+        row.kind === "work" &&
+        (row.workKind === "command" || row.workKind === "tool")
+          ? "font-mono text-xs"
+          : undefined
+      }
+      alignTitleDuration={
+        row.kind === "work" &&
+        (row.workKind === "command" || row.workKind === "tool")
+      }
       // Dim the row's title content (not the whole row) so the disclosure caret
       // keeps a uniform opacity across completed/header/normal rows instead of
       // compounding the row-level dim onto the caret.

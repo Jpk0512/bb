@@ -41,6 +41,8 @@ export interface ExpandableTimelineRowProps {
   title: TimelineTitle;
   /** Replaces the generic timeline-title renderer for a specialized header. */
   titleContent?: ReactNode;
+  titleClassName?: string;
+  alignTitleDuration?: boolean;
   className?: string;
   collapsedPreview?: ReactNode;
   expandable?: boolean;
@@ -94,7 +96,9 @@ function ExpandableTimelineRowComponent({
   summaryClassName,
   terminalAutoExpanded = false,
   title,
+  titleClassName,
   titleContent,
+  alignTitleDuration = false,
 }: ExpandableTimelineRowProps) {
   const [manualExpansionOverride, setManualExpansionOverride] =
     useState<ManualExpansionOverride>(null);
@@ -195,9 +199,7 @@ function ExpandableTimelineRowComponent({
               expandable ? () => setCollapsedPreviewActive(true) : undefined
             }
             onBlur={expandable ? handleCollapsedPreviewBlur : undefined}
-            onKeyDown={
-              expandable ? handleCollapsedPreviewKeyDown : undefined
-            }
+            onKeyDown={expandable ? handleCollapsedPreviewKeyDown : undefined}
           >
             {collapsedPreview}
           </div>
@@ -220,6 +222,8 @@ function ExpandableTimelineRowComponent({
           {titleContent ?? (
             <TimelineTitleView
               title={title}
+              className={titleClassName}
+              alignDuration={alignTitleDuration}
               onTitleAction={onTitleAction}
               resolveSegmentLinkHref={resolveSegmentLinkHref}
             />
