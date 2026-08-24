@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createBrowserFixedPanelTab,
   createEmptyFixedPanelTabsState,
+  createFilesFixedPanelTab,
   createGitDiffFixedPanelTab,
   createHostFilePreviewFixedPanelTab,
   createNewTabFixedPanelTab,
@@ -14,6 +15,7 @@ import {
   activateSecondaryPanelTabInState,
   buildOrderedSecondaryPanelFileTabs,
   closeSecondaryPanelTabInState,
+  isSecondaryFileTab,
   openSecondaryPanelTabInState,
   replaceNewTabWithSecondaryPanelTabInState,
 } from "./secondaryPanelTabState";
@@ -32,6 +34,10 @@ function makeWorkspaceTab(environmentId: string) {
 }
 
 describe("secondaryPanelTabState", () => {
+  it("keeps the persistent files navigator out of closable file tabs", () => {
+    expect(isSecondaryFileTab(createFilesFixedPanelTab())).toBe(false);
+  });
+
   it("opens, activates, and closes secondary panel tabs by canonical id", () => {
     const workspaceTab = makeWorkspaceTab("env-1");
     const hostTab = createHostFilePreviewFixedPanelTab({

@@ -1,13 +1,18 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import type { WorkspaceDiffTarget } from "@bb/domain";
 import type { MarkdownLinkRouting } from "@/components/ui/markdown-link-routing.js";
 import { Skeleton } from "@bb/shared-ui/skeleton";
+import { Icon } from "@bb/shared-ui/icon";
 import { EmptyStatePanel } from "@bb/shared-ui/empty-state";
 import {
   useEnvironmentDiffFiles,
   useEnvironmentFilePreview,
+  useEnvironmentPathSuggestions,
 } from "@/hooks/queries/environment-queries";
-import { useProjectFilePreview } from "@/hooks/queries/project-queries";
+import {
+  useProjectFilePreview,
+  useProjectPathSuggestions,
+} from "@/hooks/queries/project-queries";
 import {
   useThreadHostFilePreview,
   useThreadStorageFilePreview,
@@ -22,6 +27,7 @@ import type {
   WorkspaceFilePreviewStatusLabel,
 } from "@/lib/file-preview";
 import { cn } from "@bb/shared-ui/lib/utils";
+import { resolveRightPanelFileVisual } from "./rightPanelFileVisuals";
 import { DiffFilesPanel } from "./git-diff/DiffFilesPanel";
 import { clearDiffFileCardStates } from "./git-diff/diffFilesStore";
 import { buildGitDiffIdentity } from "./git-diff/gitDiffPanelHelpers";
@@ -55,6 +61,15 @@ export interface GitDiffTabContentProps {
 export interface ThreadInfoTabContentProps {
   metadataContent: ReactNode;
 }
+
+export interface FilesTabContentProps {
+  environmentId?: string | null;
+  hostId?: string | null;
+  onOpenFilePreview?: (path: string) => void;
+  projectId?: string;
+}
+
+const WORKSPACE_FILE_TREE_LIMIT = 500;
 
 export interface WorkspaceFilePreviewTabContentProps {
   activePath: string;
@@ -304,6 +319,133 @@ export function ThreadInfoTabContent({
   metadataContent,
 }: ThreadInfoTabContentProps) {
   return <div className="flex min-h-0 flex-1 flex-col">{metadataContent}</div>;
+}
+
+/**
+ * A bounded, root-level workspace browser. The same `paths` endpoints power
+ * New Tab's file search; this view intentionally asks for an empty query so it
+ * can show a compact tree before the user knows a filename.
+ */
+export function FilesTabContent({
+  environmentId,
+  hostId = null,
+  onOpenFilePreview,
+  projectId,
+}: FilesTabContentProps) {
+  const environmentPaths = useEnvironmentPathSuggestions({
+    environmentId,
+    query: "",
+    limit: WORKSPACE_FILE_TREE_LIMIT,
+    includeFiles: true,
+    includeDirectories: true,
+    allowEmptyQuery: true,
+  });
+  const projectPaths = useProjectPathSuggestions({
+    projectId: environmentId ? undefined : projectId,
+    environmentId: null,
+    hostId,
+    query: "",
+    limit: WORKSPACE_FILE_TREE_LIMIT,
+    includeFiles: true,
+    includeDirectories: true,
+    allowEmptyQuery: true,
+  });
+  const pathQuery = environmentId ? environmentPaths : projectPaths;
+  const paths = useMemo(
+    () => pathQuery.data?.paths ?? [],
+    [pathQuery.data?.paths],
+  );
+
+  if (!environmentId && !projectId) {
+    return (
+      <div className={cn(PANEL_SCROLL_SLOT_CLASS, "px-4 pb-3")}>
+        <EmptyStatePanel className="rounded-lg">
+          Select a project to browse its files.
+        </EmptyStatePanel>
+      </div>
+    );
+  }
+
+  if (pathQuery.isLoading) {
+    return (
+      <div className={cn(PANEL_SCROLL_SLOT_CLASS, "space-y-2 px-4 pb-3")}>
+        {Array.from({ length: 8 }).map((_, index) => (
+          <Skeleton key={index} className="h-7 rounded-md" />
+        ))}
+      </div>
+    );
+  }
+
+  if (pathQuery.error) {
+    return (
+      <div className={cn(PANEL_SCROLL_SLOT_CLASS, "px-4 pb-3")}>
+        <EmptyStatePanel className="rounded-lg">
+          Unable to load workspace files.
+        </EmptyStatePanel>
+      </div>
+    );
+  }
+
+  if (paths.length === 0) {
+    return (
+      <div className={cn(PANEL_SCROLL_SLOT_CLASS, "px-4 pb-3")}>
+        <EmptyStatePanel className="rounded-lg">
+          No workspace files found.
+        </EmptyStatePanel>
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn(PANEL_SCROLL_SLOT_CLASS, "px-2 pb-3")}>
+      {pathQuery.data?.truncated ? (
+        <p className="px-2 py-1.5 text-xs text-muted-foreground">
+          Showing the first {paths.length} paths.
+        </p>
+      ) : null}
+      <div role="tree" aria-label="Workspace files" className="space-y-0.5">
+        {paths.map((entry) => {
+          const depth = entry.path.split("/").length - 1;
+          const isDirectory = entry.kind === "directory";
+          const visual = isDirectory
+            ? { iconName: "Folder" as const, label: "Folder" }
+            : resolveRightPanelFileVisual({ path: entry.path });
+          const row = (
+            <>
+              <Icon name={visual.iconName} className="size-4 shrink-0" />
+              <span className="truncate">{entry.name}</span>
+            </>
+          );
+
+          return isDirectory ? (
+            <div
+              key={entry.path}
+              role="treeitem"
+              aria-level={depth + 1}
+              className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1 text-sm text-muted-foreground"
+              style={{ paddingLeft: `${depth * 12 + 8}px` }}
+              title={entry.path}
+            >
+              {row}
+            </div>
+          ) : (
+            <button
+              key={entry.path}
+              type="button"
+              role="treeitem"
+              aria-level={depth + 1}
+              className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-foreground transition-colors hover:bg-state-hover"
+              style={{ paddingLeft: `${depth * 12 + 8}px` }}
+              title={entry.path}
+              onClick={() => onOpenFilePreview?.(entry.path)}
+            >
+              {row}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 export function WorkspaceFilePreviewTabContent({

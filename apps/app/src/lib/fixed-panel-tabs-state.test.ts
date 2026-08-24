@@ -5,6 +5,7 @@ import {
   buildFixedPanelTabId,
   createBrowserFixedPanelTab,
   createEmptyFixedPanelTabsState,
+  createFilesFixedPanelTab,
   createHostFilePreviewFixedPanelTab,
   createPluginPanelFixedPanelTab,
   createTerminalFixedPanelTab,
@@ -35,6 +36,27 @@ function makeInitialState(): FixedPanelTabsState {
 }
 
 describe("fixed-panel-tabs-state", () => {
+  it("round-trips the persistent files navigator tab", () => {
+    const filesTab = createFilesFixedPanelTab();
+    const state = createEmptyFixedPanelTabsState({
+      secondary: {
+        activeTabId: filesTab.id,
+        isOpen: true,
+        tabs: [filesTab],
+      },
+      lastUsedAt: NOW,
+    });
+
+    const parsed = parseFixedPanelTabsState({
+      initialValue: EMPTY_FIXED_PANEL_TABS_STATE,
+      now: NOW,
+      storedValue: serializeFixedPanelTabsState({ state }),
+    });
+
+    expect(parsed.secondary.tabs).toEqual([filesTab]);
+    expect(parsed.secondary.activeTabId).toBe(filesTab.id);
+  });
+
   it("parses current secondary tab state", () => {
     const now = 1_000;
     const workspaceTab = createWorkspaceFilePreviewFixedPanelTab({

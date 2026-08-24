@@ -2832,6 +2832,7 @@ function ThreadDetailViewInternal(props: ThreadDetailViewInternalProps) {
             activeTab: activeFixedSecondaryTab,
             canUseGitUi,
             environmentId: thread.environmentId ?? undefined,
+            projectId: projectId ?? undefined,
             workspaceRootPath: environment?.path,
             fileTabs,
             fileTabContent,

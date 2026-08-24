@@ -26,6 +26,7 @@ async function putTabs(
 const ALL_TAB_KINDS: readonly ThreadTab[] = [
   { id: "thread-info", kind: "thread-info" },
   { id: "git-diff", kind: "git-diff" },
+  { id: "files", kind: "files" },
   {
     actionId: "inspect",
     id: "plugin-panel",
