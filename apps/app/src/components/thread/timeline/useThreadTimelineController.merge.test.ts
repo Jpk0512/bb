@@ -18,6 +18,8 @@ import {
 interface TimelineTestRowArgs {
   id: string;
   sequence: number;
+  /** Defaults to the current thread; set it to model a lineage predecessor. */
+  threadId?: string;
 }
 
 interface TimelineTurnTestRowArgs extends TimelineTestRowArgs {
@@ -34,7 +36,7 @@ function timelineCursor(args: TimelineTestRowArgs): TimelinePaginationCursor {
 function userRow(args: TimelineTestRowArgs): TimelineUserConversationRow {
   return {
     id: args.id,
-    threadId: "thread-1",
+    threadId: args.threadId ?? "thread-1",
     turnId: "turn-1",
     sourceSeqStart: args.sequence,
     sourceSeqEnd: args.sequence,
@@ -56,7 +58,7 @@ function userRow(args: TimelineTestRowArgs): TimelineUserConversationRow {
 function commandRow(args: TimelineTestRowArgs): TimelineCommandWorkRow {
   return {
     id: args.id,
-    threadId: "thread-1",
+    threadId: args.threadId ?? "thread-1",
     turnId: "turn-1",
     sourceSeqStart: args.sequence,
     sourceSeqEnd: args.sequence,
@@ -352,6 +354,87 @@ describe("timeline page row merging", () => {
     const current = makeLoadedTimelineState(
       [commandRow({ id: "live-work", sequence: 500 }), liveTail],
       inTurnCursor,
+    );
+    const finishedCursor = timelineCursor({ id: "older-turn", sequence: 1 });
+    const latestTimeline = makeTimelineResponse(
+      [
+        userRow({ id: "turn-prompt", sequence: 10 }),
+        turnSummaryRow({ id: "turn-summary", sequence: 11 }),
+        liveTail,
+      ],
+      finishedCursor,
+    );
+
+    const next = mergeLoadedTimelineWithLatest({
+      current,
+      latestTimeline,
+      surfaceKey: "thread-1:default",
+    });
+
+    expect(next.rows.map((row) => row.id)).toEqual([
+      "turn-prompt",
+      "turn-summary",
+      "live-tail",
+    ]);
+    expect(next.olderCursor).toEqual(finishedCursor);
+  });
+
+  it("keeps predecessor scrollback loaded across a lineage seam", () => {
+    // Scrolling past the start of a continued thread prepends the retired
+    // thread's rows, and those keep their own thread's sequences. Read as one
+    // space, the current thread's window looks like it reaches back past them.
+    const seamCursor = timelineCursor({
+      id: "lineage:thread-0",
+      sequence: 120,
+    });
+    const predecessorTail = userRow({
+      id: "predecessor-tail",
+      sequence: 120,
+      threadId: "thread-0",
+    });
+    const currentOldest = userRow({ id: "current-oldest", sequence: 5 });
+    const currentTail = commandRow({ id: "current-tail", sequence: 30 });
+    const current = makeLoadedTimelineState(
+      [predecessorTail, currentOldest, currentTail],
+      seamCursor,
+    );
+    const latestTimeline = makeTimelineResponse(
+      [currentTail],
+      timelineCursor({ id: "current-page", sequence: 30 }),
+    );
+
+    const next = mergeLoadedTimelineWithLatest({
+      current,
+      latestTimeline,
+      surfaceKey: "thread-1:default",
+    });
+
+    expect(next.rows.map((row) => row.id)).toEqual([
+      "predecessor-tail",
+      "current-oldest",
+      "current-tail",
+    ]);
+    expect(next.olderCursor).toEqual(seamCursor);
+  });
+
+  it("still rebuilds on a reach-back within the current thread below a lineage seam", () => {
+    const seamCursor = timelineCursor({
+      id: "lineage:thread-0",
+      sequence: 120,
+    });
+    const predecessorTail = userRow({
+      id: "predecessor-tail",
+      sequence: 120,
+      threadId: "thread-0",
+    });
+    const liveTail = commandRow({ id: "live-tail", sequence: 520 });
+    const current = makeLoadedTimelineState(
+      [
+        predecessorTail,
+        commandRow({ id: "live-work", sequence: 500 }),
+        liveTail,
+      ],
+      seamCursor,
     );
     const finishedCursor = timelineCursor({ id: "older-turn", sequence: 1 });
     const latestTimeline = makeTimelineResponse(

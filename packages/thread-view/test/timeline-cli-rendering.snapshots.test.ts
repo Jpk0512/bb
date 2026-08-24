@@ -196,12 +196,14 @@ describe("timeline CLI rendering snapshots", () => {
     );
 
     expect(childRows).toHaveLength(1);
+    // The row stays pinned to the spawn event (seq 2) it is placed by; the
+    // thread-scoped updates fold into it without widening its range.
     expect(childRows[0]).toMatchObject({
       childStatus: "completed",
       model: "gpt-5",
       outputExcerpt: "Review complete.",
       sourceSeqStart: 2,
-      sourceSeqEnd: 5,
+      sourceSeqEnd: 2,
       status: "completed",
       turnId: "turn-1",
     });

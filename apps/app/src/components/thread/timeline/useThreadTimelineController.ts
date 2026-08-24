@@ -321,15 +321,27 @@ export function mergeLatestTimelineRows({
  * fresh response becomes the timeline. The cost is a scrolled-back reader
  * losing their loaded pages; the alternative is showing them a reordered or
  * silently incomplete thread.
+ *
+ * Both shapes are judged in ONE thread's sequence space. A row's sequence is
+ * unique per (thread, sequence), and scrolling a continued thread past its own
+ * start prepends the predecessor thread's rows — which restart low — so only
+ * rows from the latest window's own thread can be compared against it. Rows
+ * below that lineage seam are older than the whole window by construction.
  */
 function isLatestTimelineWindowContiguous({
   latestRows,
   loadedRows,
 }: MergeLatestTimelineRowsArgs): boolean {
-  const oldestLoaded = loadedRows[0];
-  const newestLoaded = loadedRows.at(-1);
   const oldestLatest = latestRows[0];
-  if (!oldestLoaded || !newestLoaded || !oldestLatest) {
+  if (!oldestLatest) {
+    return true;
+  }
+  const sameThreadLoadedRows = loadedRows.filter(
+    (row) => row.threadId === oldestLatest.threadId,
+  );
+  const oldestLoaded = sameThreadLoadedRows[0];
+  const newestLoaded = sameThreadLoadedRows.at(-1);
+  if (!oldestLoaded || !newestLoaded) {
     return true;
   }
   if (oldestLatest.sourceSeqStart < oldestLoaded.sourceSeqStart) {

@@ -300,6 +300,14 @@ export function upsertUserQuestionLifecycleMessage(
  * Child updates intentionally fold across scopes. The turn-scoped spawn holds
  * placement at the delegation point; later thread-scoped updates must not be
  * moved into a later parent turn merely because the child outlives its spawn.
+ *
+ * For the same reason the row's source range stays pinned to the scope that
+ * anchored it: turn bounds are derived from member-message ranges, and the
+ * server validates turn-summary expansion against those ranges, so a range
+ * stretched into a later turn permanently breaks expanding the spawning turn.
+ * `createdAt` still advances with every update, and both the row render
+ * signature and the loaded-timeline identity check read it, so a pinned range
+ * does not freeze the rendered row.
  */
 export function upsertChildSessionLifecycleMessage(
   state: OperationProjectionState,
@@ -311,20 +319,40 @@ export function upsertChildSessionLifecycleMessage(
     state.messages.push(incoming);
     return;
   }
-  existing.sourceSeqStart = Math.min(
-    existing.sourceSeqStart,
-    incoming.sourceSeqStart,
-  );
-  existing.sourceSeqEnd = Math.max(
-    existing.sourceSeqEnd,
-    incoming.sourceSeqEnd,
-  );
+  if (haveCompatibleEventProjectionMessageScope(existing, incoming)) {
+    existing.sourceSeqStart = Math.min(
+      existing.sourceSeqStart,
+      incoming.sourceSeqStart,
+    );
+    existing.sourceSeqEnd = Math.max(
+      existing.sourceSeqEnd,
+      incoming.sourceSeqEnd,
+    );
+  }
+  // A non-terminal status arriving on a terminal row is a new run of the same
+  // child — one that is messaged again reports "running" first.
+  const isNewRun =
+    isTerminalLifecycleStatus(existing.status) &&
+    !isTerminalLifecycleStatus(incoming.status);
+  // Both branches read `createdAt` before it advances: with no explicit
+  // `startedAt` an event's own arrival time is the only start it carries. A new
+  // run starts when it was reported, not when the child was first spawned —
+  // renderers tick `now - startedAt` while the row is non-terminal, so keeping
+  // the first spawn would count the idle gap between runs as elapsed work.
+  existing.startedAt = isNewRun
+    ? (incoming.startedAt ?? incoming.createdAt)
+    : Math.min(
+        existing.startedAt ?? existing.createdAt,
+        incoming.startedAt ?? incoming.createdAt,
+      );
   existing.createdAt = Math.max(existing.createdAt, incoming.createdAt);
-  existing.startedAt = Math.min(
-    existing.startedAt ?? existing.createdAt,
-    incoming.startedAt ?? incoming.createdAt,
-  );
-  if (existing.status === "pending") {
+  // A terminal status is final for the run that reported it, so a repeated (or
+  // conflicting) terminal delivery cannot rewrite a finished block. A new run
+  // reopens the row so that run's own outcome, title and excerpt land on it.
+  if (
+    !isTerminalLifecycleStatus(existing.status) ||
+    !isTerminalLifecycleStatus(incoming.status)
+  ) {
     existing.status = incoming.status;
     existing.childStatus = incoming.childStatus;
     existing.statusReason = incoming.statusReason;
