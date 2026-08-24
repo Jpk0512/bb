@@ -15,11 +15,11 @@ import type {
 } from "@dnd-kit/core";
 import type { ThreadListEntry } from "@bb/domain";
 import {
-  usePinThread,
   useUnpinAndMoveThread,
   useUnpinThread,
   useUpdateThread,
 } from "@/hooks/mutations/thread-state-mutations";
+import { useThreadActions } from "@/components/thread/ThreadActionsProvider";
 import type { NeighborReorderRequest } from "@/lib/neighbor-reorder";
 import {
   getSidebarDndItemId,
@@ -316,7 +316,7 @@ export function useSectionThreadDnd({
     [topLevelSectionIds],
   );
   const updateThread = useUpdateThread();
-  const pinThread = usePinThread();
+  const { togglePin } = useThreadActions();
   const unpinThread = useUnpinThread();
   const unpinAndMoveThread = useUnpinAndMoveThread();
   const { handleDragEnd: handlePinnedDragEnd, itemIds: pinnedItemIds } =
@@ -490,9 +490,11 @@ export function useSectionThreadDnd({
             sectionId: decision.sectionId,
           });
           break;
-        case "pin":
-          pinThread.mutate({ id: decision.activeId });
+        case "pin": {
+          const thread = lookup.threadByItemId.get(decision.activeId);
+          if (thread) togglePin(thread);
           break;
+        }
         case "unpin":
           if (decision.move) {
             unpinAndMoveThread.mutate({
@@ -524,7 +526,7 @@ export function useSectionThreadDnd({
       handlePinnedDragEnd,
       lookup,
       onTopLevelSectionOrderChange,
-      pinThread,
+      togglePin,
       topLevelSectionIds,
       topLevelSectionOrder,
       updateThread,

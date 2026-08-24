@@ -205,7 +205,7 @@ function ThreadActionsMenuItems({
           togglePin(thread);
         }}
       >
-        {isPinned ? "Unpin" : "Pin"}
+        {isPinned ? "Unpin from sidebar" : "Pin to sidebar"}
       </ThreadActionMenuItem>
       <ThreadActionMenuItem
         surface={surface}

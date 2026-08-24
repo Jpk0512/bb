@@ -107,11 +107,17 @@ import {
   sidebarCollapsedMachinesAtom,
   sidebarOrganizationModeAtom,
   sidebarProjectDateGroupingEnabledAtom,
+  sidebarWorkingSetModeByProjectAtom,
   type SidebarChronologicalSort,
   type CollapsibleSidebarSectionId,
   type SidebarOrganizationMode,
   type SidebarSectionId,
 } from "./sidebarCollapsedAtoms";
+import {
+  summarizeWorkingSetsByProject,
+  hasSidebarWorkingActivity,
+  type SidebarWorkingSetMode,
+} from "./sidebarWorkingSet";
 import { sectionKeyForThreadSection } from "./sectionKeys";
 import {
   buildMachineThreadGroups,
@@ -134,7 +140,8 @@ import {
   SIDEBAR_ROW_INTERACTIVE_STATE_CLASS,
   SIDEBAR_STANDARD_ROW_PADDING_CLASS,
 } from "./sidebarRowClasses";
-export { TopLevelSidebarSection } from "./TopLevelSidebarSection";
+import { TopLevelSidebarSection } from "./TopLevelSidebarSection";
+export { TopLevelSidebarSection };
 import {
   SIDEBAR_THREAD_SEARCH_LISTBOX_ID,
   type SidebarThreadSearchInputController,
@@ -205,6 +212,8 @@ interface ProjectListThreadsSectionActionsProps {
 interface SidebarDisplayOptionsMenuProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  workingSetMode: SidebarWorkingSetMode;
+  onWorkingSetModeChange: (mode: SidebarWorkingSetMode) => void;
 }
 
 interface ProjectListNavigationLoadingRowProps {
@@ -678,6 +687,8 @@ function SidebarDisplayMenuTrigger({
 export function SidebarDisplayOptionsMenu({
   open,
   onOpenChange,
+  workingSetMode,
+  onWorkingSetModeChange,
 }: SidebarDisplayOptionsMenuProps) {
   const [organizationMode, setOrganizationMode] = useAtom(
     sidebarOrganizationModeAtom,
@@ -699,6 +710,24 @@ export function SidebarDisplayOptionsMenu({
         tooltip="Display options"
       />
       <DropdownMenuContent align="end" mobileTitle="Display options">
+        <DropdownMenuLabel className={CHROME_SECTION_LABEL_CLASS}>
+          Sessions
+        </DropdownMenuLabel>
+        <DropdownMenuGroup aria-label="Sessions">
+          <DropdownMenuCheckboxItem
+            checked={workingSetMode === "working"}
+            onCheckedChange={() => onWorkingSetModeChange("working")}
+          >
+            Working set
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={workingSetMode === "all"}
+            onCheckedChange={() => onWorkingSetModeChange("all")}
+          >
+            Show all sessions
+          </DropdownMenuCheckboxItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
         <DropdownMenuLabel className={CHROME_SECTION_LABEL_CLASS}>
           Organize
         </DropdownMenuLabel>
@@ -758,6 +787,8 @@ interface SidebarThreadsSectionActionsProps {
   isCreatingProject: boolean;
   onNewProject?: () => void;
   onNewThread: () => void;
+  workingSetMode: SidebarWorkingSetMode;
+  onWorkingSetModeChange: (mode: SidebarWorkingSetMode) => void;
 }
 
 // The complete Threads-section header cluster. Every organization mode and
@@ -771,12 +802,16 @@ function SidebarThreadsSectionActions({
   isCreatingProject,
   onNewProject,
   onNewThread,
+  workingSetMode,
+  onWorkingSetModeChange,
 }: SidebarThreadsSectionActionsProps) {
   return (
     <>
       <SidebarDisplayOptionsMenu
         open={displayOptionsOpen}
         onOpenChange={onDisplayOptionsOpenChange}
+        workingSetMode={workingSetMode}
+        onWorkingSetModeChange={onWorkingSetModeChange}
       />
       {onNewProject ? (
         <ProjectListProjectsSectionActions
@@ -990,6 +1025,86 @@ export function ActiveSidebarModeSections({
   if (mode === "machine") return renderMachine();
   if (mode === "chronological") return renderChronological();
   return renderProject();
+}
+
+interface WorkingSetSectionsProps {
+  actions?: ReactNode;
+  activeThreads: ThreadListEntry[];
+  compareThreads: ThreadComparator;
+  draftThreadIds: ReadonlySet<string>;
+  pinnedSection: BuiltInSidebarSectionOptions;
+  recentThreads: ThreadListEntry[];
+  selectedThreadId?: string;
+  onProjectSelect?: () => void;
+  collapsedThreadIds: Set<string>;
+  collapsedEnvironmentIds: Set<string>;
+  onToggleThreadCollapsed: ToggleCollapsedId;
+  onToggleEnvironmentCollapsed: ToggleCollapsedId;
+}
+
+/**
+ * Working set is intentionally a stable task-oriented view, independent of
+ * the user's general organization preference. Its three buckets make it clear
+ * why an otherwise idle session is still visible.
+ */
+function WorkingSetSections({
+  actions,
+  activeThreads,
+  collapsedEnvironmentIds,
+  collapsedThreadIds,
+  compareThreads,
+  draftThreadIds,
+  onProjectSelect,
+  onToggleEnvironmentCollapsed,
+  onToggleThreadCollapsed,
+  pinnedSection,
+  recentThreads,
+  selectedThreadId,
+}: WorkingSetSectionsProps) {
+  const renderBucket = (label: string, bucketThreads: ThreadListEntry[]) => {
+    if (bucketThreads.length === 0) return null;
+    return (
+      <TopLevelSidebarSection
+        label={label}
+        labelVariant="section"
+        collapsedActivity={getCollapsedChildActivity(
+          bucketThreads,
+          draftThreadIds,
+        )}
+        collapsedThreads={bucketThreads}
+      >
+        <ProjectThreadTree
+          threadListState={{ status: "ready", threads: bucketThreads }}
+          compareThreads={compareThreads}
+          variant="section"
+          selectedThreadId={selectedThreadId}
+          collapsedThreadIds={collapsedThreadIds}
+          collapsedEnvironmentIds={collapsedEnvironmentIds}
+          onProjectSelect={onProjectSelect}
+          onToggleThreadCollapsed={onToggleThreadCollapsed}
+          onToggleEnvironmentCollapsed={onToggleEnvironmentCollapsed}
+        />
+      </TopLevelSidebarSection>
+    );
+  };
+
+  return (
+    <>
+      {actions}
+      <TopLevelSidebarSection
+        label={pinnedSection.label}
+        labelVariant="section"
+        collapsedActivity={pinnedSection.activity}
+        collapsedThreads={pinnedSection.collapsedThreads}
+        actions={pinnedSection.actions}
+        actionsOpen={pinnedSection.actionsOpen}
+      >
+        {pinnedSection.content}
+      </TopLevelSidebarSection>
+      {renderBucket("Active", activeThreads)}
+      {renderBucket("Recent", recentThreads)}
+    </>
+  );
 }
 
 interface ProjectModeSectionsProps extends BuiltInSectionRenderState {
@@ -1567,7 +1682,43 @@ function ProjectListComponent({
       sidebarNavigationQuery.error,
     ),
   });
-  const { threadId: selectedThreadId } = useRouteState();
+  const { projectId: routeProjectId, threadId: selectedThreadId } =
+    useRouteState();
+  const [workingSetModesByProject, setWorkingSetModesByProject] = useAtom(
+    sidebarWorkingSetModeByProjectAtom,
+  );
+  const workingSetProjectId = routeProjectId ?? PERSONAL_PROJECT_ID;
+  const workingSetMode =
+    workingSetModesByProject[workingSetProjectId] ?? "working";
+  const setWorkingSetMode = useCallback(
+    (mode: SidebarWorkingSetMode) => {
+      setWorkingSetModesByProject((current) => ({
+        ...current,
+        [workingSetProjectId]: mode,
+      }));
+    },
+    [setWorkingSetModesByProject, workingSetProjectId],
+  );
+  // Resolve pins from the complete navigation response before any project
+  // applies its working-set cap, preserving every child of a pinned root.
+  const pinnedSidebarState = useMemo(
+    () => buildPinnedSidebarState({ draftThreadIds, threads }),
+    [draftThreadIds, threads],
+  );
+  const sidebarWorkingSet = useMemo(
+    () =>
+      summarizeWorkingSetsByProject({
+        modesByProject: workingSetModesByProject,
+        pinnedThreadIds: pinnedSidebarState.effectivePinnedThreadIds,
+        threads,
+      }),
+    [
+      pinnedSidebarState.effectivePinnedThreadIds,
+      threads,
+      workingSetModesByProject,
+    ],
+  );
+  const visibleThreads = sidebarWorkingSet.threads;
   const {
     isPending: isPinnedReorderPending,
     mutate: reorderPinnedThreadMutate,
@@ -1759,6 +1910,8 @@ function ProjectListComponent({
       <SidebarDisplayOptionsMenu
         open={openSidebarMenu === menuId}
         onOpenChange={(open) => setSidebarMenuOpen(menuId, open)}
+        workingSetMode={workingSetMode}
+        onWorkingSetModeChange={setWorkingSetMode}
       />
     );
   };
@@ -1812,10 +1965,6 @@ function ProjectListComponent({
       setChronologicalSort("updated");
     }
   }, [chronologicalSort, setChronologicalSort]);
-  const pinnedSidebarState = useMemo(
-    () => buildPinnedSidebarState({ draftThreadIds, threads }),
-    [draftThreadIds, threads],
-  );
   const pinnedRootThreads = useMemo(
     () => pinnedSidebarState.rootNodes.map((node) => node.thread),
     [pinnedSidebarState.rootNodes],
@@ -1961,12 +2110,12 @@ function ProjectListComponent({
       displayOptionsOpen={threadsDisplayOptionsMenuOpen}
       onDisplayOptionsOpenChange={handleThreadsDisplayOptionsMenuOpenChange}
       isCreatingSection={isCreateThreadSectionPending}
-      onNewSection={
-        isSectionOrganizationMode ? handleOpenCreateSectionDialog : undefined
-      }
+      onNewSection={handleOpenCreateSectionDialog}
       isCreatingProject={isCreatingProject}
       onNewProject={onNewProject}
       onNewThread={handleCreateProjectlessThread}
+      workingSetMode={workingSetMode}
+      onWorkingSetModeChange={setWorkingSetMode}
     />
   );
   const pinnedSection: BuiltInSidebarSectionOptions = {
@@ -1977,6 +2126,16 @@ function ProjectListComponent({
     actions: renderSectionDisplayOptions("pinned"),
     actionsOpen: isSectionDisplayOptionsOpen("pinned"),
   };
+  const workingSetActiveThreads = visibleThreads.filter(
+    (thread) =>
+      !pinnedSidebarState.effectivePinnedThreadIds.has(thread.id) &&
+      hasSidebarWorkingActivity(thread),
+  );
+  const workingSetRecentThreads = visibleThreads.filter(
+    (thread) =>
+      !pinnedSidebarState.effectivePinnedThreadIds.has(thread.id) &&
+      !hasSidebarWorkingActivity(thread),
+  );
   const threadsSection = {
     // In project mode this root list is a peer of named projects, never a
     // project nested under a generic "Threads" label.
@@ -2052,82 +2211,32 @@ function ProjectListComponent({
 
   return (
     <ProjectListShell titleMentionResources={titleMentionResources}>
-      <ActiveSidebarModeSections
-        mode={organizationMode}
-        renderMachine={() => (
-          <MachineModeSections
-            threads={threads}
-            draftThreadIds={draftThreadIds}
-            effectivePinnedThreadIds={
-              pinnedSidebarState.effectivePinnedThreadIds
-            }
-            status={projectsState.status}
-            isReady={Boolean(sidebarNavigation)}
-            showPinnedSection={hasPinnedSection}
+      {workingSetMode === "working" ? (
+        <>
+          <WorkingSetSections
+            actions={threadsSectionActions}
+            activeThreads={workingSetActiveThreads}
+            recentThreads={workingSetRecentThreads}
             pinnedSection={pinnedSection}
-            threadsSection={threadsSection}
+            draftThreadIds={draftThreadIds}
             selectedThreadId={selectedThreadId}
-            collapsedSectionIds={collapsedSidebarSectionIds}
             collapsedThreadIds={collapsedThreadIds}
             collapsedEnvironmentIds={collapsedEnvironmentIds}
             compareThreads={sidebarThreadComparator}
-            renderSectionDisplayOptions={renderSectionDisplayOptions}
-            isSectionDisplayOptionsOpen={isSectionDisplayOptionsOpen}
             onProjectSelect={onProjectSelect}
-            onToggleCollapsed={toggleSidebarSectionCollapsed}
             onToggleThreadCollapsed={toggleThreadCollapsed}
             onToggleEnvironmentCollapsed={toggleEnvironmentCollapsed}
           />
-        )}
-        renderChronological={() => (
-          <>
-            <SectionModeSections
-              threads={threads}
-              effectivePinnedThreadIds={
-                pinnedSidebarState.effectivePinnedThreadIds
-              }
-              status={projectsState.status}
-              isReady={Boolean(sidebarNavigation)}
-              showPinnedSection={hasPinnedSection}
-              sections={sections}
-              pinnedSection={pinnedSection}
-              pinnedReorderPending={isPinnedReorderPending}
-              pinnedThreads={pinnedRootThreads}
-              onReorderPinnedThread={handleReorderPinnedRoot}
-              threadsSection={threadsSection}
-              selectedThreadId={selectedThreadId}
-              collapsedSectionIds={collapsedSidebarSectionIds}
-              collapsedThreadIds={collapsedThreadIds}
-              collapsedEnvironmentIds={collapsedEnvironmentIds}
-              compareThreads={sidebarThreadComparator}
-              onProjectSelect={onProjectSelect}
-              onCreateThreadInSection={handleCreateThreadInSection}
-              onRenameSection={handleOpenRenameThreadSection}
-              onRemoveSection={handleRemoveThreadSection}
-              renderTopLevelSectionHeaderActions={(section) => {
-                const sectionId = buildSidebarEntitySectionId(
-                  "section",
-                  section.id,
-                );
-                return {
-                  actions: renderSectionDisplayOptions(sectionId),
-                  actionsOpen: isSectionDisplayOptionsOpen(sectionId),
-                };
-              }}
-              onToggleCollapsed={toggleSidebarSectionCollapsed}
-              onToggleThreadCollapsed={toggleThreadCollapsed}
-              onToggleEnvironmentCollapsed={toggleEnvironmentCollapsed}
-            />
-            {sectionCreateDialog}
-            {sectionRenameDialogContent}
-            {sectionDeleteDialogContent}
-          </>
-        )}
-        renderProject={() => (
-          <>
-            <ProjectModeSections
-              projects={projects ?? EMPTY_PROJECTS}
-              threads={threads}
+          {sectionCreateDialog}
+          {sectionRenameDialogContent}
+          {sectionDeleteDialogContent}
+        </>
+      ) : (
+        <ActiveSidebarModeSections
+          mode={organizationMode}
+          renderMachine={() => (
+            <MachineModeSections
+              threads={visibleThreads}
               draftThreadIds={draftThreadIds}
               effectivePinnedThreadIds={
                 pinnedSidebarState.effectivePinnedThreadIds
@@ -2145,17 +2254,112 @@ function ProjectListComponent({
               renderSectionDisplayOptions={renderSectionDisplayOptions}
               isSectionDisplayOptionsOpen={isSectionDisplayOptionsOpen}
               onProjectSelect={onProjectSelect}
-              onCreateProjectThread={handleCreateProjectThread}
               onToggleCollapsed={toggleSidebarSectionCollapsed}
               onToggleThreadCollapsed={toggleThreadCollapsed}
               onToggleEnvironmentCollapsed={toggleEnvironmentCollapsed}
             />
-            {sectionCreateDialog}
-            {sectionRenameDialogContent}
-            {sectionDeleteDialogContent}
-          </>
-        )}
-      />
+          )}
+          renderChronological={() => (
+            <>
+              <SectionModeSections
+                threads={visibleThreads}
+                effectivePinnedThreadIds={
+                  pinnedSidebarState.effectivePinnedThreadIds
+                }
+                status={projectsState.status}
+                isReady={Boolean(sidebarNavigation)}
+                showPinnedSection={hasPinnedSection}
+                sections={sections}
+                pinnedSection={pinnedSection}
+                pinnedReorderPending={isPinnedReorderPending}
+                pinnedThreads={pinnedRootThreads}
+                onReorderPinnedThread={handleReorderPinnedRoot}
+                threadsSection={threadsSection}
+                selectedThreadId={selectedThreadId}
+                collapsedSectionIds={collapsedSidebarSectionIds}
+                collapsedThreadIds={collapsedThreadIds}
+                collapsedEnvironmentIds={collapsedEnvironmentIds}
+                compareThreads={sidebarThreadComparator}
+                onProjectSelect={onProjectSelect}
+                onCreateThreadInSection={handleCreateThreadInSection}
+                onRenameSection={handleOpenRenameThreadSection}
+                onRemoveSection={handleRemoveThreadSection}
+                renderTopLevelSectionHeaderActions={(section) => {
+                  const sectionId = buildSidebarEntitySectionId(
+                    "section",
+                    section.id,
+                  );
+                  return {
+                    actions: renderSectionDisplayOptions(sectionId),
+                    actionsOpen: isSectionDisplayOptionsOpen(sectionId),
+                  };
+                }}
+                onToggleCollapsed={toggleSidebarSectionCollapsed}
+                onToggleThreadCollapsed={toggleThreadCollapsed}
+                onToggleEnvironmentCollapsed={toggleEnvironmentCollapsed}
+              />
+              {sectionCreateDialog}
+              {sectionRenameDialogContent}
+              {sectionDeleteDialogContent}
+            </>
+          )}
+          renderProject={() => (
+            <>
+              <ProjectModeSections
+                projects={projects ?? EMPTY_PROJECTS}
+                threads={visibleThreads}
+                draftThreadIds={draftThreadIds}
+                effectivePinnedThreadIds={
+                  pinnedSidebarState.effectivePinnedThreadIds
+                }
+                status={projectsState.status}
+                isReady={Boolean(sidebarNavigation)}
+                showPinnedSection={hasPinnedSection}
+                pinnedSection={pinnedSection}
+                threadsSection={threadsSection}
+                selectedThreadId={selectedThreadId}
+                collapsedSectionIds={collapsedSidebarSectionIds}
+                collapsedThreadIds={collapsedThreadIds}
+                collapsedEnvironmentIds={collapsedEnvironmentIds}
+                compareThreads={sidebarThreadComparator}
+                renderSectionDisplayOptions={renderSectionDisplayOptions}
+                isSectionDisplayOptionsOpen={isSectionDisplayOptionsOpen}
+                onProjectSelect={onProjectSelect}
+                onCreateProjectThread={handleCreateProjectThread}
+                onToggleCollapsed={toggleSidebarSectionCollapsed}
+                onToggleThreadCollapsed={toggleThreadCollapsed}
+                onToggleEnvironmentCollapsed={toggleEnvironmentCollapsed}
+              />
+              {sectionCreateDialog}
+              {sectionRenameDialogContent}
+              {sectionDeleteDialogContent}
+            </>
+          )}
+        />
+      )}
+      {sidebarWorkingSet.olderByProject.map(({ projectId, count }) => {
+        const projectName =
+          sidebarNavigation?.personalProject.id === projectId
+            ? (sidebarNavigation.personalProject.name ?? "Personal")
+            : (sidebarNavigation?.projects.find(
+                (project) => project.id === projectId,
+              )?.name ?? projectId);
+        return (
+          <button
+            key={projectId}
+            type="button"
+            className="mx-2 mt-1 rounded-md px-2 py-1 text-left text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+            onClick={() =>
+              setWorkingSetModesByProject((current) => ({
+                ...current,
+                [projectId]: "all",
+              }))
+            }
+          >
+            {count} older session{count === 1 ? "" : "s"} in {projectName}
+          </button>
+        );
+      })}
     </ProjectListShell>
   );
 }

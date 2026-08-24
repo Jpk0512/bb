@@ -23,6 +23,8 @@ const COLLAPSED_THREAD_SECTIONS_STORAGE_KEY =
 const LEGACY_COLLAPSED_FOLDERS_STORAGE_KEY = "bb.sidebar.collapsedFolders";
 const COLLAPSED_MACHINES_STORAGE_KEY = "bb.sidebar.collapsedMachines";
 const PROJECT_DATE_GROUPING_STORAGE_KEY = "bb.sidebar.projectDateGrouping";
+const WORKING_SET_MODE_BY_PROJECT_STORAGE_KEY =
+  "bb.sidebar.workingSetModeByProject";
 
 export type SidebarSectionId =
   | "pinned"
@@ -40,6 +42,7 @@ export type SidebarOrganizationMode = "project" | "chronological" | "machine";
 // sorts show newest first and alphabetical sorts A→Z. "none" is a legacy value
 // that the runtime normalizes back to "updated".
 export type SidebarChronologicalSort = "updated" | "created" | "alpha" | "none";
+export type SidebarWorkingSetMode = "working" | "all";
 
 export const DEFAULT_SIDEBAR_SECTION_ORDER: readonly string[] = [
   "pinned",
@@ -204,5 +207,16 @@ export const sidebarProjectDateGroupingEnabledAtom = atomWithStorage<boolean>(
   PROJECT_DATE_GROUPING_STORAGE_KEY,
   false,
   createJsonLocalStorage<boolean>(),
+  { getOnInit: true },
+);
+
+// A project can be intentionally expanded without making every other project's
+// sidebar noisy. New projects default to the compact working set.
+export const sidebarWorkingSetModeByProjectAtom = atomWithStorage<
+  Record<string, SidebarWorkingSetMode>
+>(
+  WORKING_SET_MODE_BY_PROJECT_STORAGE_KEY,
+  {},
+  createJsonLocalStorage<Record<string, SidebarWorkingSetMode>>(),
   { getOnInit: true },
 );
