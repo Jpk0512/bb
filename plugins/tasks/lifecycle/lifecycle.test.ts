@@ -88,8 +88,16 @@ describe("task thread lifecycle", () => {
       }),
     );
     expect(fixture.harness.realtimeSignals).toEqual([
-      { channel: "threads:changed", payload: { taskId: fixture.taskId } },
-      { channel: "comments:changed", payload: { taskId: fixture.taskId } },
+      {
+        channel: "threads:changed",
+        payload: { taskId: fixture.taskId },
+        scope: null,
+      },
+      {
+        channel: "comments:changed",
+        payload: { taskId: fixture.taskId },
+        scope: null,
+      },
     ]);
 
     await fixture.harness.dispose();
@@ -118,8 +126,16 @@ describe("task thread lifecycle", () => {
       }),
     );
     expect(fixture.harness.realtimeSignals).toEqual([
-      { channel: "threads:changed", payload: { taskId: fixture.taskId } },
-      { channel: "comments:changed", payload: { taskId: fixture.taskId } },
+      {
+        channel: "threads:changed",
+        payload: { taskId: fixture.taskId },
+        scope: null,
+      },
+      {
+        channel: "comments:changed",
+        payload: { taskId: fixture.taskId },
+        scope: null,
+      },
     ]);
 
     await fixture.harness.dispose();
@@ -138,8 +154,16 @@ describe("task thread lifecycle", () => {
       fixture.store.tasks.getTaskThread(fixture.taskThreadId)?.liveStatus,
     ).toBe("idle");
     expect(fixture.harness.realtimeSignals).toEqual([
-      { channel: "threads:changed", payload: { taskId: fixture.taskId } },
-      { channel: "comments:changed", payload: { taskId: fixture.taskId } },
+      {
+        channel: "threads:changed",
+        payload: { taskId: fixture.taskId },
+        scope: null,
+      },
+      {
+        channel: "comments:changed",
+        payload: { taskId: fixture.taskId },
+        scope: null,
+      },
     ]);
 
     await fixture.harness.dispose();

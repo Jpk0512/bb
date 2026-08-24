@@ -67,6 +67,7 @@ describe("Tasks RPC domain API", () => {
     expect(harness.realtimeSignals.at(-1)).toEqual({
       channel: "tasks:changed",
       payload: { taskId: task.id, projectId: project.id },
+      scope: null,
     });
 
     await expect(
@@ -141,6 +142,7 @@ describe("Tasks RPC domain API", () => {
     expect(harness.realtimeSignals.at(-1)).toEqual({
       channel: "comments:changed",
       payload: { taskId: task.id, notifiedCount: 1 },
+      scope: null,
     });
     await harness.dispose();
   });
@@ -689,10 +691,12 @@ describe("Tasks RPC domain API", () => {
       {
         channel: "comments:changed",
         payload: { taskId: task.id, notifiedCount: 0 },
+        scope: null,
       },
       {
         channel: "comments:changed",
         payload: { taskId: task.id, notifiedCount: 0 },
+        scope: null,
       },
     ]);
     await harness.dispose();
@@ -1083,14 +1087,17 @@ describe("Tasks RPC domain API", () => {
         {
           channel: "projects:changed",
           payload: { projectId: project.id },
+          scope: null,
         },
         {
           channel: "tasks:changed",
           payload: { taskId: createResult.task.id, projectId: project.id },
+          scope: null,
         },
         {
           channel: "comments:changed",
           payload: { taskId: createResult.task.id },
+          scope: null,
         },
       ]),
     );

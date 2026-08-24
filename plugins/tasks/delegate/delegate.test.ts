@@ -114,12 +114,17 @@ describe("task delegation", () => {
       ]),
     );
     expect(harness.realtimeSignals).toEqual([
-      { channel: "threads:changed", payload: { taskId: task.id } },
+      { channel: "threads:changed", payload: { taskId: task.id }, scope: null },
       {
         channel: "tasks:changed",
         payload: { taskId: task.id, projectId: project.id },
+        scope: null,
       },
-      { channel: "comments:changed", payload: { taskId: task.id } },
+      {
+        channel: "comments:changed",
+        payload: { taskId: task.id },
+        scope: null,
+      },
     ]);
 
     await harness.dispose();
@@ -398,10 +403,11 @@ describe("task delegation", () => {
       }),
     ]);
     expect(harness.realtimeSignals).toEqual([
-      { channel: "threads:changed", payload: { taskId: task.id } },
+      { channel: "threads:changed", payload: { taskId: task.id }, scope: null },
       {
         channel: "tasks:changed",
         payload: { taskId: task.id, projectId: project.id },
+        scope: null,
       },
     ]);
 

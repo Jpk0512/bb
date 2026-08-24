@@ -1472,6 +1472,7 @@ describe("bb tasks CLI", () => {
             taskId: pngAttachment.taskId,
             projectId: expect.any(String),
           },
+          scope: null,
         },
       ]);
 

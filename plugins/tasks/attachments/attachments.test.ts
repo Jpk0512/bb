@@ -83,6 +83,7 @@ describe("task attachments", () => {
         {
           channel: "tasks:changed",
           payload: { taskId: task.id, projectId: task.projectId },
+          scope: null,
         },
       ]);
     } finally {
@@ -230,10 +231,12 @@ describe("task attachments", () => {
         {
           channel: "tasks:changed",
           payload: { taskId: task.id, projectId: task.projectId },
+          scope: null,
         },
         {
           channel: "tasks:changed",
           payload: { taskId: task.id, projectId: task.projectId },
+          scope: null,
         },
       ]);
     } finally {
