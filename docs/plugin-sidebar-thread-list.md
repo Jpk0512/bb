@@ -94,9 +94,6 @@ lists cannot share one scroll area. The rules:
    deterministic slot order; disabling or removing it reveals the next.
 2. The user can choose Automatic, pin the built-in list, or pin a provider in
    **Settings → Appearance → Sidebar**.
-   This list-provider picker is independent of the adjacent **Sidebar
-   appearance** control, which selects Auto, Expanded, or Compact layout for
-   the local desktop sidebar.
 3. The choice is client-local, in `localStorage` under
    `bb.sidebar.threadListProvider`, next to the other sidebar layout
    preferences. A device with a plugin disabled falls back cleanly.

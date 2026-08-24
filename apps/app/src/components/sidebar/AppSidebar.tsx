@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAtomValue } from "jotai";
 import { cn } from "@bb/shared-ui/lib/utils";
 import { THREAD_JUMP_APP_COMMAND_IDS } from "@bb/domain";
 import { Link, useNavigate } from "react-router-dom";
@@ -59,7 +58,6 @@ import {
   useIndexedAppCommandHandlers,
 } from "@/components/commands/AppCommandProvider";
 import { useRouteState } from "@/hooks/useRouteState";
-import { sidebarAppearanceAtom } from "./sidebarAppearance";
 
 const NEW_THREAD_PANE_CONTENT = { kind: "new-thread" } as const;
 
@@ -100,7 +98,6 @@ export function AppSidebar({
   });
   const closeOnMobile = useCloseMobileSidebar();
   const { isCompactViewport, setOpen, setOpenMobile } = useSidebar();
-  const sidebarAppearance = useAtomValue(sidebarAppearanceAtom);
   const [desktopInfo] = useState(getBbDesktopInfo);
   const [threadShortcutKeysById, setThreadShortcutKeysById] = useState<
     ReadonlyMap<string, SidebarThreadShortcutPresentation>
@@ -287,13 +284,7 @@ export function AppSidebar({
 
   return (
     <SidebarThreadShortcutKeysContext.Provider value={threadShortcutKeysById}>
-      <Sidebar
-        ref={sidebarRef}
-        collapsible={
-          sidebarAppearance === "compact" ? "icon" : "offcanvas"
-        }
-        onKeyDown={threadSearch.onKeyDown}
-      >
+      <Sidebar ref={sidebarRef} onKeyDown={threadSearch.onKeyDown}>
         {showTopReserve ? (
           /* Top reserve that keeps the sidebar's content (New Thread / New
              Projects) anchored below the title-bar chrome, mirroring
