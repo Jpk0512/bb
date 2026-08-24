@@ -86,4 +86,42 @@ describe("RootComposeEmptyWelcome", () => {
       "/projects/proj_test/threads/newest",
     );
   });
+
+  it("prefers live work over newer idle recents", () => {
+    render(
+      <MemoryRouter>
+        <RootComposeEmptyWelcome
+          onCompose={() => undefined}
+          onAddProject={() => undefined}
+          threads={[
+            makeThreadListEntry({
+              id: "running",
+              title: "Running thread",
+              latestAttentionAt: 1,
+              runtime: {
+                displayStatus: "active",
+                hostReconnectGraceExpiresAt: null,
+              },
+            }),
+            makeThreadListEntry({
+              id: "needs-input",
+              title: "Needs input",
+              latestAttentionAt: 2,
+              hasPendingInteraction: true,
+            }),
+            makeThreadListEntry({
+              id: "idle-recent",
+              title: "Idle recent",
+              latestAttentionAt: 100,
+              updatedAt: Date.now(),
+            }),
+          ]}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(
+      ["Needs input", "Running thread"],
+    );
+  });
 });

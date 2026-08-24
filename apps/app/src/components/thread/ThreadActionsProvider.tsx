@@ -127,7 +127,7 @@ export function ThreadActionsProvider({
   const { mutate: unarchiveMutate } = unarchiveThreadMutation;
   const { mutate: markReadMutate } = markThreadRead;
   const { mutate: markUnreadMutate } = markThreadUnread;
-  const { mutate: pinMutate } = pinThread;
+  const { mutate: pinMutate, mutateAsync: pinMutateAsync } = pinThread;
   const { mutate: unpinMutate, mutateAsync: unpinMutateAsync } = unpinThread;
   const sidebarNavigationQuery = useSidebarNavigation();
   const { mutate: deleteMutate } = deleteThread;
@@ -450,21 +450,40 @@ export function ThreadActionsProvider({
         pinMutate({ id: thread.id });
         return;
       }
-      void unpinMutateAsync({ id: oldestPinnedThread.id })
-        .then(() => {
-          pinMutate({ id: thread.id });
-          appToast.success("Oldest pinned thread removed from the sidebar.");
-        })
-        .catch((error: unknown) => {
+      void (async () => {
+        try {
+          // Mutate in server-confirmed order. If pinning fails after a confirmed
+          // unpin, restore the prior pin so replacement cannot lose it.
+          await unpinMutateAsync({ id: oldestPinnedThread.id });
+          try {
+            await pinMutateAsync({ id: thread.id });
+            appToast.success("Replaced the oldest pinned thread.");
+          } catch (error: unknown) {
+            try {
+              await pinMutateAsync({ id: oldestPinnedThread.id });
+            } catch {
+              // The original failure is more useful; query invalidation will
+              // reconcile the sidebar if the compensating request also fails.
+            }
+            throw error;
+          }
+        } catch (error: unknown) {
           appToast.error(
             getMutationErrorMessage({
               error,
               fallbackMessage: "Failed to update sidebar pins",
             }),
           );
-        });
+        }
+      })();
     },
-    [pinMutate, sidebarNavigationQuery.data, unpinMutate, unpinMutateAsync],
+    [
+      pinMutate,
+      pinMutateAsync,
+      sidebarNavigationQuery.data,
+      unpinMutate,
+      unpinMutateAsync,
+    ],
   );
 
   const value = useMemo<ThreadActionsContextValue>(

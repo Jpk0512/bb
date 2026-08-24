@@ -1,5 +1,12 @@
 import type { ThreadListEntry } from "@bb/domain";
-import { isRuntimeBusyThread } from "@/lib/thread-activity";
+import {
+  hasActiveBackgroundAgentActivity,
+  hasActiveBackgroundCommandActivity,
+  hasActiveGoalActivity,
+  hasActivePlanModeActivity,
+  hasActiveWorkflowActivity,
+  isRuntimeBusyThread,
+} from "@/lib/thread-activity";
 
 export const SIDEBAR_WORKING_SET_LIMIT = 12;
 export const SIDEBAR_WORKING_SET_RECENT_MS = 48 * 60 * 60 * 1000;
@@ -28,15 +35,26 @@ function compareWorkingSetThreads(
   return left.id.localeCompare(right.id);
 }
 
+export function hasSidebarWorkingActivity(thread: ThreadListEntry): boolean {
+  return (
+    thread.hasPendingInteraction ||
+    thread.status === "active" ||
+    isRuntimeBusyThread(thread) ||
+    hasActiveWorkflowActivity(thread) ||
+    hasActiveBackgroundAgentActivity(thread) ||
+    hasActiveBackgroundCommandActivity(thread) ||
+    hasActivePlanModeActivity(thread) ||
+    hasActiveGoalActivity(thread)
+  );
+}
+
 function belongsInWorkingSet(
   thread: ThreadListEntry,
   recentSince: number,
 ): boolean {
   return (
     thread.pinnedAt !== null ||
-    thread.hasPendingInteraction ||
-    isRuntimeBusyThread(thread) ||
-    thread.status === "active" ||
+    hasSidebarWorkingActivity(thread) ||
     thread.updatedAt >= recentSince
   );
 }
@@ -44,23 +62,49 @@ function belongsInWorkingSet(
 export function buildSidebarWorkingSet({
   mode,
   now = Date.now(),
+  pinnedThreadIds,
   threads,
 }: {
   mode: SidebarWorkingSetMode;
   now?: number;
+  /** Includes pinned descendants, which must remain visible with their root. */
+  pinnedThreadIds?: ReadonlySet<string>;
   threads: readonly ThreadListEntry[];
 }): SidebarWorkingSet {
   if (mode === "all") {
     return { olderThreadCount: 0, threads: [...threads] };
   }
 
-  const workingThreads = threads
-    .filter((thread) =>
-      belongsInWorkingSet(thread, now - SIDEBAR_WORKING_SET_RECENT_MS),
-    )
-    .sort(compareWorkingSetThreads);
+  const recentSince = now - SIDEBAR_WORKING_SET_RECENT_MS;
+  const pinnedThreads = threads.filter(
+    (thread) =>
+      pinnedThreadIds?.has(thread.id) === true || thread.pinnedAt !== null,
+  );
+  const pinnedThreadIdSet = new Set(pinnedThreads.map((thread) => thread.id));
+  const activeThreads = threads.filter(
+    (thread) =>
+      !pinnedThreadIdSet.has(thread.id) && hasSidebarWorkingActivity(thread),
+  );
+  const recentThreads = threads.filter(
+    (thread) =>
+      !pinnedThreadIdSet.has(thread.id) &&
+      !hasSidebarWorkingActivity(thread) &&
+      belongsInWorkingSet(thread, recentSince),
+  );
 
-  const visibleThreads = workingThreads.slice(0, SIDEBAR_WORKING_SET_LIMIT);
+  // Pinned and active work are non-negotiable: the numeric limit only bounds
+  // idle recents. A busy thread must never disappear behind a full sidebar.
+  const alwaysVisible = [...pinnedThreads, ...activeThreads].sort(
+    compareWorkingSetThreads,
+  );
+  const recentCapacity = Math.max(
+    0,
+    SIDEBAR_WORKING_SET_LIMIT - alwaysVisible.length,
+  );
+  const visibleThreads = [
+    ...alwaysVisible,
+    ...recentThreads.sort(compareWorkingSetThreads).slice(0, recentCapacity),
+  ];
   return {
     olderThreadCount: Math.max(0, threads.length - visibleThreads.length),
     threads: visibleThreads,

@@ -2,7 +2,7 @@ import { Icon, type IconName } from "@bb/shared-ui/icon";
 import type { ThreadListEntry } from "@bb/domain";
 import { Link } from "react-router-dom";
 import { ThreadStatusDot } from "@/components/sidebar/ThreadStatusDot";
-import { isRuntimeBusyThread } from "@/lib/thread-activity";
+import { hasSidebarWorkingActivity } from "@/components/sidebar/sidebarWorkingSet";
 import { getThreadRoutePath } from "@/lib/route-paths";
 import { getThreadDisplayTitle } from "@/lib/thread-title";
 import { CHROME_SECTION_LABEL_CLASS } from "@/components/ui/chromeStyleTokens";
@@ -72,15 +72,18 @@ export function RootComposeEmptyWelcome({
 }: RootComposeEmptyWelcomeProps) {
   const reducedMotion = usePrefersReducedMotion();
   const recentSince = Date.now() - RECENT_THREAD_WINDOW_MS;
-  const activeThreads = [...threads]
+  const nonIdleThreads = threads.filter(
+    (thread) =>
+      thread.archivedAt === null &&
+      thread.deletedAt === null &&
+      hasSidebarWorkingActivity(thread),
+  );
+  const activeThreads = (nonIdleThreads.length > 0 ? nonIdleThreads : threads)
     .filter(
       (thread) =>
         thread.archivedAt === null &&
         thread.deletedAt === null &&
-        (thread.status === "active" ||
-          thread.hasPendingInteraction ||
-          isRuntimeBusyThread(thread) ||
-          thread.updatedAt >= recentSince),
+        (nonIdleThreads.length > 0 || thread.updatedAt >= recentSince),
     )
     .sort((left, right) => {
       const attentionDelta = right.latestAttentionAt - left.latestAttentionAt;

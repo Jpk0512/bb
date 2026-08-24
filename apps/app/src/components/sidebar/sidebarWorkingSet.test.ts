@@ -73,10 +73,10 @@ describe("buildSidebarWorkingSet", () => {
 
     expect(result.threads.map((thread) => thread.id)).toEqual([
       "pinned",
-      "recent",
       "active",
       "needs-input",
       "running",
+      "recent",
     ]);
     expect(result.olderThreadCount).toBe(1);
   });
@@ -100,6 +100,59 @@ describe("buildSidebarWorkingSet", () => {
     expect(result.olderThreadCount).toBe(2);
     expect(result.threads[0]?.id).toBe(
       `recent-${SIDEBAR_WORKING_SET_LIMIT + 1}`,
+    );
+  });
+
+  it("never caps active work, including background activity on idle threads", () => {
+    const recentThreads = Array.from(
+      { length: SIDEBAR_WORKING_SET_LIMIT + 2 },
+      (_, index) =>
+        createThread({
+          id: `recent-${index}`,
+          updatedAt: now,
+        }),
+    );
+    const result = buildSidebarWorkingSet({
+      now,
+      mode: "working",
+      threads: [
+        ...recentThreads,
+        createThread({ id: "needs-input", hasPendingInteraction: true }),
+        createThread({
+          id: "background",
+          activity: {
+            activeWorkflowCount: 0,
+            activeBackgroundAgentCount: 1,
+            activeBackgroundCommandCount: 0,
+            activePlanModeCount: 0,
+            activeGoalCount: 0,
+          },
+        }),
+      ],
+    });
+
+    expect(result.threads.map((thread) => thread.id)).toEqual(
+      expect.arrayContaining(["needs-input", "background"]),
+    );
+    expect(result.threads).toHaveLength(SIDEBAR_WORKING_SET_LIMIT);
+  });
+
+  it("retains pinned descendants before applying the recent cap", () => {
+    const result = buildSidebarWorkingSet({
+      now,
+      mode: "working",
+      pinnedThreadIds: new Set(["pinned-root", "pinned-child"]),
+      threads: [
+        createThread({ id: "pinned-root", pinnedAt: 1 }),
+        createThread({ id: "pinned-child", parentThreadId: "pinned-root" }),
+        ...Array.from({ length: SIDEBAR_WORKING_SET_LIMIT }, (_, index) =>
+          createThread({ id: `recent-${index}`, updatedAt: now }),
+        ),
+      ],
+    });
+
+    expect(result.threads.map((thread) => thread.id)).toEqual(
+      expect.arrayContaining(["pinned-root", "pinned-child"]),
     );
   });
 
