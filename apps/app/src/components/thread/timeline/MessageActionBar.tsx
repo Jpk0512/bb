@@ -207,6 +207,7 @@ export function findMessageActionTooltipCollisionBoundary(
 export function MessageActionBar({
   messageText,
   alignment,
+  mobileActionDisplay,
   addToChatAttachments = [],
   onAddToChat,
   onEdit,
@@ -328,6 +329,7 @@ export function MessageActionBar({
     <TooltipProvider delayDuration={300}>
       <div
         ref={containerRef}
+        data-mobile-action-display={mobileActionDisplay}
         className={cn(
           "flex items-center gap-2",
           alignment === "end" ? "justify-end" : "justify-start",

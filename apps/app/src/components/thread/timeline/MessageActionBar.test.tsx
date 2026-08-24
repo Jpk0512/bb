@@ -114,7 +114,7 @@ describe("MessageActionBar", () => {
     ).toEqual(["Fork into new thread"]);
   });
 
-  it("places additional plugin actions in the shared overflow", () => {
+  it("places additional plugin actions in the shared overflow", async () => {
     const onSelect = vi.fn();
     const { container } = render(
       <MessageActionBar
@@ -140,9 +140,10 @@ describe("MessageActionBar", () => {
         .map((button) => button.getAttribute("aria-label"))
         .filter((label) => label !== "Message actions"),
     ).toEqual(["Copy message", "Add to chat"]);
-    fireEvent.click(screen.getByRole("button", { name: "Message actions" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Summarize" }));
-    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("button", { name: "Message actions" }),
+    ).toBeTruthy();
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
   it("renders an action bar for a plugin-action-only message", () => {
@@ -299,13 +300,12 @@ describe("MessageActionBar", () => {
       />,
     );
 
-    const overflowTrigger = screen.getByRole("button", {
-      name: "Message actions",
-    });
-    expect(overflowTrigger.className).toContain("cursor-pointer");
-    expect(overflowTrigger.className).toContain(
-      "group-hover/message:opacity-100",
-    );
+    expect(
+      screen.getByRole("button", { name: "Fork into new thread" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Message actions" }),
+    ).toBeNull();
   });
 
   it("uses an anchored popover instead of a bottom drawer on mobile", () => {
@@ -320,22 +320,11 @@ describe("MessageActionBar", () => {
       />,
     );
 
-    const trigger = screen.getByRole("button", { name: "Message actions" });
-    expect(trigger.hasAttribute("data-no-sidebar-swipe")).toBe(true);
-    fireEvent.click(trigger);
-
-    const content =
-      document.body.querySelector<HTMLElement>('[data-side="top"]');
-    expect(content).not.toBeNull();
-    expect(content!.getAttribute("data-bb-portaled-overlay")).toBe("");
-    expect(document.body.querySelector("[data-vaul-drawer]")).toBeNull();
-
-    fireEvent.click(
-      within(content!).getByRole("button", { name: "Add to chat" }),
-    );
-
+    const addToChat = screen.getByRole("button", { name: "Add to chat" });
+    expect(addToChat.className).toContain("max-md:pointer-coarse:size-7");
+    fireEvent.click(addToChat);
     expect(onAddToChat).toHaveBeenCalledWith("Quote this message.");
-    expect(document.body.querySelector('[data-side="top"]')).toBeNull();
+    expect(document.body.querySelector("[data-vaul-drawer]")).toBeNull();
   });
 
   it("confirms a mobile overflow copy on the trigger instead of toasting", async () => {
@@ -350,19 +339,10 @@ describe("MessageActionBar", () => {
       />,
     );
 
-    const trigger = screen.getByRole("button", { name: "Message actions" });
-    fireEvent.click(trigger);
-    const content =
-      document.body.querySelector<HTMLElement>('[data-side="top"]');
-    if (!content) throw new Error("Missing mobile message action menu");
-    fireEvent.click(
-      within(content).getByRole("button", { name: "Copy message" }),
-    );
-
+    fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith("Copy this answer."),
     );
-    expect(trigger.querySelector('[data-icon="Check"]')).not.toBeNull();
   });
 
   it("keeps fork available from message overflow", () => {
@@ -376,11 +356,9 @@ describe("MessageActionBar", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Message actions" }));
     fireEvent.click(
-      screen.getByRole("menuitem", { name: "Fork into new thread" }),
+      screen.getByRole("button", { name: "Fork into new thread" }),
     );
-
     expect(onFork).toHaveBeenCalledTimes(1);
   });
 
@@ -402,7 +380,10 @@ describe("MessageActionBar", () => {
     }
 
     expect(
-      screen.getByRole("button", { name: "Message actions" }),
+      screen.getByRole("button", { name: "Fork into new thread" }),
     ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Message actions" }),
+    ).toBeNull();
   });
 });
