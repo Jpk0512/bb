@@ -930,7 +930,7 @@ export function ModelReasoningPicker({
         {showProviderTabs ? (
           <div
             className={cn(
-              "flex items-center gap-0.5 border-b border-border px-2.5 pt-1",
+              "flex items-center gap-0.5 overflow-x-auto border-b border-border px-2.5 pt-1",
               isCompactViewport
                 ? "sticky top-0 z-10 bg-background"
                 : "bg-surface-recessed",
@@ -950,7 +950,7 @@ export function ModelReasoningPicker({
                     }
                   }}
                   className={cn(
-                    "flex h-7 items-center gap-1.5 border-b-2 px-2 focus-visible:outline-none max-md:pointer-coarse:h-9",
+                    "flex h-7 shrink-0 items-center gap-1.5 border-b-2 px-2 focus-visible:outline-none max-md:pointer-coarse:h-9",
                     LIST_HOVER_TRANSITION,
                     isActive
                       ? "border-foreground text-foreground"
@@ -961,7 +961,10 @@ export function ModelReasoningPicker({
                     <TabIcon className={COARSE_POINTER_ICON_SIZE_CLASS} />
                   ) : null}
                   <span
-                    className={cn("font-medium", COARSE_POINTER_TEXT_SM_CLASS)}
+                    className={cn(
+                      "max-w-[7rem] truncate font-medium",
+                      COARSE_POINTER_TEXT_SM_CLASS,
+                    )}
                   >
                     {provider.label}
                   </span>
