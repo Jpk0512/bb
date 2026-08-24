@@ -51,6 +51,7 @@ import {
 } from "./sidebarThreadShortcuts";
 import {
   useAppCommandHandler,
+  useAppCommandProvider,
   useAppCommandShortcut,
   useAppCommandShortcuts,
   useIsAppCommandModifierHeld,
@@ -81,6 +82,7 @@ export function AppSidebar({
   settingsRoutePath,
   toolsRoutePath,
 }: AppSidebarProps) {
+  const appCommandProvider = useAppCommandProvider();
   const quickCreateProject = useQuickCreateProjectController();
   // The resolved replacement owns the sidebar's scrolling thread list. It never
   // replaces the chrome around it: the New-thread button, search field,
@@ -226,6 +228,9 @@ export function AppSidebar({
     threadSearch.onActivate();
     return true;
   });
+  const openCommandPalette = useCallback(() => {
+    appCommandProvider?.dispatch("command.palette", null);
+  }, [appCommandProvider]);
   useIndexedAppCommandHandlers(
     THREAD_JUMP_APP_COMMAND_IDS,
     activateThreadShortcut,
@@ -323,7 +328,7 @@ export function AppSidebar({
               activeDescendantId: threadSearch.activeDescendantId,
               inputRef: threadSearch.inputRef,
               isActive: threadSearch.isActive,
-              onActivate: threadSearch.onActivate,
+              onActivate: openCommandPalette,
               onClose: threadSearch.onClose,
               onQueryChange: threadSearch.onQueryChange,
               query: threadSearch.query,

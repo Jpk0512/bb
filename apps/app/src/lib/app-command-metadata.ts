@@ -26,6 +26,16 @@ function command(
 
 export const APP_COMMAND_GROUPS: readonly AppCommandGroup[] = [
   {
+    label: "Commands",
+    commands: [
+      command(
+        "command.palette",
+        "Open command palette",
+        "Search commands and threads.",
+      ),
+    ],
+  },
+  {
     label: "Threads",
     commands: [
       command(
