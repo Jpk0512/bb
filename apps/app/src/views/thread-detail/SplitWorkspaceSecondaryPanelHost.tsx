@@ -28,6 +28,7 @@ import {
   THREAD_SECONDARY_PANEL_MAX_SIZE_PERCENT,
   THREAD_SECONDARY_PANEL_MIN_SIZE_PERCENT,
 } from "@/components/secondary-panel/ThreadSecondaryPanel";
+import { isConversationTooNarrowForSecondaryPanel } from "@/components/secondary-panel/SecondaryPanelLayout";
 import {
   SecondaryPanelHostLayoutContext,
   type SecondaryPanelHostLayout,
@@ -63,6 +64,7 @@ export function SplitWorkspaceSecondaryPanelHost({
 }: SplitWorkspaceSecondaryPanelHostProps) {
   const model = usePaneSecondaryPanelModel(registry, focusedPaneId);
   const panelGroupRef = useRef<ImperativePanelGroupHandle | null>(null);
+  const mainPanelContentRef = useRef<HTMLDivElement | null>(null);
   const panelWidthPercent = useAtomValue(secondaryPanelWidthPercentAtom);
   const shortcut = useAppCommandShortcut("panel.toggle");
 
@@ -149,6 +151,30 @@ export function SplitWorkspaceSecondaryPanelHost({
     model?.isMainCollapsed,
     panelWidthPercent,
   ]);
+
+  useEffect(() => {
+    if (!isOpen || isPaneMaximized) return;
+    const element = mainPanelContentRef.current;
+    if (element === null) return;
+    const collapseWhenNarrow = (width: number) => {
+      if (!isConversationTooNarrowForSecondaryPanel(width)) {
+        return;
+      }
+      if (model !== null) {
+        model.onToggle();
+      } else {
+        setIsPanelVisible(false);
+      }
+    };
+
+    collapseWhenNarrow(element.getBoundingClientRect().width);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry !== undefined) collapseWhenNarrow(entry.contentRect.width);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [isOpen, isPaneMaximized, model]);
 
   // A pane without a panel keeps the control working: the toggle drives the
   // window visibility directly, so the empty state opens and closes like any
@@ -275,7 +301,10 @@ export function SplitWorkspaceSecondaryPanelHost({
           >
             {/* Panel renders a plain block; the split tree sizes itself with
               flex-1, so restore a full-height flex context for it. */}
-            <div className="relative flex h-full min-h-0 min-w-0">
+            <div
+              ref={mainPanelContentRef}
+              className="relative flex h-full min-h-0 min-w-0"
+            >
               {children}
             </div>
           </Panel>

@@ -32,6 +32,20 @@ import { secondaryPanelWidthPercentAtom } from "./threadSecondaryPanelAtoms";
 
 const FULL_PANEL_SIZE_PERCENT = 100;
 const MAIN_PANEL_MIN_SIZE_PERCENT = 30;
+// A timeline narrower than this cannot comfortably share the window with the
+// panel. This is a container measurement: split panes can make one
+// conversation narrow on an otherwise-wide desktop window.
+export const NARROW_CONVERSATION_AUTO_COLLAPSE_WIDTH_PX = 420;
+
+export function isConversationTooNarrowForSecondaryPanel(
+  width: number,
+): boolean {
+  return (
+    Number.isFinite(width) &&
+    width > 0 &&
+    width < NARROW_CONVERSATION_AUTO_COLLAPSE_WIDTH_PX
+  );
+}
 
 function noopToggleMainCollapse(): void {}
 
@@ -97,6 +111,7 @@ export function SecondaryPanelLayout({
   const horizontalPanelGroupRef = useRef<ImperativePanelGroupHandle | null>(
     null,
   );
+  const mainPanelContentRef = useRef<HTMLDivElement | null>(null);
   // Width changes should not interrupt an active resize drag. The saved width
   // is only read when another event changes the layout.
   const persistedSecondaryWidthRef = useRef(persistedSecondaryWidthPercent);
@@ -122,6 +137,25 @@ export function SecondaryPanelLayout({
     const secondaryWidth = persistedSecondaryWidthRef.current;
     group.setLayout([FULL_PANEL_SIZE_PERCENT - secondaryWidth, secondaryWidth]);
   }, [isMainCollapsed, open, renderAsDrawer]);
+
+  useEffect(() => {
+    if (secondaryPanelHost !== null || renderAsDrawer || !open) return;
+    const element = mainPanelContentRef.current;
+    if (element === null) return;
+    const collapseWhenNarrow = (width: number) => {
+      if (isConversationTooNarrowForSecondaryPanel(width)) {
+        onClose();
+      }
+    };
+
+    collapseWhenNarrow(element.getBoundingClientRect().width);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry !== undefined) collapseWhenNarrow(entry.contentRect.width);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [onClose, open, renderAsDrawer, secondaryPanelHost]);
 
   const [isCompactDrawerContentSettled, setIsCompactDrawerContentSettled] =
     useState(false);
@@ -279,6 +313,7 @@ export function SecondaryPanelLayout({
 
   const mainContent = (
     <div
+      ref={mainPanelContentRef}
       data-conversation-collapsed={isMainCollapsed}
       inert={isMainCollapsed}
       className={cn(
