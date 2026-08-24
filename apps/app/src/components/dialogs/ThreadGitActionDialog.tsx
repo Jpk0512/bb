@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/detail-card.js";
 import type { ThreadGitStatusDisplay } from "@/components/workspace/workspace-status";
 import { ChangedFilesDetailRow } from "@/components/workspace/ChangedFilesDetailRow";
+import { CopyButton } from "@/components/ui/copy-button";
 import type { WorkspaceChangedFilesSection } from "@/components/workspace/workspace-change-summary";
 import { Button } from "@bb/shared-ui/button";
 import { Icon } from "@bb/shared-ui/icon";
@@ -296,10 +297,18 @@ export function ThreadGitActionDialogContent({
                     Branch
                   </DetailRowIconLabel>
                 }
-                valueClassName="min-w-0 truncate"
+                className="group/branch"
+                valueClassName="min-w-0"
               >
-                <span className="block truncate" title={branchName}>
-                  {branchName}
+                <span className="flex min-w-0 items-center gap-1">
+                  <span className="min-w-0 truncate" title={branchName}>
+                    {branchName}
+                  </span>
+                  <CopyButton
+                    text={branchName}
+                    label={`Copy branch ${branchName}`}
+                    className="pointer-events-none shrink-0 rounded-md opacity-0 transition-opacity group-hover/branch:pointer-events-auto group-hover/branch:opacity-100 group-focus-within/branch:pointer-events-auto group-focus-within/branch:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+                  />
                 </span>
               </DetailRow>
             ) : null}

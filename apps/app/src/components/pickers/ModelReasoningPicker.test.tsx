@@ -259,7 +259,7 @@ describe("ModelReasoningPicker", () => {
       screen.getByRole("button", { name: "Provider, model and reasoning" }),
     );
 
-    expect(screen.getByTitle("Codex")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Codex" })).not.toBeNull();
     expect(
       screen.getByText(
         "Codex is unavailable because its provider plugin failed to load.",
@@ -485,7 +485,7 @@ describe("ModelReasoningPicker", () => {
     );
     expect(screen.getAllByText("5.5")).toHaveLength(2);
 
-    fireEvent.click(screen.getByTitle("Claude Code"));
+    fireEvent.click(screen.getByRole("button", { name: "Claude Code" }));
 
     expect(onSelectedProviderChange).toHaveBeenCalledWith("claude-code");
     expect(await screen.findByText("Opus 4.7")).not.toBeNull();
@@ -506,7 +506,7 @@ describe("ModelReasoningPicker", () => {
         name: "Provider, model and reasoning",
       }),
     );
-    fireEvent.click(screen.getByTitle("Claude Code"));
+    fireEvent.click(screen.getByRole("button", { name: "Claude Code" }));
 
     expect(await screen.findByText("Opus 4.7")).not.toBeNull();
   });

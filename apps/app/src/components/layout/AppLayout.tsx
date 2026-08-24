@@ -37,6 +37,7 @@ import {
 } from "@/hooks/queries/thread-queries";
 import { useRouteState } from "@/hooks/useRouteState";
 import { getThreadDisplayTitle } from "@/lib/thread-title";
+import { isRuntimeBusyThread } from "@/lib/thread-activity";
 import { applyResizeCursor, clearResizeCursor } from "@/lib/resizeCursor";
 import { cn } from "@bb/shared-ui/lib/utils";
 import { ProjectPathDialog } from "@/components/dialogs/ProjectPathDialog";
@@ -618,6 +619,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     : threadId
       ? `Thread ${threadId.slice(0, 8)}`
       : "Thread";
+  const isThreadWorking = thread ? isRuntimeBusyThread(thread) : false;
   const toolsBreadcrumbs = resolveToolsBreadcrumbs(
     location.pathname,
     location.search,
@@ -725,6 +727,10 @@ export function AppLayout({ children }: AppLayoutProps) {
     const routeTitle = resolveRouteTitle(location.pathname)?.title;
     return routeTitle && routeTitle.length > 0 ? routeTitle : "BB";
   })();
+  const displayedDocumentTitle =
+    isThreadView && isThreadWorking
+      ? `● Working — ${documentTitle}`
+      : documentTitle;
   // The sidebar list omits archived threads and side chats, so it can't answer
   // whether the currently-viewed thread is blocked on input. Read the current
   // thread's pending interactions directly (the thread view already warms this
@@ -826,66 +832,66 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   useEffect(() => {
     if (typeof document === "undefined") return;
-    document.title = documentTitle;
-  }, [documentTitle]);
+    document.title = displayedDocumentTitle;
+  }, [displayedDocumentTitle]);
 
   return (
-      <ProjectActionsProvider>
-        <ThreadTitleMentionResourcesProvider {...titleMentionResources}>
-          <ThreadActionsProvider>
-            <IframeDragGuardOverlay active={isSidebarResizing} />
-            <SidebarStateBridge
-              providerRef={providerRef}
-              style={sidebarProviderStyle}
-            >
-              <AppLayoutSidebar
-                mode={
-                  isGlobalSettingsView
-                    ? "settings"
-                    : isGlobalToolsView
-                      ? "tools"
-                      : isInboxView
-                        ? "inbox"
+    <ProjectActionsProvider>
+      <ThreadTitleMentionResourcesProvider {...titleMentionResources}>
+        <ThreadActionsProvider>
+          <IframeDragGuardOverlay active={isSidebarResizing} />
+          <SidebarStateBridge
+            providerRef={providerRef}
+            style={sidebarProviderStyle}
+          >
+            <AppLayoutSidebar
+              mode={
+                isGlobalSettingsView
+                  ? "settings"
+                  : isGlobalToolsView
+                    ? "tools"
+                    : isInboxView
+                      ? "inbox"
                       : "app"
-                }
-                onResizeMouseDown={handleResizeMouseDown}
-                isResizing={isSidebarResizing}
-                appRoutePath={appRoutePath}
-                settingsRoutePath={settingsRoutePath}
-                toolsBackRoutePath={toolsBackRoutePath}
-                inboxBackRoutePath={inboxBackRoutePath}
-                toolsRoutePath={toolsRoutePath}
-              />
-              <SidebarInset>
-                <div
-                  ref={contentShellRef}
-                  data-testid="app-layout-content-shell"
-                  className="relative flex h-full min-h-0 min-w-0 w-full flex-col pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]"
-                >
-                  {showHeader ? (
-                    <AppHeader
-                      usesDesktopChrome={usesDesktopChrome}
-                      usesProjectChromeStyle={
-                        isRootView || isArchivedView || isSettingsView
-                      }
-                      isSettingsView={isSettingsView}
-                      projectId={projectId}
-                      project={project}
-                      pluginPanel={pluginPanel}
-                      pluginPanelSubPath={pluginPanelMatch?.params["*"] ?? ""}
-                      meta={meta}
-                    />
-                  ) : null}
-                  <main className="flex min-h-0 flex-1 flex-col p-4 md:p-5">
-                    {children}
-                  </main>
-                </div>
-              </SidebarInset>
-              <SidebarTriggerOverlay
-                reserveMacosTrafficLights={reserveMacosTrafficLights}
-                usesDesktopChrome={usesDesktopChrome}
-              />
-            </SidebarStateBridge>
+              }
+              onResizeMouseDown={handleResizeMouseDown}
+              isResizing={isSidebarResizing}
+              appRoutePath={appRoutePath}
+              settingsRoutePath={settingsRoutePath}
+              toolsBackRoutePath={toolsBackRoutePath}
+              inboxBackRoutePath={inboxBackRoutePath}
+              toolsRoutePath={toolsRoutePath}
+            />
+            <SidebarInset>
+              <div
+                ref={contentShellRef}
+                data-testid="app-layout-content-shell"
+                className="relative flex h-full min-h-0 min-w-0 w-full flex-col pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]"
+              >
+                {showHeader ? (
+                  <AppHeader
+                    usesDesktopChrome={usesDesktopChrome}
+                    usesProjectChromeStyle={
+                      isRootView || isArchivedView || isSettingsView
+                    }
+                    isSettingsView={isSettingsView}
+                    projectId={projectId}
+                    project={project}
+                    pluginPanel={pluginPanel}
+                    pluginPanelSubPath={pluginPanelMatch?.params["*"] ?? ""}
+                    meta={meta}
+                  />
+                ) : null}
+                <main className="flex min-h-0 flex-1 flex-col p-4 md:p-5">
+                  {children}
+                </main>
+              </div>
+            </SidebarInset>
+            <SidebarTriggerOverlay
+              reserveMacosTrafficLights={reserveMacosTrafficLights}
+              usesDesktopChrome={usesDesktopChrome}
+            />
+          </SidebarStateBridge>
           <ProjectPathDialog
             target={quickCreateProject.projectPathDialog.target}
             pending={quickCreateProject.isCreating}
