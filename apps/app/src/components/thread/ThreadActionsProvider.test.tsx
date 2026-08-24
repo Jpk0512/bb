@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => ({
   dialogOnOpenChange: vi.fn(),
   mutation: vi.fn(),
   navigate: vi.fn(),
+  pinAsync: vi.fn(async () => undefined),
+  unpinAsync: vi.fn(async () => undefined),
 }));
 
 vi.mock("react-router-dom", async (importOriginal) => {
@@ -63,8 +65,14 @@ vi.mock("@/hooks/mutations/thread-state-mutations", async (importOriginal) => {
     useDeleteThread: () => ({ isPending: false, mutate: mocks.mutation }),
     useMarkThreadRead: () => ({ mutate: mocks.mutation }),
     useMarkThreadUnread: () => ({ mutate: mocks.mutation }),
-    usePinThread: () => ({ mutate: mocks.mutation }),
-    useUnpinThread: () => ({ mutate: mocks.mutation }),
+    usePinThread: () => ({
+      mutate: mocks.mutation,
+      mutateAsync: mocks.pinAsync,
+    }),
+    useUnpinThread: () => ({
+      mutate: mocks.mutation,
+      mutateAsync: mocks.unpinAsync,
+    }),
     useUpdateThread: () => ({ isPending: false, mutate: mocks.mutation }),
   };
 });
@@ -90,6 +98,10 @@ vi.mock("@/hooks/useDialogState", () => ({
 
 vi.mock("@/hooks/useRouteState", () => ({
   useRouteState: () => ({ threadId: null }),
+}));
+
+vi.mock("@/hooks/queries/sidebar-navigation-query", () => ({
+  useSidebarNavigation: () => ({ data: null }),
 }));
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
@@ -193,6 +205,35 @@ describe("ThreadActionsProvider archive feedback", () => {
     });
     expect(sdk.threads.unarchive).toHaveBeenNthCalledWith(2, {
       threadId: "thr_child",
+    });
+  });
+});
+
+function PinButton({ thread }: { thread: Thread }) {
+  const { togglePin } = useThreadActions();
+  return (
+    <button type="button" onClick={() => togglePin(thread)}>
+      Pin
+    </button>
+  );
+}
+
+describe("ThreadActionsProvider pin replacement", () => {
+  it("ignores a second pin click while the first is in flight", async () => {
+    let release!: () => void;
+    mocks.pinAsync.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(undefined);
+        }),
+    );
+    renderProvider(<PinButton thread={makeThread({ id: "thr_new" })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pin" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pin" }));
+    expect(mocks.pinAsync).toHaveBeenCalledTimes(1);
+    release();
+    await vi.waitFor(() => {
+      expect(mocks.pinAsync).toHaveBeenCalledTimes(1);
     });
   });
 });

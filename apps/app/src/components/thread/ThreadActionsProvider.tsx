@@ -432,31 +432,33 @@ export function ThreadActionsProvider({
         unpinMutate({ id: thread.id });
         return;
       }
-      const sidebarThreads = sidebarNavigationQuery.data
-        ? [
-            ...sidebarNavigationQuery.data.personalProject.threads,
-            ...sidebarNavigationQuery.data.projects.flatMap(
-              (project) => project.threads,
-            ),
-          ]
-        : [];
-      const pinnedThreads = sidebarThreads
-        .filter((candidate) => candidate.pinnedAt !== null)
-        .sort((left, right) => (left.pinnedAt ?? 0) - (right.pinnedAt ?? 0));
-      const oldestPinnedThread = pinnedThreads[0];
-      if (
-        pinnedThreads.length < MAX_PINNED_SIDEBAR_THREADS ||
-        !oldestPinnedThread
-      ) {
-        pinMutate({ id: thread.id });
-        return;
-      }
       if (pinReplaceInFlightRef.current) {
         return;
       }
       pinReplaceInFlightRef.current = true;
       void (async () => {
         try {
+          const sidebarThreads = sidebarNavigationQuery.data
+            ? [
+                ...sidebarNavigationQuery.data.personalProject.threads,
+                ...sidebarNavigationQuery.data.projects.flatMap(
+                  (project) => project.threads,
+                ),
+              ]
+            : [];
+          const pinnedThreads = sidebarThreads
+            .filter((candidate) => candidate.pinnedAt !== null)
+            .sort(
+              (left, right) => (left.pinnedAt ?? 0) - (right.pinnedAt ?? 0),
+            );
+          const oldestPinnedThread = pinnedThreads[0];
+          if (
+            pinnedThreads.length < MAX_PINNED_SIDEBAR_THREADS ||
+            !oldestPinnedThread
+          ) {
+            await pinMutateAsync({ id: thread.id });
+            return;
+          }
           // Mutate in server-confirmed order. If pinning fails after a confirmed
           // unpin, restore the prior pin so replacement cannot lose it.
           await unpinMutateAsync({ id: oldestPinnedThread.id });
@@ -484,7 +486,6 @@ export function ThreadActionsProvider({
       })();
     },
     [
-      pinMutate,
       pinMutateAsync,
       sidebarNavigationQuery.data,
       unpinMutate,

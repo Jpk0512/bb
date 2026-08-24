@@ -110,3 +110,51 @@ export function buildSidebarWorkingSet({
     threads: visibleThreads,
   };
 }
+
+export interface ProjectWorkingSetSummary {
+  olderByProject: { projectId: string; count: number }[];
+  olderThreadCount: number;
+  threads: ThreadListEntry[];
+}
+
+/** Cap and overflow counts independently per project. */
+export function summarizeWorkingSetsByProject({
+  modesByProject,
+  now,
+  pinnedThreadIds,
+  threads,
+}: {
+  modesByProject: Readonly<Record<string, SidebarWorkingSetMode>>;
+  now?: number;
+  pinnedThreadIds?: ReadonlySet<string>;
+  threads: readonly ThreadListEntry[];
+}): ProjectWorkingSetSummary {
+  const threadsByProject = new Map<string, ThreadListEntry[]>();
+  for (const thread of threads) {
+    const projectThreads = threadsByProject.get(thread.projectId);
+    if (projectThreads) projectThreads.push(thread);
+    else threadsByProject.set(thread.projectId, [thread]);
+  }
+  const olderByProject: { projectId: string; count: number }[] = [];
+  const visible: ThreadListEntry[] = [];
+  for (const [projectId, projectThreads] of threadsByProject) {
+    const result = buildSidebarWorkingSet({
+      mode: modesByProject[projectId] ?? "working",
+      now,
+      pinnedThreadIds,
+      threads: projectThreads,
+    });
+    visible.push(...result.threads);
+    if (result.olderThreadCount > 0) {
+      olderByProject.push({ projectId, count: result.olderThreadCount });
+    }
+  }
+  return {
+    olderByProject,
+    olderThreadCount: olderByProject.reduce(
+      (total, entry) => total + entry.count,
+      0,
+    ),
+    threads: visible,
+  };
+}

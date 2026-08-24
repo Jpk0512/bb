@@ -114,7 +114,7 @@ import {
   type SidebarSectionId,
 } from "./sidebarCollapsedAtoms";
 import {
-  buildSidebarWorkingSet,
+  summarizeWorkingSetsByProject,
   hasSidebarWorkingActivity,
   type SidebarWorkingSetMode,
 } from "./sidebarWorkingSet";
@@ -1705,39 +1705,14 @@ function ProjectListComponent({
     () => buildPinnedSidebarState({ draftThreadIds, threads }),
     [draftThreadIds, threads],
   );
-  const sidebarWorkingSet = useMemo(() => {
-    const threadsByProject = new Map<string, ThreadListEntry[]>();
-    for (const thread of threads) {
-      const projectThreads = threadsByProject.get(thread.projectId);
-      if (projectThreads) projectThreads.push(thread);
-      else threadsByProject.set(thread.projectId, [thread]);
-    }
-
-    const olderByProject: { projectId: string; count: number }[] = [];
-    const visible: ThreadListEntry[] = [];
-    for (const [projectId, projectThreads] of threadsByProject) {
-      const result = buildSidebarWorkingSet({
-        mode: workingSetModesByProject[projectId] ?? "working",
+  const sidebarWorkingSet = useMemo(
+    () =>
+      summarizeWorkingSetsByProject({
+        modesByProject: workingSetModesByProject,
         pinnedThreadIds: pinnedSidebarState.effectivePinnedThreadIds,
-        threads: projectThreads,
-      });
-      visible.push(...result.threads);
-      if (result.olderThreadCount > 0) {
-        olderByProject.push({
-          projectId,
-          count: result.olderThreadCount,
-        });
-      }
-    }
-    return {
-      olderByProject,
-      olderThreadCount: olderByProject.reduce(
-        (total, entry) => total + entry.count,
-        0,
-      ),
-      threads: visible,
-    };
-  }, [
+        threads,
+      }),
+    [
     pinnedSidebarState.effectivePinnedThreadIds,
     threads,
     workingSetModesByProject,
@@ -2134,9 +2109,7 @@ function ProjectListComponent({
       displayOptionsOpen={threadsDisplayOptionsMenuOpen}
       onDisplayOptionsOpenChange={handleThreadsDisplayOptionsMenuOpenChange}
       isCreatingSection={isCreateThreadSectionPending}
-      onNewSection={
-        isSectionOrganizationMode ? handleOpenCreateSectionDialog : undefined
-      }
+      onNewSection={handleOpenCreateSectionDialog}
       isCreatingProject={isCreatingProject}
       onNewProject={onNewProject}
       onNewThread={handleCreateProjectlessThread}
@@ -2238,6 +2211,7 @@ function ProjectListComponent({
   return (
     <ProjectListShell titleMentionResources={titleMentionResources}>
       {workingSetMode === "working" ? (
+        <>
         <WorkingSetSections
           actions={threadsSectionActions}
           activeThreads={workingSetActiveThreads}
@@ -2252,6 +2226,10 @@ function ProjectListComponent({
           onToggleThreadCollapsed={toggleThreadCollapsed}
           onToggleEnvironmentCollapsed={toggleEnvironmentCollapsed}
         />
+        {sectionCreateDialog}
+        {sectionRenameDialogContent}
+        {sectionDeleteDialogContent}
+        </>
       ) : (
         <ActiveSidebarModeSections
           mode={organizationMode}
