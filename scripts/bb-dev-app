@@ -86,6 +86,7 @@ LOG_ROOT="${HOME}/.bb-dev/launchers/${LAUNCHER_NAME}"
 DEV_LOG="${LOG_ROOT}/dev.log"
 DESKTOP_LOG="${LOG_ROOT}/desktop.log"
 LAUNCHER_LOG="${LOG_ROOT}/launcher.log"
+DEV_PIDFILE="${LOG_ROOT}/dev.pid"
 
 usage() {
   cat <<'EOF'
@@ -154,48 +155,23 @@ ensure_repo() {
   [[ -e "${REPO_ROOT}/.git" ]] || die "Repo not found: ${REPO_ROOT}"
 }
 
+# Ports and paths come from @bb/config via `pnpm dev:config`, the same resolver
+# `pnpm dev` uses. Recomputing them here is what let this script disagree with
+# the stack it starts once BB_DEV_APP_PORT became overridable: `stop` then missed
+# the real listener and the next `start` died on EADDRINUSE.
 load_config() {
   local config
-  config="$(
-    node - "${REPO_ROOT}" <<'NODE'
-const crypto = require("node:crypto");
-const os = require("node:os");
-const path = require("node:path");
+  if ! config="$(
+    cd "${REPO_ROOT}" && pnpm run --silent dev:config 2>/dev/null \
+      | grep -E '^[A-Z_]+='
+  )"; then
+    config=""
+  fi
 
-const repoRoot = path.resolve(process.argv[2]);
-const homeDir = os.homedir();
-const hash = crypto.createHash("sha256").update(repoRoot).digest("hex");
-const homeRelativePath = path.relative(homeDir, repoRoot);
-const label =
-  homeRelativePath.length > 0 &&
-  !homeRelativePath.startsWith("../") &&
-  !homeRelativePath.startsWith("..\\") &&
-  homeRelativePath !== ".." &&
-  !path.isAbsolute(homeRelativePath)
-    ? homeRelativePath
-    : repoRoot;
-const sanitized =
-  label
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/gu, "-")
-    .replace(/^[._-]+|[._-]+$/gu, "") || "worktree";
-const offset = Number.parseInt(hash.slice(0, 8), 16) % 8000;
-const instanceId = `${sanitized}-${hash.slice(0, 12)}`;
-const dataDir = path.join(homeDir, ".bb-dev", instanceId);
-const values = {
-  BB_DEV_APP_PORT: 11000 + offset,
-  BB_HOST_DAEMON_PORT: 27000 + offset,
-  BB_SERVER_PORT: 19000 + offset,
-  BB_SERVER_URL: `http://localhost:${19000 + offset}`,
-  DATA_DIR: dataDir,
-  DESKTOP_USER_DATA_DIR: path.join(dataDir, "desktop"),
-  INSTANCE_ID: instanceId,
-};
-for (const [key, value] of Object.entries(values)) {
-  console.log(`${key}=${JSON.stringify(String(value))}`);
-}
-NODE
-  )"
+  if [[ -z "${config}" ]]; then
+    die "Could not resolve the dev instance config via 'pnpm dev:config' in ${REPO_ROOT}. Run 'pnpm install' there, then retry."
+  fi
+
   eval "${config}"
 }
 
@@ -217,7 +193,13 @@ quit_screen_session() {
 kill_pid_list() {
   local signal="$1"
   shift
-  local pids=("$@")
+  local pid
+  local pids=()
+  # Never pass 0 or 1 to kill: 0 signals the whole process group and 1 is init.
+  for pid in "$@"; do
+    [[ "${pid}" =~ ^[0-9]+$ ]] || continue
+    (( pid > 1 )) && pids+=("${pid}")
+  done
   (( ${#pids[@]} == 0 )) && return 0
   /bin/kill "-${signal}" "${pids[@]}" 2>/dev/null || true
 }
@@ -225,6 +207,143 @@ kill_pid_list() {
 port_listener_pids() {
   local port="$1"
   lsof -nP -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null | sort -u || true
+}
+
+port_state() {
+  local port="$1"
+  if [[ -n "$(port_listener_pids "${port}")" ]]; then
+    printf 'listening'
+  else
+    printf 'not listening'
+  fi
+}
+
+pid_is_alive() {
+  /bin/kill -0 "$1" 2>/dev/null
+}
+
+pid_cwd() {
+  lsof -a -d cwd -p "$1" -Fn 2>/dev/null \
+    | awk '/^n/ { print substr($0, 2); exit }'
+}
+
+# Guards the ancestor walk below: a bare interactive shell is never part of a dev
+# stack, so a hand-run `pnpm dev` must not let us climb into the user's terminal.
+pid_is_interactive_shell() {
+  local command basename_value
+  command="$(ps -o command= -p "$1" 2>/dev/null)"
+  [[ -n "${command}" ]] || return 1
+  case "${command}" in
+    *" "*) return 1 ;;
+  esac
+  basename_value="${command##*/}"
+  basename_value="${basename_value#-}"
+  case "${basename_value}" in
+    sh | bash | zsh | ksh | csh | tcsh | dash | fish | login) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+descendant_pids() {
+  local root="$1"
+  # Emitting via `order` (pids ps actually reported) rather than `for (pid in
+  # selected)` is load-bearing: referencing selected[parent[pid]] creates that
+  # key, so iterating the array would emit every ppid on the machine, pid 1
+  # included.
+  ps -axo pid=,ppid= | awk -v root="${root}" '
+    { parent[$1] = $2; order[++count] = $1 }
+    END {
+      selected[root] = 1
+      changed = 1
+      while (changed) {
+        changed = 0
+        for (i = 1; i <= count; i++) {
+          pid = order[i]
+          if (selected[pid] != 1 && selected[parent[pid]] == 1) {
+            selected[pid] = 1
+            changed = 1
+          }
+        }
+      }
+      for (i = 1; i <= count; i++) {
+        pid = order[i]
+        if (selected[pid] == 1 && pid != root) print pid
+      }
+    }
+  '
+}
+
+top_dev_ancestor() {
+  local pid="$1"
+  local parent
+  while :; do
+    parent="$(ps -o ppid= -p "${pid}" 2>/dev/null | tr -dc '0-9')"
+    [[ -n "${parent}" ]] || break
+    (( parent <= 1 )) && break
+    pid_is_interactive_shell "${parent}" && break
+    [[ "$(pid_cwd "${parent}")" == "${REPO_ROOT}" ]] || break
+    pid="${parent}"
+  done
+  printf '%s\n' "${pid}"
+}
+
+# `pnpm dev` fans out into dotenv -> cross-env -> run-dev -> turbo -> one process
+# per app, and the host-daemon dev supervisor respawns children killed under a
+# live parent. Stopping therefore has to start from the root of the tree, which
+# survived `screen -X quit` as an orphan reparented to launchd.
+dev_tree_root_pids() {
+  local pid
+  if [[ -f "${DEV_PIDFILE}" ]]; then
+    pid="$(tr -dc '0-9' < "${DEV_PIDFILE}")"
+    if [[ -n "${pid}" ]] && pid_is_alive "${pid}"; then
+      printf '%s\n' "${pid}"
+    fi
+  fi
+
+  while IFS= read -r pid; do
+    [[ -n "${pid}" ]] || continue
+    [[ "$(pid_cwd "${pid}")" == "${REPO_ROOT}" ]] || continue
+    top_dev_ancestor "${pid}"
+  done < <(pgrep -f 'packages/scripts/src/commands/run-dev\.ts' 2>/dev/null || true)
+}
+
+stop_dev_process_tree() {
+  local roots=()
+  local targets=()
+  local pid descendant
+
+  while IFS= read -r pid; do
+    [[ -n "${pid}" ]] && roots+=("${pid}")
+  done < <(dev_tree_root_pids | sort -u)
+
+  (( ${#roots[@]} == 0 )) && return 0
+
+  log "Stopping dev process tree from root(s): ${roots[*]}"
+  for pid in "${roots[@]}"; do
+    while IFS= read -r descendant; do
+      [[ -n "${descendant}" ]] && targets+=("${descendant}")
+    done < <(descendant_pids "${pid}")
+  done
+
+  # Roots first: killing a child under a live supervisor only makes it respawn.
+  kill_pid_list TERM "${roots[@]}"
+  sleep 1
+  (( ${#targets[@]} > 0 )) && kill_pid_list TERM "${targets[@]}"
+  sleep 2
+  kill_pid_list KILL "${roots[@]}" ${targets[@]+"${targets[@]}"}
+}
+
+warn_about_held_dev_ports() {
+  local port pids
+  local held=()
+  for port in "${BB_DEV_APP_PORT}" "${BB_SERVER_PORT}" "${BB_HOST_DAEMON_PORT}"; do
+    pids="$(port_listener_pids "${port}" | tr '\n' ' ')"
+    [[ -n "${pids// /}" ]] && held+=("${port} (pid ${pids% })")
+  done
+
+  (( ${#held[@]} == 0 )) && return 0
+  log "WARNING: dev ports still held after stop: ${held[*]}"
+  log "The next start will fail with EADDRINUSE until those processes exit."
 }
 
 desktop_pids() {
@@ -243,6 +362,11 @@ stop_dev_app() {
 
   sleep 2
 
+  stop_dev_process_tree
+  rm -f "${DEV_PIDFILE}"
+
+  # Backstop for anything the tree walk cannot reach: a stack started outside
+  # this launcher, or a desktop shell left behind by a previous run.
   local pids=()
   local pid
   while IFS= read -r pid; do
@@ -262,6 +386,8 @@ stop_dev_app() {
     sleep 2
     kill_pid_list KILL "${pids[@]}"
   fi
+
+  warn_about_held_dev_ports
 }
 
 handle_dirty_work_before_branch_switch() {
@@ -358,13 +484,16 @@ wait_for_log_pattern() {
 }
 
 start_dev_server() {
-  local repo_root_q path_q dev_log_q
+  local repo_root_q path_q dev_log_q dev_pidfile_q
   printf -v repo_root_q '%q' "${REPO_ROOT}"
   printf -v path_q '%q' "${PATH}"
   printf -v dev_log_q '%q' "${DEV_LOG}"
+  printf -v dev_pidfile_q '%q' "${DEV_PIDFILE}"
   log "Starting dev server session ${DEV_SESSION}"
-  rm -f "${DEV_LOG}"
-  screen -dmS "${DEV_SESSION}" "${BASH}" -lc "cd ${repo_root_q} && export PATH=${path_q} && unset BB_THREAD_ID BB_ENVIRONMENT_ID BB_THREAD_STORAGE && exec pnpm dev > ${dev_log_q} 2>&1"
+  rm -f "${DEV_LOG}" "${DEV_PIDFILE}"
+  # `exec` keeps the recorded pid valid: this shell becomes the `pnpm dev` root,
+  # which is the handle `stop` needs when screen dies and the tree is orphaned.
+  screen -dmS "${DEV_SESSION}" "${BASH}" -lc "cd ${repo_root_q} && export PATH=${path_q} && unset BB_THREAD_ID BB_ENVIRONMENT_ID BB_THREAD_STORAGE && echo \$\$ > ${dev_pidfile_q} && exec pnpm dev > ${dev_log_q} 2>&1"
   wait_for_log_pattern "${DEV_LOG}" "Host daemon started" "dev server" 90
 }
 
@@ -375,7 +504,10 @@ start_desktop() {
   printf -v desktop_log_q '%q' "${DESKTOP_LOG}"
   log "Starting desktop session ${DESKTOP_SESSION}"
   rm -f "${DESKTOP_LOG}"
-  screen -dmS "${DESKTOP_SESSION}" "${BASH}" -lc "cd ${repo_root_q} && export PATH=${path_q} && unset BB_THREAD_ID BB_ENVIRONMENT_ID BB_THREAD_STORAGE && exec pnpm exec turbo run dev --filter=@bb/desktop > ${desktop_log_q} 2>&1"
+  # The dotenv wrapper is what `pnpm dev` gets from its own script; without it
+  # the desktop shell resolves a different app port than the server it attaches
+  # to whenever an env file overrides BB_DEV_APP_PORT.
+  screen -dmS "${DESKTOP_SESSION}" "${BASH}" -lc "cd ${repo_root_q} && export PATH=${path_q} && unset BB_THREAD_ID BB_ENVIRONMENT_ID BB_THREAD_STORAGE && exec pnpm exec dotenv -c development -- pnpm exec turbo run dev --filter=@bb/desktop > ${desktop_log_q} 2>&1"
   wait_for_log_pattern "${DESKTOP_LOG}" "@bb/desktop: app http://localhost:${BB_DEV_APP_PORT}" "desktop app" 120
 }
 
@@ -415,9 +547,12 @@ status() {
   printf 'Codex: %s\n' "${codex_version:-not found}"
   printf 'Instance: %s\n' "${INSTANCE_ID}"
   printf 'Data dir: %s\n' "${DATA_DIR}"
-  printf 'App: http://localhost:%s\n' "${BB_DEV_APP_PORT}"
-  printf 'Server: %s\n' "${BB_SERVER_URL}"
-  printf 'Host daemon: http://127.0.0.1:%s\n' "${BB_HOST_DAEMON_PORT}"
+  printf 'App: http://localhost:%s (%s)\n' \
+    "${BB_DEV_APP_PORT}" "$(port_state "${BB_DEV_APP_PORT}")"
+  printf 'Server: %s (%s)\n' \
+    "${BB_SERVER_URL}" "$(port_state "${BB_SERVER_PORT}")"
+  printf 'Host daemon: http://127.0.0.1:%s (%s)\n' \
+    "${BB_HOST_DAEMON_PORT}" "$(port_state "${BB_HOST_DAEMON_PORT}")"
   printf 'Desktop user data: %s\n' "${DESKTOP_USER_DATA_DIR}"
   printf 'Dev session: %s\n' "$(screen_session_exists "${DEV_SESSION}" && echo running || echo stopped)"
   printf 'Desktop session: %s\n' "$(screen_session_exists "${DESKTOP_SESSION}" && echo running || echo stopped)"

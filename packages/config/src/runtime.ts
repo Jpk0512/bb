@@ -52,6 +52,11 @@ export interface ResolveProdDataDirArgs {
   homeDir: string;
 }
 
+export interface ResolveDesktopUserDataDirArgs {
+  dataDir: string;
+  env: NodeJS.ProcessEnv;
+}
+
 export interface ResolveRuntimeDataDirArgs {
   env: NodeJS.ProcessEnv;
   homeDir: string;
@@ -232,6 +237,22 @@ export function resolveCurrentDevInstanceConfig(
     homeDir: homedir(),
     repoRoot,
   });
+}
+
+/**
+ * Shared by the desktop dev launcher and scripts/bb-dev-app: the launcher finds
+ * running desktop processes by matching the `--user-data-dir=` argument, so a
+ * second copy of this resolution would stop it from seeing an overridden dir.
+ */
+export function resolveDesktopUserDataDir(
+  args: ResolveDesktopUserDataDirArgs,
+): string {
+  const rawUserDataDir = args.env.BB_DESKTOP_USER_DATA_DIR?.trim();
+  if (rawUserDataDir === undefined || rawUserDataDir.length === 0) {
+    return join(args.dataDir, "desktop");
+  }
+
+  return resolve(rawUserDataDir);
 }
 
 export function resolveInheritedDevSkillsRootPaths(

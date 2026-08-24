@@ -1,10 +1,11 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   resolveCurrentDevInstanceConfig,
+  resolveDesktopUserDataDir,
   toDevProcessEnv,
 } from "@bb/config/runtime";
 
@@ -12,14 +13,6 @@ const require = createRequire(import.meta.url);
 const electronBinary = require("electron");
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDirectory, "..", "..", "..");
-
-function resolveDesktopUserDataDir(env, dataDir) {
-  const rawUserDataDir = env.BB_DESKTOP_USER_DATA_DIR?.trim();
-  if (rawUserDataDir === undefined || rawUserDataDir.length === 0) {
-    return join(dataDir, "desktop");
-  }
-  return resolve(rawUserDataDir);
-}
 
 const VITE_PROBE_TIMEOUT_MS = 800;
 
@@ -54,7 +47,10 @@ async function isViteDevServerReachable(appUrl) {
 const devConfig = resolveCurrentDevInstanceConfig(repoRoot);
 const childEnv = createElectronAppEnv(process.env, devConfig);
 const dataDir = devConfig.dataDir;
-const desktopUserDataDir = resolveDesktopUserDataDir(childEnv, dataDir);
+const desktopUserDataDir = resolveDesktopUserDataDir({
+  dataDir,
+  env: childEnv,
+});
 
 const appUrl = `http://localhost:${devConfig.ports.appPort}`;
 const viteReachable = await isViteDevServerReachable(appUrl);
