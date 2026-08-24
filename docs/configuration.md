@@ -236,6 +236,10 @@ character input. A configured app shortcut takes precedence in editable
 controls; when no matching command handles a chord, the control retains its
 native behavior.
 
+When more than one provider is available, the model picker shows a labeled tab
+for each provider. This keeps provider selection legible while preserving the
+same model, reasoning, and fast-mode controls for the selected provider.
+
 The desktop application menu uses the same resolved bindings for New Thread,
 New Window, New Tab, Close, and Settings. There is no separate menu shortcut
 configuration.

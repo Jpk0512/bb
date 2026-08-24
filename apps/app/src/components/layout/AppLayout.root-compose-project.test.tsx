@@ -153,6 +153,7 @@ describe("AppLayout root compose project preference", () => {
         titleFallback: "Opened Thread",
         lastReadAt: 100,
         latestAttentionAt: 100,
+        runtime: { displayStatus: "idle" },
       },
     });
     mockUseThreadDetailBootstrap.mockReturnValue({
@@ -190,5 +191,33 @@ describe("AppLayout root compose project preference", () => {
     expect(
       window.localStorage.getItem(ROOT_COMPOSE_PROJECT_ID_STORAGE_KEY),
     ).toBe("proj_last_run");
+  });
+
+  it("prefixes the title while the opened thread is working", async () => {
+    mockUseThread.mockReturnValue({
+      data: {
+        id: "thr_opened",
+        projectId: "proj_opened",
+        title: "Opened Thread",
+        titleFallback: "Opened Thread",
+        lastReadAt: 100,
+        latestAttentionAt: 100,
+        runtime: { displayStatus: "active" },
+      },
+    });
+
+    render(
+      <MemoryRouter
+        initialEntries={["/projects/proj_opened/threads/thr_opened"]}
+      >
+        <AppLayout>
+          <div>Thread route</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(document.title).toBe("● Working — Opened Thread");
+    });
   });
 });

@@ -22,7 +22,6 @@ import { Input } from "@bb/shared-ui/input";
 import {
   COARSE_POINTER_ICON_SIZE_CLASS,
   COARSE_POINTER_ICON_SIZE_SHRINK_CLASS,
-  COARSE_POINTER_PROVIDER_TAB_SIZE_CLASS,
   COARSE_POINTER_TEXT_SM_CLASS,
 } from "@bb/shared-ui/coarse-pointer-sizing";
 import {
@@ -951,9 +950,8 @@ export function ModelReasoningPicker({
                     }
                   }}
                   className={cn(
-                    "flex items-center justify-center border-b-2 focus-visible:outline-none",
+                    "flex h-7 items-center gap-1.5 border-b-2 px-2 focus-visible:outline-none max-md:pointer-coarse:h-9",
                     LIST_HOVER_TRANSITION,
-                    COARSE_POINTER_PROVIDER_TAB_SIZE_CLASS,
                     isActive
                       ? "border-foreground text-foreground"
                       : "border-transparent text-muted-foreground hover:text-foreground",
@@ -961,16 +959,12 @@ export function ModelReasoningPicker({
                 >
                   {TabIcon ? (
                     <TabIcon className={COARSE_POINTER_ICON_SIZE_CLASS} />
-                  ) : (
-                    <span
-                      className={cn(
-                        "font-medium",
-                        COARSE_POINTER_TEXT_SM_CLASS,
-                      )}
-                    >
-                      {provider.label.charAt(0)}
-                    </span>
-                  )}
+                  ) : null}
+                  <span
+                    className={cn("font-medium", COARSE_POINTER_TEXT_SM_CLASS)}
+                  >
+                    {provider.label}
+                  </span>
                 </button>
               );
             })}
