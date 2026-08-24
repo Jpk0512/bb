@@ -484,7 +484,7 @@ function hasAtLeastTwoThreadNodes(
 }
 
 // The thread that orders an item among its siblings.
-function getItemOrderingThread(
+export function getItemOrderingThread(
   item: ProjectThreadItem,
   compareThreads: ThreadComparator,
 ): ThreadListEntry | null {
@@ -650,6 +650,88 @@ function bucketIntoSections(
     : sectionItemsByName;
   const orderedLooseItems = orderSiblingItems(looseItems, compareThreads);
   return [...sectionItems, ...orderedLooseItems];
+}
+
+// M2.4 opt-in date grouping. Buckets a top-level item list (already sorted by
+// buildProjectThreadGroups) into Today / Yesterday / This week / Earlier,
+// each rendered as an ordinary synthetic `section` item so every existing
+// switch over `ProjectThreadItem.kind` (row count, navigation, collapse,
+// rendering) needs no new case. Buckets with no items are omitted; item order
+// within a bucket is preserved from the input list.
+const DATE_GROUP_BUCKET_IDS = [
+  "today",
+  "yesterday",
+  "this-week",
+  "earlier",
+] as const;
+export type DateGroupBucketId = (typeof DATE_GROUP_BUCKET_IDS)[number];
+
+const DATE_GROUP_BUCKET_NAMES: Record<DateGroupBucketId, string> = {
+  today: "Today",
+  yesterday: "Yesterday",
+  "this-week": "This week",
+  earlier: "Earlier",
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function startOfDay(timestampMs: number): number {
+  const date = new Date(timestampMs);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+export function getDateGroupBucketId(
+  updatedAt: number,
+  now: number = Date.now(),
+): DateGroupBucketId {
+  const todayStart = startOfDay(now);
+  if (updatedAt >= todayStart) return "today";
+  if (updatedAt >= todayStart - DAY_MS) return "yesterday";
+  if (updatedAt >= todayStart - 7 * DAY_MS) return "this-week";
+  return "earlier";
+}
+
+/**
+ * Re-buckets an already-ordered top-level item list by `updatedAt` recency.
+ * `containerId` namespaces the synthetic section keys (see `buildSectionKey`)
+ * so the same project rendered twice (e.g. a project and its Sections-view
+ * projection) does not collide on collapse state.
+ */
+export function buildDateGroupedThreadItems(
+  items: readonly ProjectThreadItem[],
+  containerId: string,
+  compareThreads: ThreadComparator,
+  draftThreadIds: ReadonlySet<string> = new Set(),
+  now: number = Date.now(),
+): ProjectThreadItem[] {
+  const itemsByBucket = new Map<DateGroupBucketId, ProjectThreadItem[]>(
+    DATE_GROUP_BUCKET_IDS.map((id) => [id, []]),
+  );
+  for (const item of items) {
+    const orderingThread = getItemOrderingThread(item, compareThreads);
+    const bucketId =
+      orderingThread === null
+        ? "earlier"
+        : getDateGroupBucketId(orderingThread.updatedAt, now);
+    itemsByBucket.get(bucketId)?.push(item);
+  }
+
+  const result: ProjectThreadItem[] = [];
+  for (const bucketId of DATE_GROUP_BUCKET_IDS) {
+    const bucketItems = itemsByBucket.get(bucketId) ?? [];
+    if (bucketItems.length === 0) continue;
+    result.push({
+      kind: "section",
+      group: buildSectionGroup(
+        containerId,
+        { id: `date:${bucketId}`, name: DATE_GROUP_BUCKET_NAMES[bucketId] },
+        bucketItems,
+        draftThreadIds,
+      ),
+    });
+  }
+  return result;
 }
 
 export interface ProjectThreadItemRowCountContext {

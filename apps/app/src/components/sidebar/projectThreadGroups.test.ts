@@ -2,10 +2,12 @@ import type { ThreadListEntry } from "@bb/domain";
 import { describe, expect, it } from "vitest";
 import {
   buildChronologicalThreadList,
+  buildDateGroupedThreadItems,
   buildSectionThreadList,
   buildProjectThreadGroups,
   compareByCreatedAtDescending,
   compareStandardThreads,
+  getDateGroupBucketId,
   type ProjectThreadItem,
   type ProjectThreadNode,
   type ThreadComparator,
@@ -823,6 +825,53 @@ describe("section bucketing", () => {
 
     expect(summarizeItems(items)).toEqual([
       { section: "chronological::sec_work", name: "Work", items: ["a", "b"] },
+    ]);
+  });
+});
+
+describe("date grouping", () => {
+  const now = new Date(2025, 0, 10, 12).getTime();
+
+  it("assigns dates to stable calendar-day buckets", () => {
+    expect(getDateGroupBucketId(new Date(2025, 0, 10, 1).getTime(), now)).toBe(
+      "today",
+    );
+    expect(getDateGroupBucketId(new Date(2025, 0, 9, 23).getTime(), now)).toBe(
+      "yesterday",
+    );
+    expect(getDateGroupBucketId(new Date(2025, 0, 4, 12).getTime(), now)).toBe(
+      "this-week",
+    );
+    expect(getDateGroupBucketId(new Date(2025, 0, 2, 23).getTime(), now)).toBe(
+      "earlier",
+    );
+  });
+
+  it("wraps existing project items in non-empty date sections", () => {
+    const items = buildProjectThreadGroups([
+      createThread({ id: "today", updatedAt: new Date(2025, 0, 10, 1).getTime() }),
+      createThread({ id: "yesterday", updatedAt: new Date(2025, 0, 9, 1).getTime() }),
+      createThread({ id: "earlier", updatedAt: new Date(2025, 0, 1, 1).getTime() }),
+    ]);
+
+    expect(
+      summarizeItems(
+        buildDateGroupedThreadItems(
+          items,
+          "proj_1",
+          compareStandardThreads,
+          new Set(),
+          now,
+        ),
+      ),
+    ).toEqual([
+      { section: "proj_1::date:today", name: "Today", items: ["today"] },
+      {
+        section: "proj_1::date:yesterday",
+        name: "Yesterday",
+        items: ["yesterday"],
+      },
+      { section: "proj_1::date:earlier", name: "Earlier", items: ["earlier"] },
     ]);
   });
 });

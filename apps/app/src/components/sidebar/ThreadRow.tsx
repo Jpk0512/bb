@@ -51,10 +51,12 @@ import { getThreadDisplayTitle } from "@/lib/thread-title";
 import { getThreadRoutePath } from "@/lib/route-paths";
 import { cn } from "@bb/shared-ui/lib/utils";
 import { LIST_HOVER_TRANSITION } from "@bb/shared-ui/motion";
+import { SidebarThreadText } from "@bb/shared-ui/typography";
 import {
   SIDEBAR_ROW_BASE_CLASS,
   SIDEBAR_ROW_GLYPH_SLOT_CLASS,
   SIDEBAR_ROW_INTERACTIVE_STATE_CLASS,
+  SIDEBAR_ROW_LEADING_SLOT_CLASS,
   SIDEBAR_ROW_SELECTED_STATE_CLASS,
   SIDEBAR_MORE_ACTION_TRIGGER_CLASS,
   SIDEBAR_ROW_OPEN_IN_SPLIT_STATE_CLASS,
@@ -63,6 +65,7 @@ import {
   SIDEBAR_WORKING_STATUS_COLOR_CLASS,
   getSidebarThreadRowPaddingLeft,
 } from "./sidebarRowClasses";
+import { ThreadStatusDot } from "./ThreadStatusDot";
 import type { ConsumeDragClickSuppression } from "@/components/ui/use-drag-click-suppression";
 import type { SidebarSortableDragBindings } from "./sortableMotion";
 import { SidebarChildToggleChevron } from "./SidebarChildToggleChevron";
@@ -698,19 +701,30 @@ function ThreadRowComponent({
         aria-keyshortcuts={shortcut?.ariaKeyshortcuts}
         className="absolute inset-0 rounded-md outline-none ring-sidebar-ring focus-visible:ring-2"
       />
+      <span
+        className={cn(
+          "relative z-10",
+          SIDEBAR_ROW_LEADING_SLOT_CLASS,
+        )}
+      >
+        <ThreadStatusDot thread={thread} />
+      </span>
       <span className="flex min-w-0 flex-1 items-center gap-1.5">
         {isEditing ? (
           <span className="relative z-10 min-w-0 flex-1 overflow-visible">
             {editor}
           </span>
         ) : (
-          <span
-            className="min-w-0 truncate"
+          <SidebarThreadText
+            className={cn(
+              "min-w-0 truncate",
+              showActive && "font-medium text-foreground",
+            )}
             title={labelTitle}
             onDoubleClick={startTitleEditing}
           >
             <SidebarThreadTitle title={visibleTitle} />
-          </span>
+          </SidebarThreadText>
         )}
         {parentOptions && hasChildren ? (
           <SidebarChildToggleChevron
