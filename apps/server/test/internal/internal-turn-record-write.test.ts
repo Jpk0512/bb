@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { getThreadTurnRecord, listThreadTurnRecords, threads } from "@bb/db";
-import { eq } from "drizzle-orm";
+import {
+  events,
+  getThreadTurnRecord,
+  listThreadTurnRecords,
+  threads,
+} from "@bb/db";
+import { and, eq } from "drizzle-orm";
 import { turnScope } from "@bb/domain";
 import { groupHostDaemonEvents } from "@bb/host-daemon-contract";
 import {
@@ -262,7 +267,7 @@ describe("turn telemetry write seam on turn completion", () => {
         data: { providerThreadId: "provider-1", status: "completed" },
       });
 
-      const result = backfillThreadTurnRecords(harness.deps);
+      const result = await backfillThreadTurnRecords(harness.deps);
 
       expect(result.inspected).toBe(1);
       expect(result.materialized).toBe(1);
@@ -270,6 +275,83 @@ describe("turn telemetry write seam on turn completion", () => {
       expect(
         harness.db.select().from(threads).where(eq(threads.id, thread.id)).get()?.status,
       ).toBe("active");
+    });
+  });
+
+  it("never rebuilds a turn that already has a record, even after pruning stripped its detail", async () => {
+    await withTestHarness(async (harness) => {
+      const { session, thread } = await seedTelemetryThread(harness);
+
+      const response = await postEventBatch({
+        harness,
+        sessionId: session.id,
+        events: [
+          {
+            threadId: thread.id,
+            event: {
+              type: "turn/started",
+              threadId: thread.id,
+              providerThreadId: "provider-1",
+              scope: turnScope("turn-materialized"),
+            },
+          },
+          {
+            threadId: thread.id,
+            event: {
+              type: "item/started",
+              threadId: thread.id,
+              providerThreadId: "provider-1",
+              scope: turnScope("turn-materialized"),
+              item: { type: "toolCall", id: "call-1", tool: "Bash", status: "pending" },
+            },
+          },
+          {
+            threadId: thread.id,
+            event: {
+              type: "item/completed",
+              threadId: thread.id,
+              providerThreadId: "provider-1",
+              scope: turnScope("turn-materialized"),
+              item: { type: "toolCall", id: "call-1", tool: "Bash", status: "completed" },
+            },
+          },
+          {
+            threadId: thread.id,
+            event: {
+              type: "turn/completed",
+              threadId: thread.id,
+              providerThreadId: "provider-1",
+              scope: turnScope("turn-materialized"),
+              status: "completed",
+            },
+          },
+        ],
+      });
+      expect(response.status).toBe(200);
+      expect(
+        getThreadTurnRecord(harness.db, {
+          threadId: thread.id,
+          turnId: "turn-materialized",
+        })?.counts.toolCalls,
+      ).toBe(1);
+
+      // Idle pruning removes the detail events the record was built from, so a
+      // rebuild could only produce a poorer record than the durable one.
+      harness.db
+        .delete(events)
+        .where(and(eq(events.threadId, thread.id), eq(events.itemId, "call-1")))
+        .run();
+
+      const result = await backfillThreadTurnRecords(harness.deps);
+
+      // The completion already has a record, so it is not even a candidate.
+      expect(result).toEqual({ inspected: 0, materialized: 0 });
+      expect(
+        getThreadTurnRecord(harness.db, {
+          threadId: thread.id,
+          turnId: "turn-materialized",
+        })?.counts.toolCalls,
+      ).toBe(1);
     });
   });
 });

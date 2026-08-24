@@ -56,13 +56,6 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     dataDir: serverConfig.BB_DATA_DIR,
     logger,
   });
-  const turnTelemetryBackfill = backfillThreadTurnRecords({ db, logger });
-  if (turnTelemetryBackfill.inspected > 0) {
-    logger.info(
-      turnTelemetryBackfill,
-      "Backfilled durable turn telemetry from the event log",
-    );
-  }
   const hub = new NotificationHub();
   const watchInterests = new WatchInterestCoordinator({ db, hub });
   const sharedPorts = new HostSharedPortCoordinator({ db, hub });
@@ -265,6 +258,22 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
   // Discovery metadata only: a refresh never installs, updates, or runs
   // plugin code, and a failure keeps the last-known-good catalog.
   pluginCatalogService.startPeriodicRefresh();
+
+  // Telemetry gaps only exist for turns whose completion never materialized a
+  // record, so this fills them after the listener is up: boot must not grow
+  // with total history, and a backfill failure must leave the server serving.
+  void backfillThreadTurnRecords({ db, logger })
+    .then((result) => {
+      if (result.inspected > 0) {
+        logger.info(
+          result,
+          "Backfilled durable turn telemetry from the event log",
+        );
+      }
+    })
+    .catch((error: unknown) => {
+      logger.error({ err: error }, "Turn telemetry backfill failed");
+    });
 
   const sweepInterval = setInterval(() => {
     void runPeriodicSweeps(sweepDeps);

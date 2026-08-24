@@ -6,7 +6,10 @@ import {
   type ResolvedThreadExecutionOptions,
 } from "@bb/domain";
 import { describe, expect, it } from "vitest";
-import { runThreadLifecycleSweep } from "../../src/services/system/periodic-sweeps.js";
+import {
+  runThreadLifecycleSweep,
+  runThreadProvisioningOrphanCleanupSweep,
+} from "../../src/services/system/periodic-sweeps.js";
 import {
   appendThreadProvisioningEvent,
   buildCwdBranchEntries,
@@ -46,6 +49,48 @@ const THREAD_START_EXECUTION = {
 } satisfies ResolvedThreadExecutionOptions;
 
 describe("thread provisioning recovery", () => {
+  it("leaves a thread awaiting its provider start alone after provisioning completed", async () => {
+    await withTestHarness(async (harness) => {
+      const { host } = seedHostSession(harness.deps, {
+        id: "host-completed-provisioning",
+      });
+      const { project } = seedProjectWithSource(harness.deps, {
+        hostId: host.id,
+      });
+      const environment = seedEnvironment(harness.deps, {
+        hostId: host.id,
+        projectId: project.id,
+        path: "/tmp/completed-provisioning",
+        status: "ready",
+      });
+      const thread = seedThread(harness.deps, {
+        projectId: project.id,
+        environmentId: environment.id,
+        status: "starting",
+      });
+      // Provisioning succeeded and discarded its context; the thread stays
+      // `starting` until the provider answers the start it issued.
+      appendThreadProvisioningEvent(harness.deps, {
+        threadId: thread.id,
+        environmentId: environment.id,
+        provisioningId: "tpv_completed_provisioning",
+        status: "completed",
+        entries: [],
+      });
+
+      await runThreadProvisioningOrphanCleanupSweep(harness.deps);
+
+      expect(getThread(harness.db, thread.id)).toMatchObject({
+        status: "starting",
+      });
+      expect(
+        listEvents(harness.db, { threadId: thread.id }).map(
+          (event) => event.type,
+        ),
+      ).toEqual(["system/thread-provisioning"]);
+    });
+  });
+
   it("marks workspace-ready thread starts interrupted instead of reissuing RPC after restart", async () => {
     await withTestHarness(async (harness) => {
       const { host } = seedHostSession(harness.deps, {

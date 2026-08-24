@@ -1,8 +1,10 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import {
   events as storedEvents,
   getThread,
+  getThreadTurnRecord,
   hasRootStoredTurnStarted,
+  threadTurns,
   upsertThreadTurnRecord,
 } from "@bb/db";
 import {
@@ -111,13 +113,50 @@ function materializeTurnRecord(
 }
 
 /**
+ * Fills a telemetry gap without ever replacing an existing record: a record
+ * written at completion time was built before idle pruning stripped event
+ * detail, so rebuilding it from the surviving events can only lose data. The
+ * existence check and the write share one synchronous tick, so a turn that
+ * completes while the backfill runs keeps its completion-time record.
+ */
+function fillMissingTurnRecord(
+  deps: Pick<AppDeps, "db" | "logger">,
+  args: { threadId: string; turnId: string },
+): ThreadTurnRecord | null {
+  if (getThreadTurnRecord(deps.db, args) !== null) {
+    return null;
+  }
+  return materializeTurnRecord(deps, args);
+}
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+}
+
+/** Turns rebuilt between event-loop yields. */
+const TURN_TELEMETRY_BACKFILL_BATCH_SIZE = 25;
+
+export interface ThreadTurnRecordBackfillResult {
+  inspected: number;
+  materialized: number;
+}
+
+/**
  * Rebuild missing turn telemetry from the durable event log. This is deliberately
  * projection-only: replaying old completions must not re-run lifecycle effects,
  * notifications, pruning, or plugin hooks.
+ *
+ * Only completions with no materialized record are candidates, so a boot with
+ * nothing to fill costs one query. Rebuilding a turn decodes its whole event
+ * range, so the work is batched behind event-loop yields: the caller's tick
+ * (server boot) and request handling must never wait on total thread history.
  */
-export function backfillThreadTurnRecords(
+export async function backfillThreadTurnRecords(
   deps: Pick<AppDeps, "db" | "logger">,
-): { inspected: number; materialized: number } {
+): Promise<ThreadTurnRecordBackfillResult> {
+  await yieldToEventLoop();
   const rows = deps.db
     .select({
       data: storedEvents.data,
@@ -128,11 +167,27 @@ export function backfillThreadTurnRecords(
       type: storedEvents.type,
     })
     .from(storedEvents)
-    .where(eq(storedEvents.type, "turn/completed"))
+    .leftJoin(
+      threadTurns,
+      and(
+        eq(threadTurns.threadId, storedEvents.threadId),
+        eq(threadTurns.turnId, storedEvents.turnId),
+      ),
+    )
+    .where(
+      and(
+        eq(storedEvents.type, "turn/completed"),
+        isNotNull(storedEvents.turnId),
+        isNull(threadTurns.turnId),
+      ),
+    )
     .all();
 
   let materialized = 0;
-  for (const row of rows) {
+  for (const [index, row] of rows.entries()) {
+    if (index > 0 && index % TURN_TELEMETRY_BACKFILL_BATCH_SIZE === 0) {
+      await yieldToEventLoop();
+    }
     if (row.turnId === null) continue;
     try {
       const event = parseStoredThreadEvent({
@@ -144,7 +199,7 @@ export function backfillThreadTurnRecords(
         type: row.type,
       });
       if (event.type !== "turn/completed") continue;
-      if (materializeTurnRecord(deps, { threadId: row.threadId, turnId: row.turnId })) {
+      if (fillMissingTurnRecord(deps, { threadId: row.threadId, turnId: row.turnId })) {
         materialized += 1;
       }
     } catch (error) {

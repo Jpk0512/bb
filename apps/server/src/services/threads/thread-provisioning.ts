@@ -1,5 +1,11 @@
-import { getThread, type DbNotifier, type DbTransaction } from "@bb/db";
 import {
+  getLatestStoredEventRowByType,
+  getThread,
+  type DbNotifier,
+  type DbTransaction,
+} from "@bb/db";
+import {
+  systemThreadProvisioningEventDataSchema,
   type Environment,
   type PromptInput,
   type ProvisioningTranscriptEntry,
@@ -391,6 +397,29 @@ export function recordThreadProvisionWorkspaceReadyInTransaction(
   });
 }
 
+/**
+ * Whether this thread's provisioning already reached a terminal row. Read from
+ * the event log rather than memory because the in-process context is exactly
+ * what a completed provisioning discards.
+ */
+export function hasCompletedThreadProvisioning(
+  deps: Pick<AppDeps, "db">,
+  threadId: string,
+): boolean {
+  const row = getLatestStoredEventRowByType(deps.db, {
+    threadId,
+    type: "system/thread-provisioning",
+  });
+  if (row === null) {
+    return false;
+  }
+
+  const parsed = systemThreadProvisioningEventDataSchema.safeParse(
+    JSON.parse(row.data),
+  );
+  return parsed.success && parsed.data.status === "completed";
+}
+
 async function advanceThreadProvisioningOnce(
   deps: ThreadProvisioningDeps,
   args: AdvanceThreadProvisioningArgs,
@@ -406,6 +435,14 @@ async function advanceThreadProvisioningOnce(
   let context =
     args.context ?? loadActiveThreadProvisionContext(deps, thread.id);
   if (!context) {
+    // Provisioning clears its context on success, but the thread stays
+    // `starting` until the provider answers the start it then issues. Failing
+    // on a missing context alone reports every thread as broken when the
+    // orphan sweep lands in that gap, so only a thread whose provisioning
+    // never reached a terminal row is actually abandoned.
+    if (hasCompletedThreadProvisioning(deps, thread.id)) {
+      return;
+    }
     failThreadProvisioning(deps, {
       thread,
       environmentId: thread.environmentId,

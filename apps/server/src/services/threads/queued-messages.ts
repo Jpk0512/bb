@@ -6,6 +6,7 @@ import {
   getEnvironment,
   getThread,
   listIdleThreadsWithQueuedMessages,
+  listQueuedThreadMessages,
   releaseQueuedMessageClaim,
   releaseStaleQueuedMessageClaims,
 } from "@bb/db";
@@ -85,6 +86,12 @@ interface SendClaimedQueuedMessageForThreadArgs {
   mode: SendQueuedMessageMode;
   queuedMessages: ClaimedQueuedMessage[];
   thread: QueuedMessageThread;
+  /**
+   * True only for the sweep-driven drain. A user-initiated send reaches the same
+   * fast path with `mode: "auto"`, and its rejection must stay durable even when
+   * the drain has already recorded that rejection.
+   */
+  unattended: boolean;
 }
 
 interface QueuedMessageThread extends Thread {}
@@ -132,7 +139,150 @@ interface FormatQueuedMessageInputForSenderArgs {
 
 const STALE_QUEUED_MESSAGE_CLAIM_MS = 5 * 60 * 1000;
 const QUEUED_MESSAGE_CLAIM_LOST_CODE = "queued_message_claim_lost";
+// `toTurnPreflightApiError` wraps a plugin rejection before it leaves the
+// non-fast send path, so the drain sees this code instead of the typed error.
+const TURN_REJECTED_API_ERROR_CODE = "turn_rejected";
+const MAX_QUEUED_MESSAGE_PREFLIGHT_REJECTIONS = 3;
 const activeQueuedMessageClaimTokens = new Set<string>();
+
+interface QueuedMessageRejectionState {
+  attempts: number;
+  content: string;
+  reason: string;
+}
+
+/**
+ * Rejection budget for the unattended drain, keyed by the lead queued message
+ * of a claimed group. Nothing durable records attempts, so this deliberately
+ * grants a fresh budget after a restart or after the message is edited: both
+ * mean the condition the plugin rejected may no longer hold.
+ */
+const queuedMessageRejections = new Map<string, QueuedMessageRejectionState>();
+
+function pluginRejectionReason(error: TurnPreflightRejectedError): string {
+  return `plugin:${error.pluginId}:${error.code}`;
+}
+
+function queuedMessageRejectionReason(error: unknown): string | null {
+  if (error instanceof TurnPreflightRejectedError) {
+    return pluginRejectionReason(error);
+  }
+  if (
+    error instanceof ApiError &&
+    error.body.code === TURN_REJECTED_API_ERROR_CODE
+  ) {
+    return `api:${TURN_REJECTED_API_ERROR_CODE}`;
+  }
+  return null;
+}
+
+function recordedQueuedMessageRejection(
+  queuedMessage: Pick<ClaimedQueuedMessage, "content" | "id">,
+  reason: string,
+): QueuedMessageRejectionState | null {
+  const state = queuedMessageRejections.get(queuedMessage.id);
+  if (
+    !state ||
+    state.reason !== reason ||
+    state.content !== queuedMessage.content
+  ) {
+    return null;
+  }
+  return state;
+}
+
+/**
+ * Attempts already counted against this exact message content, whatever the
+ * plugin rejected with. Counting is deliberately reason-independent: a plugin
+ * that varies its rejection code between attempts would otherwise reset the
+ * budget every tick and keep the sweep re-claiming forever.
+ */
+function countedQueuedMessageRejectionAttempts(
+  queuedMessage: Pick<ClaimedQueuedMessage, "content" | "id">,
+): number {
+  const state = queuedMessageRejections.get(queuedMessage.id);
+  return state && state.content === queuedMessage.content ? state.attempts : 0;
+}
+
+function appendQueuedMessageRejectedEvent(
+  deps: Pick<AppDeps, "db" | "hub">,
+  args: {
+    message: string;
+    reason: string;
+    requestId: ClientTurnRequestId;
+    thread: Pick<Thread, "environmentId" | "id">;
+  },
+): void {
+  deps.db.transaction((tx) => {
+    appendTurnRejectedEventInTransaction(tx, {
+      threadId: args.thread.id,
+      environmentId: args.thread.environmentId,
+      requestId: args.requestId,
+      reason: args.reason,
+      message: args.message,
+    });
+  });
+  deps.hub.notifyThread(args.thread.id, ["events-appended"], {
+    eventTypes: ["client/turn/rejected"],
+  });
+}
+
+/**
+ * Counts one rejected drain attempt and, on the attempt that exhausts the
+ * budget, records why the drain stopped. The queue head stays queued so the
+ * user can edit or send it; without the budget the 10-second sweep re-claims a
+ * persistently rejected message forever.
+ */
+function recordQueuedMessageRejection(
+  deps: Pick<AppDeps, "db" | "hub">,
+  args: {
+    queuedMessages: readonly ClaimedQueuedMessage[];
+    reason: string;
+    thread: Pick<Thread, "environmentId" | "id">;
+  },
+): void {
+  const leadQueuedMessage = args.queuedMessages[0]!;
+  const attempts = countedQueuedMessageRejectionAttempts(leadQueuedMessage) + 1;
+  queuedMessageRejections.set(leadQueuedMessage.id, {
+    attempts,
+    content: leadQueuedMessage.content,
+    reason: args.reason,
+  });
+  if (attempts !== MAX_QUEUED_MESSAGE_PREFLIGHT_REJECTIONS) {
+    return;
+  }
+  appendQueuedMessageRejectedEvent(deps, {
+    message: `Automatic sending stopped after ${attempts} rejected attempts (${args.reason}). The message is still queued: edit it or send it to retry.`,
+    reason: args.reason,
+    requestId: createClientTurnRequestId(),
+    thread: args.thread,
+  });
+}
+
+function isQueuedMessageAutoSendPaused(
+  deps: Pick<AppDeps, "db">,
+  threadId: string,
+): boolean {
+  if (queuedMessageRejections.size === 0) {
+    return false;
+  }
+  const nextQueuedMessage = listQueuedThreadMessages(deps.db, threadId)[0];
+  if (!nextQueuedMessage) {
+    return false;
+  }
+  return (
+    countedQueuedMessageRejectionAttempts(nextQueuedMessage) >=
+    MAX_QUEUED_MESSAGE_PREFLIGHT_REJECTIONS
+  );
+}
+
+function forgetDeletedQueuedMessageRejections(deps: Pick<AppDeps, "db">): void {
+  for (const queuedMessageId of queuedMessageRejections.keys()) {
+    if (getQueuedThreadMessage(deps.db, queuedMessageId) === null) {
+      queuedMessageRejections.delete(queuedMessageId);
+    }
+  }
+}
 
 function sendQueuedMessagePayload(
   queuedMessage: ThreadQueuedMessage,
@@ -271,6 +421,7 @@ async function sendClaimedQueuedMessage(
     mode: args.mode,
     queuedMessages: args.queuedMessages,
     thread,
+    unattended: false,
   });
 }
 
@@ -378,18 +529,22 @@ async function sendClaimedQueuedMessageForIdleProviderThread(
     });
   } catch (error) {
     if (!(error instanceof TurnPreflightRejectedError)) throw error;
-    deps.db.transaction((tx) => {
-      appendTurnRejectedEventInTransaction(tx, {
-        threadId: thread.id,
-        environmentId: thread.environmentId,
-        requestId,
-        reason: `plugin:${error.pluginId}:${error.code}`,
+    const reason = pluginRejectionReason(error);
+    // For the drain, only the first observation of a rejection is durable: it
+    // retries the same claim on a fixed budget, and one event per attempt would
+    // turn a persistently rejecting plugin into an event-log firehose. A
+    // user-initiated send is always durable — nothing else records its outcome.
+    if (
+      !args.unattended ||
+      recordedQueuedMessageRejection(args.queuedMessages[0]!, reason) === null
+    ) {
+      appendQueuedMessageRejectedEvent(deps, {
         message: error.message,
+        reason,
+        requestId,
+        thread,
       });
-    });
-    deps.hub.notifyThread(thread.id, ["events-appended"], {
-      eventTypes: ["client/turn/rejected"],
-    });
+    }
     throw error;
   }
 
@@ -548,6 +703,11 @@ export async function sendNextQueuedMessageIfPresent(
   if (!isQueuedMessageAutoSendCandidate(getThread(deps.db, args.threadId))) {
     return false;
   }
+  // Checked before claiming: claiming and releasing a message the drain has
+  // already given up on would keep invalidating the queue every sweep tick.
+  if (isQueuedMessageAutoSendPaused(deps, args.threadId)) {
+    return false;
+  }
 
   const nextQueuedMessages = claimNextQueuedThreadMessageGroup(
     deps.db,
@@ -573,6 +733,7 @@ export async function sendNextQueuedMessageIfPresent(
         mode: "auto",
         queuedMessages: nextQueuedMessages,
         thread,
+        unattended: true,
       }),
     );
   } catch (error) {
@@ -590,6 +751,14 @@ export async function sendNextQueuedMessageIfPresent(
         "Queued message auto-send deferred by host timeout",
       );
       throw error;
+    }
+    const rejectionReason = queuedMessageRejectionReason(error);
+    if (rejectionReason !== null) {
+      recordQueuedMessageRejection(deps, {
+        queuedMessages: nextQueuedMessages,
+        reason: rejectionReason,
+        thread,
+      });
     }
     deps.logger.warn(
       {
@@ -640,6 +809,7 @@ export function requestQueuedMessageAutoSendForThread(
 export async function runQueuedMessageAutoSendSweep(
   deps: LoggedPendingInteractionWorkSessionDeps,
 ): Promise<void> {
+  forgetDeletedQueuedMessageRejections(deps);
   releaseStaleQueuedMessageClaims(deps.db, deps.hub, {
     claimedBefore: Date.now() - STALE_QUEUED_MESSAGE_CLAIM_MS,
     protectedClaimTokens: [...activeQueuedMessageClaimTokens],
