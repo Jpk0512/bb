@@ -124,6 +124,35 @@ function relativeLuminance(color: OklchColor): number {
   return 0.2126 * rgb.red + 0.7152 * rgb.green + 0.0722 * rgb.blue;
 }
 
+/**
+ * Resolves a token to an `OklchColor`, following `var(--x)` references and the
+ * `color-mix(in oklch, var(--ink) N%, var(--canvas))` shape the neutral ramp
+ * uses. Anchors are achromatic in the default palette, so a linear mix of
+ * lightness/chroma (dropping hue, which is meaningless at chroma 0) matches
+ * what `color-mix` produces here.
+ */
+function resolveColor(block: string, token: string): OklchColor {
+  const raw = variableValue(block, token);
+  const varMatch = raw.match(/^var\(--([a-z-]+)\)$/);
+  if (varMatch) {
+    return resolveColor(block, varMatch[1]);
+  }
+  const mixMatch = raw.match(
+    /^color-mix\(in oklch, var\(--ink\) ([\d.]+)%, var\(--canvas\)\)$/,
+  );
+  if (mixMatch) {
+    const pct = Number(mixMatch[1]) / 100;
+    const ink = resolveColor(block, "ink");
+    const canvas = resolveColor(block, "canvas");
+    return {
+      lightness: canvas.lightness * (1 - pct) + ink.lightness * pct,
+      chroma: canvas.chroma * (1 - pct) + ink.chroma * pct,
+      hueDegrees: ink.hueDegrees,
+    };
+  }
+  return parseOklch(raw);
+}
+
 function contrastRatio(foreground: OklchColor, background: OklchColor): number {
   const foregroundLuminance = relativeLuminance(foreground);
   const backgroundLuminance = relativeLuminance(background);
@@ -225,6 +254,12 @@ describe("theme.css neutral ramp", () => {
         expect(step("sidebar-accent")).toBeGreaterThan(step("sidebar"));
       });
 
+      it("keeps --border-hairline fainter than --border", () => {
+        // border-hairline separates rows within a region; border marks a
+        // region boundary and must read as the stronger of the two.
+        expect(step("border-hairline")).toBeLessThan(step("border"));
+      });
+
       it("keeps the sidebar a quiet chrome lift below the fills", () => {
         // Sidebar is chrome adjacent to the page, so it should be the faintest
         // lift — below the secondary/accent fills — and never compete with
@@ -294,6 +329,32 @@ describe("theme.css Cadence text tokens", () => {
         4.5,
       );
     });
+  }
+});
+
+// Real body-text tiers. --decoration-foreground is deliberately excluded: it
+// is placeholder/disabled-only chrome, never legible text, so it is exempt
+// from the 4.5:1 floor by design.
+const TEXT_TIERS = [
+  "foreground",
+  "muted-foreground",
+  "subtle-foreground",
+  "readback-foreground",
+] as const;
+const TEXT_BACKGROUNDS = ["canvas", "sidebar"] as const;
+
+describe("theme.css text-tier contrast guard", () => {
+  for (const mode of MODES) {
+    for (const backgroundToken of TEXT_BACKGROUNDS) {
+      for (const textToken of TEXT_TIERS) {
+        it(`keeps ${mode} --${textToken} at or above 4.5:1 on --${backgroundToken}`, () => {
+          const block = modeBlock(mode);
+          const text = resolveColor(block, textToken);
+          const background = resolveColor(block, backgroundToken);
+          expect(contrastRatio(text, background)).toBeGreaterThanOrEqual(4.5);
+        });
+      }
+    }
   }
 });
 

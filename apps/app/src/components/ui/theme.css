@@ -23,6 +23,10 @@
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-subtle-foreground: var(--subtle-foreground);
+  /* Decoration-only tier: placeholder/disabled-only chrome that never carries
+   * real text, so it can sit below the 4.5:1 AA floor that --subtle-foreground
+   * must clear. Never use this for legible text. */
+  --color-decoration-foreground: var(--decoration-foreground);
   /* Cadence (thread design refresh): a recede tier between muted and subtle for
    * settled/closed-turn machinery, and a text-only destructive that clears AA in
    * dark mode (the --destructive fill is below the 4.5:1 text floor there). */
@@ -421,6 +425,9 @@
    * while keeping muted darker than subtle so the hierarchy survives. */
   --muted-foreground: oklch(0.44 0 0);
   --subtle-foreground: oklch(0.5 0 0);
+  /* Decoration-only tier (placeholder/disabled-only chrome, never text): the
+   * old subtle-foreground mix weight, kept faint on purpose. */
+  --decoration-foreground: color-mix(in oklch, var(--ink) 30%, var(--canvas));
   /* Recede tier between muted (7.77:1) and subtle (6.00:1); ~6.83:1 on white. */
   --readback-foreground: oklch(0.47 0 0);
   /* Soft "paper blue" timeline accent — the one tint in the otherwise
@@ -455,8 +462,10 @@
   --diff-added: oklch(0.4 0.13 163);
   --pr-merged: oklch(0.53 0.2 295);
   --diff-removed: oklch(0.4 0.17 28);
-  --border: color-mix(in oklch, var(--ink) 14%, var(--canvas));
-  --border-hairline: color-mix(in oklch, var(--ink) 14.7%, var(--canvas));
+  /* --border-hairline must stay the fainter of the two: it separates rows
+   * within one region, while --border marks a region boundary. */
+  --border: color-mix(in oklch, var(--ink) 14.7%, var(--canvas));
+  --border-hairline: color-mix(in oklch, var(--ink) 14%, var(--canvas));
   /* One app-shell seam for top nav, sidebar, split, and panel boundaries. */
   --border-seam: color-mix(in oklch, var(--ink) 9.5%, var(--canvas));
   /* Compatibility alias for plugin CSS authored before shell seams unified. */
@@ -665,6 +674,9 @@
   --muted: color-mix(in oklch, var(--ink) 16%, var(--canvas));
   --muted-foreground: oklch(0.78 0 0);
   --subtle-foreground: oklch(0.68 0 0);
+  /* Decoration-only tier (placeholder/disabled-only chrome, never text): the
+   * old subtle-foreground mix weight, kept faint on purpose. */
+  --decoration-foreground: color-mix(in oklch, var(--ink) 30%, var(--canvas));
   /* Recede tier between muted (9.14:1) and subtle (6.35:1); ~7.24:1 on canvas. */
   --readback-foreground: oklch(0.715 0 0);
   /* Soft "paper blue" timeline accent, lifted for the dark canvas (~6:1). */
@@ -697,8 +709,10 @@
   --diff-added: oklch(0.77 0.17 163);
   --diff-removed: oklch(0.72 0.19 22);
   --pr-merged: oklch(0.68 0.18 295);
-  --border: color-mix(in oklch, var(--ink) 19.4%, var(--canvas));
-  --border-hairline: color-mix(in oklch, var(--ink) 21%, var(--canvas));
+  /* --border-hairline must stay the fainter of the two: it separates rows
+   * within one region, while --border marks a region boundary. */
+  --border: color-mix(in oklch, var(--ink) 21%, var(--canvas));
+  --border-hairline: color-mix(in oklch, var(--ink) 19.4%, var(--canvas));
   /* One app-shell seam for top nav, sidebar, split, and panel boundaries. */
   --border-seam: color-mix(in oklch, var(--ink) 11%, var(--canvas));
   /* Compatibility alias for plugin CSS authored before shell seams unified. */
