@@ -22,6 +22,7 @@ const COLLAPSED_THREAD_SECTIONS_STORAGE_KEY =
   "bb.sidebar.collapsedThreadSections";
 const LEGACY_COLLAPSED_FOLDERS_STORAGE_KEY = "bb.sidebar.collapsedFolders";
 const COLLAPSED_MACHINES_STORAGE_KEY = "bb.sidebar.collapsedMachines";
+const PROJECT_DATE_GROUPING_STORAGE_KEY = "bb.sidebar.projectDateGrouping";
 
 export type SidebarSectionId =
   | "pinned"
@@ -190,5 +191,18 @@ export const sidebarCollapsedMachinesAtom = atomWithStorage<string[]>(
   COLLAPSED_MACHINES_STORAGE_KEY,
   [],
   createJsonLocalStorage<string[]>(),
+  { getOnInit: true },
+);
+
+// Opt-in per-project date grouping (M2.4): buckets each project's thread list
+// into Today / Yesterday / This week / Earlier instead of the flat list. Off
+// by default — the default grouping behavior does not change. Each bucket is
+// rendered as an ordinary synthetic section (see projectThreadGroups.ts), so
+// its collapse state persists through the existing
+// `sidebarCollapsedThreadSectionsAtom` rather than a new atom.
+export const sidebarProjectDateGroupingEnabledAtom = atomWithStorage<boolean>(
+  PROJECT_DATE_GROUPING_STORAGE_KEY,
+  false,
+  createJsonLocalStorage<boolean>(),
   { getOnInit: true },
 );

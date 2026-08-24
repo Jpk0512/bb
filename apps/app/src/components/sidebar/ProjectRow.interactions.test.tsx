@@ -179,6 +179,14 @@ describe("ProjectRow interactions", () => {
     vi.clearAllMocks();
   });
 
+  it("keeps a zero-thread project to one header row with its count", () => {
+    renderProjectRow();
+
+    expect(screen.getByText("Test project")).not.toBeNull();
+    expect(screen.getByText("0")).not.toBeNull();
+    expect(screen.queryByText("No threads")).toBeNull();
+  });
+
   it("places the project disclosure after its label and keeps root threads flush", () => {
     const result = renderProjectRow(vi.fn(), {
       status: "ready",

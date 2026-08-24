@@ -80,6 +80,7 @@ import {
 import {
   buildSectionThreadList,
   buildProjectThreadGroups,
+  buildDateGroupedThreadItems,
   CHRONOLOGICAL_CONTAINER_ID,
   collectProjectThreadItemNavigationEntries,
   countProjectThreadItemRows,
@@ -100,6 +101,7 @@ import { SidebarSectionRow } from "./SidebarSectionRow";
 import { TopLevelSidebarSection } from "./TopLevelSidebarSection";
 import {
   sidebarCollapsedThreadSectionsAtom,
+  sidebarProjectDateGroupingEnabledAtom,
   type CollapsibleSidebarSectionId,
   type SidebarSectionId,
 } from "./sidebarCollapsedAtoms";
@@ -1911,17 +1913,45 @@ export const ProjectThreadTree = memo(function ProjectThreadTree({
       ? threadListState.threads
       : EMPTY_PROJECT_THREADS;
   const draftThreadIds = usePromptDraftInputThreadIds(projectThreads);
-  const rootItems = useMemo(
-    () =>
-      buildProjectThreadGroups(projectThreads, compareThreads, draftThreadIds),
-    [compareThreads, draftThreadIds, projectThreads],
+  const isDateGroupingEnabled = useAtomValue(
+    sidebarProjectDateGroupingEnabledAtom,
   );
+  const rootItems = useMemo(() => {
+    const items = buildProjectThreadGroups(
+      projectThreads,
+      compareThreads,
+      draftThreadIds,
+    );
+    if (!isDateGroupingEnabled) {
+      return items;
+    }
+    // Namespace by projectId (falling back to the built-in "threads" section's
+    // synthetic id) so two trees rendered from the same data — a project row
+    // and its Sections-view projection — don't collide on collapse state.
+    return buildDateGroupedThreadItems(
+      items,
+      projectId ?? "threads",
+      compareThreads,
+      draftThreadIds,
+    );
+  }, [
+    compareThreads,
+    draftThreadIds,
+    isDateGroupingEnabled,
+    projectId,
+    projectThreads,
+  ]);
 
   if (threadListState.status === "loading") {
     return <ThreadTreeLoadingSkeleton />;
   }
 
   if (rootItems.length === 0) {
+    // A zero-thread project is represented by its header and count alone; an
+    // additional empty-state row makes the project hierarchy look duplicated.
+    if (projectId !== undefined && threadListState.status === "ready") {
+      return null;
+    }
     const emptyState = (
       <EmptyState
         message={
@@ -2301,6 +2331,10 @@ function ProjectRowComponent({
         : EMPTY_PROJECT_THREADS,
     [isCollapsed, threadListState],
   );
+  const projectThreadCount =
+    threadListState.status === "ready"
+      ? threadListState.threads.filter(isSidebarProjectThread).length
+      : null;
   const draftThreadIds = usePromptDraftInputThreadIds(projectThreads);
   const handleProjectRowToggle = useCallback(() => {
     onToggleProjectCollapsed(project.id);
@@ -2401,6 +2435,7 @@ function ProjectRowComponent({
       >
         <TopLevelSidebarSection
           label={project.name}
+          labelMeta={projectThreadCount ?? undefined}
           actions={projectActions}
           actionsAlwaysVisible
           actionsMobileAlways

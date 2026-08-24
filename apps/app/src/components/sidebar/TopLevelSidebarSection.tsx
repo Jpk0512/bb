@@ -10,6 +10,7 @@ import { cn } from "@bb/shared-ui/lib/utils";
 import { Icon } from "@bb/shared-ui/icon";
 import { LIST_HOVER_TRANSITION } from "@bb/shared-ui/motion";
 import { CHROME_SECTION_LABEL_CLASS } from "@/components/ui/chromeStyleTokens";
+import { SectionLabel, SidebarNavText } from "@bb/shared-ui/typography";
 import {
   SidebarStickyGroup,
   SidebarStickyTier,
@@ -22,7 +23,10 @@ import {
   SIDEBAR_HOVER_ACTIONS_ROW_CLASS,
 } from "@/components/ui/sidebar-hover-actions.js";
 import type { ConsumeDragClickSuppression } from "@/components/ui/use-drag-click-suppression";
-import { SIDEBAR_STANDARD_ROW_PADDING_CLASS } from "./sidebarRowClasses";
+import {
+  SIDEBAR_ROW_LEADING_SLOT_CLASS,
+  SIDEBAR_STANDARD_ROW_PADDING_CLASS,
+} from "./sidebarRowClasses";
 import type { SidebarSortableDragBindings } from "./sortableMotion";
 import type { CollapsedChildActivity } from "@/lib/thread-activity";
 import { CollapsedThreadStatusGlyph } from "./ThreadRow";
@@ -42,6 +46,8 @@ export interface TopLevelSidebarSectionCollapseControl {
 
 export interface TopLevelSidebarSectionProps {
   label: string;
+  /** Optional secondary detail, such as a project thread count. */
+  labelMeta?: ReactNode;
   children: ReactNode;
   /** Stable identity for a persisted thread section. Built-in groups omit it. */
   sectionId?: string;
@@ -57,6 +63,13 @@ export interface TopLevelSidebarSectionProps {
   sectionStyle?: CSSProperties;
   consumeClickSuppression?: ConsumeDragClickSuppression;
   isDropTargetActive?: boolean;
+  /**
+   * "nav" (default): a navigable top-level row — a project, a user-created
+   * section, a machine group — styled like a nav row (13px/500/foreground).
+   * "section": a chrome group label (Pinned, Threads) styled uppercase/
+   * tracked-out/muted, since it names a bucket rather than something you open.
+   */
+  labelVariant?: "nav" | "section";
 }
 
 /**
@@ -65,6 +78,7 @@ export interface TopLevelSidebarSectionProps {
  */
 export function TopLevelSidebarSection({
   label,
+  labelMeta,
   children,
   sectionId,
   actions,
@@ -79,6 +93,7 @@ export function TopLevelSidebarSection({
   sectionStyle,
   consumeClickSuppression,
   isDropTargetActive = false,
+  labelVariant = "nav",
 }: TopLevelSidebarSectionProps) {
   const threadSplitsEnabled = useThreadSplitsEnabled();
   const collapsedSplitIndicator = useThreadGroupSplitIndicator(
@@ -147,9 +162,22 @@ export function TopLevelSidebarSection({
         {...(dragBindings?.listeners ?? {})}
       >
         <span className="relative z-10 flex min-w-0 flex-1 items-center gap-1 text-left">
+          <span
+            aria-hidden="true"
+            className={SIDEBAR_ROW_LEADING_SLOT_CLASS}
+          />
           <span className="min-w-0 truncate" title={label}>
-            {label}
+            {labelVariant === "section" ? (
+              <SectionLabel>{label}</SectionLabel>
+            ) : (
+              <SidebarNavText>{label}</SidebarNavText>
+            )}
           </span>
+          {labelMeta !== undefined ? (
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+              {labelMeta}
+            </span>
+          ) : null}
           {collapseControl ? (
             <button
               type="button"

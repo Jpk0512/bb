@@ -106,6 +106,7 @@ import {
   sidebarCollapsedThreadSectionsAtom,
   sidebarCollapsedMachinesAtom,
   sidebarOrganizationModeAtom,
+  sidebarProjectDateGroupingEnabledAtom,
   type SidebarChronologicalSort,
   type CollapsibleSidebarSectionId,
   type SidebarOrganizationMode,
@@ -686,6 +687,9 @@ export function SidebarDisplayOptionsMenu({
   );
   const selectedSort: SidebarChronologicalSort =
     chronologicalSort === "none" ? "updated" : chronologicalSort;
+  const [isDateGroupingEnabled, setIsDateGroupingEnabled] = useAtom(
+    sidebarProjectDateGroupingEnabledAtom,
+  );
 
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
@@ -728,6 +732,18 @@ export function SidebarDisplayOptionsMenu({
               {option.label}
             </DropdownMenuCheckboxItem>
           ))}
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className={CHROME_SECTION_LABEL_CLASS}>
+          Group by
+        </DropdownMenuLabel>
+        <DropdownMenuGroup aria-label="Group by">
+          <DropdownMenuCheckboxItem
+            checked={isDateGroupingEnabled}
+            onCheckedChange={(checked) => setIsDateGroupingEnabled(checked)}
+          >
+            Date (Today, Yesterday, This week, Earlier)
+          </DropdownMenuCheckboxItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -1939,7 +1955,7 @@ function ProjectListComponent({
       pinnedSidebarState.effectivePinnedThreadIds.has(thread.id) &&
       isSidebarProjectThread(thread),
   );
-  // One Threads-header cluster shared by every organization and section state.
+  // One root-thread header cluster shared by every organization and section state.
   const threadsSectionActions = (
     <SidebarThreadsSectionActions
       displayOptionsOpen={threadsDisplayOptionsMenuOpen}
@@ -1962,7 +1978,12 @@ function ProjectListComponent({
     actionsOpen: isSectionDisplayOptionsOpen("pinned"),
   };
   const threadsSection = {
-    label: organizationMode === "chronological" ? "Unorganized" : "Threads",
+    // In project mode this root list is a peer of named projects, never a
+    // project nested under a generic "Threads" label.
+    label:
+      organizationMode === "chronological" || organizationMode === "project"
+        ? "Unorganized"
+        : "Threads",
     actions: threadsSectionActions,
     actionsOpen: threadsDisplayOptionsMenuOpen,
   } satisfies Omit<BuiltInSidebarSectionOptions, "content">;

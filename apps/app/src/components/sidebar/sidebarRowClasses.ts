@@ -39,6 +39,18 @@ export const SIDEBAR_SUCCESS_STATUS_DOT_CLASS =
 export const SIDEBAR_LEADING_GLYPH_SLOT_CLASS =
   "inline-flex w-4 shrink-0 items-center justify-center";
 
+/**
+ * Leading slot reserved at the start of every sidebar row (thread rows and
+ * section/nav header rows alike) whether or not that row currently renders a
+ * glyph in it. A row's own `gap-2` (from `SIDEBAR_ROW_BASE_CLASS`) supplies
+ * the trailing 8px, so this 16px box plus that gap is the full 16+8px slot.
+ * Reserving it unconditionally keeps the left edge of row titles aligned
+ * instead of ragged between rows that do and don't have a leading glyph (a
+ * status dot, for instance).
+ */
+export const SIDEBAR_ROW_LEADING_SLOT_CLASS =
+  "inline-flex w-4 shrink-0 items-center justify-center";
+
 const SIDEBAR_THREAD_ROW_BASE_PADDING_PX = 8;
 const SIDEBAR_THREAD_ROW_DEPTH_STEP_PX = 24;
 const SIDEBAR_THREAD_ROW_GLYPH_CENTER_OFFSET_PX = 8;
