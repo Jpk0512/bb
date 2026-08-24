@@ -294,6 +294,11 @@
       "types": "./src/components/ui/toggle.tsx",
       "default": "./src/components/ui/toggle.tsx"
     },
+    "./typography": {
+      "source": "./src/components/ui/typography.tsx",
+      "types": "./src/components/ui/typography.tsx",
+      "default": "./src/components/ui/typography.tsx"
+    },
     "./tooltip": {
       "source": "./src/components/ui/tooltip.tsx",
       "types": "./src/components/ui/tooltip.tsx",
