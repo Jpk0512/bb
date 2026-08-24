@@ -559,6 +559,18 @@
   --font-serif: Georgia, serif;
   --font-mono: "Fira Code", monospace;
   --radius: 0.5rem;
+  /* Motion tokens (M1.4): one timing language so a component doesn't invent
+   * its own duration. Not theme-dependent, so defined once here rather than
+   * repeated in the dark block. --motion-micro is for state flips (a switch
+   * thumb, a checkbox check), --motion-control for hover/press feedback on a
+   * button or input, --motion-surface for a drawer/dialog/popover open-close.
+   * packages/shared-ui/src/components/ui/motion.ts mirrors these as the JS/TS
+   * source of truth for components that need the numeric value (e.g. for a
+   * JS-driven animation), plus a prefers-reduced-motion fallback. */
+  --motion-micro: 120ms;
+  --motion-control: 160ms;
+  --motion-surface: 240ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --bb-sidebar-row-height: 1.75rem;
   --bb-sidebar-row-height-coarse: 2.5rem;
   --shadow-x: 0px;
@@ -887,6 +899,52 @@
 
   .lucide {
     stroke-width: var(--icon-stroke-width);
+  }
+
+  /* Themed text selection (M1.5): tint with --primary rather than the
+   * browser default blue, mixed in oklab so the hue survives against any
+   * palette's canvas (see the oklab-for-translucent guard above). */
+  ::selection {
+    background-color: color-mix(in oklab, var(--primary) 35%, transparent);
+    color: var(--foreground);
+  }
+
+  /* Thin themed scrollbar (M1.5): --border for the thumb at rest (a quiet
+   * line-weight tint, matching every other hairline in the shell) and
+   * --muted-foreground on hover, so it darkens like any other hover state
+   * without introducing a new color step. Firefox via scrollbar-color/width;
+   * WebKit/Blink via the ::-webkit-scrollbar pseudo-elements. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background-color: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border-radius: 9999px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+  }
+
+  /* :focus-visible-only ring (M1.5): a mouse click on a button/input still
+   * matches plain :focus in every browser, which used to double up with any
+   * component's own focus-visible ring. Suppressing the plain :focus outline
+   * whenever :focus-visible doesn't also match leaves the keyboard-only ring
+   * (already applied per-component via focus-visible: classes) as the only
+   * focus indicator. */
+  :focus:not(:focus-visible) {
+    outline: none;
   }
 }
 
