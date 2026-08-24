@@ -383,7 +383,7 @@ function PluginNavSidebarOverflowToggle({
         // Quieter than the hidden rows it heads, matching the sidebar's
         // section labels ("Pinned"). Hover still brightens it via the shared
         // interactive-state class.
-        "w-full text-subtle-foreground/75",
+        "w-full text-subtle-foreground",
       )}
       onClick={onToggle}
       data-testid="plugin-nav-sidebar-overflow-toggle"

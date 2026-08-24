@@ -142,7 +142,7 @@ function MachineRow({
           </span>
           {isPrimary ? <SettingsBadge>this machine</SettingsBadge> : null}
         </div>
-        <p className="min-w-0 text-xs text-subtle-foreground/75">
+        <p className="min-w-0 text-xs text-subtle-foreground">
           {machineMetaLine({ host, platformLabel, projectCount, now })}
         </p>
       </div>

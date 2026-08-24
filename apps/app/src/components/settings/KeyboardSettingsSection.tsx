@@ -359,7 +359,7 @@ const KeyboardCommandRow = memo(
             {desktopOnly ? <SettingsBadge>Desktop</SettingsBadge> : null}
             {customized ? <SettingsBadge>Custom</SettingsBadge> : null}
           </div>
-          <p className="mt-0.5 text-xs leading-snug text-subtle-foreground/75">
+          <p className="mt-0.5 text-xs leading-snug text-subtle-foreground">
             {metadata.description}
           </p>
           {splitDefaults !== null || sharedDefaultShortcut !== null ? (
@@ -367,7 +367,7 @@ const KeyboardCommandRow = memo(
               aria-label={`${splitDefaults === null ? "Default shortcut" : "Default shortcuts"} for ${metadata.label}`}
               className="mt-1.5 flex flex-wrap items-center gap-1.5"
             >
-              <span className="text-xs text-subtle-foreground/75">
+              <span className="text-xs text-subtle-foreground">
                 {splitDefaults === null ? "Default:" : "Defaults:"}
               </span>
               {sharedDefaultShortcut !== null ? (

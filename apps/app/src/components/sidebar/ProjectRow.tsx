@@ -485,7 +485,7 @@ function getProjectThreadTreeEmptyStateClassName(
 function getProjectThreadTreeEmptyStateMessageClassName(): string {
   // One notch below the section-header label so an empty placeholder never
   // out-emphasizes the header it sits under.
-  return "text-xs leading-4 text-subtle-foreground/60";
+  return "text-xs leading-4 text-decoration-foreground";
 }
 
 function getProjectThreadTreeGroupLineClassName(
@@ -978,7 +978,7 @@ function EnvironmentThreadGroupHeader({
           aria-hidden="true"
         />
       </span>
-      <span className="pointer-events-none relative z-10 flex min-w-0 flex-1 items-center gap-1.5 text-left text-subtle-foreground/80">
+      <span className="pointer-events-none relative z-10 flex min-w-0 flex-1 items-center gap-1.5 text-left text-subtle-foreground">
         <span className="min-w-0 truncate">
           <span>{displayName}</span>
         </span>
@@ -1931,7 +1931,7 @@ export const ProjectThreadTree = memo(function ProjectThreadTree({
         }
         icon={getProjectThreadTreeEmptyStateIcon(variant)}
         className={getProjectThreadTreeEmptyStateClassName(variant)}
-        iconClassName="size-3.5 text-subtle-foreground/50"
+        iconClassName="size-3.5 text-decoration-foreground"
         messageClassName={getProjectThreadTreeEmptyStateMessageClassName()}
       />
     );
@@ -2130,7 +2130,7 @@ export const ChronologicalSectionThreadSections = memo(
         }
         icon={getProjectThreadTreeEmptyStateIcon("section")}
         className={getProjectThreadTreeEmptyStateClassName("section")}
-        iconClassName="size-3.5 text-subtle-foreground/50"
+        iconClassName="size-3.5 text-decoration-foreground"
         messageClassName={getProjectThreadTreeEmptyStateMessageClassName()}
       />
     );

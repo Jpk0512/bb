@@ -95,7 +95,7 @@ export function CollapsibleHeader({
       <span className={summaryClass}>{summaryContent}</span>
       <Chevron
         className={cn(
-          "pointer-events-none size-3 shrink-0 origin-center text-subtle-foreground/60 transition-[opacity,rotate] duration-200 ease-out",
+          "pointer-events-none size-3 shrink-0 origin-center text-decoration-foreground transition-[opacity,rotate] duration-200 ease-out",
           isExpanded
             ? "rotate-90"
             : forceChevronVisible

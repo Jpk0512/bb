@@ -248,7 +248,7 @@ function AddMachineDialogContent({
                 </span>
               ) : null}
             </div>
-            <p className="text-xs text-subtle-foreground/75">
+            <p className="text-xs text-subtle-foreground">
               This installs bb, enrolls the daemon, and configures it to
               reconnect automatically on the other machine.
             </p>

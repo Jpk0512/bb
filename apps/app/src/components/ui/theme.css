@@ -421,14 +421,14 @@
   --accent: color-mix(in oklch, var(--ink) 8%, var(--canvas));
   --accent-foreground: var(--ink);
   --muted: color-mix(in oklch, var(--ink) 11%, var(--canvas));
-  /* Secondary text tiers. Sit at ~7.4:1 and ~5.9:1 on the white background
+  /* Secondary text tiers. Sit at ~7.8:1 and ~5.1:1 on the white background
    * while keeping muted darker than subtle so the hierarchy survives. */
   --muted-foreground: oklch(0.44 0 0);
-  --subtle-foreground: oklch(0.5 0 0);
+  --subtle-foreground: color-mix(in oklch, var(--ink) 68%, var(--canvas));
   /* Decoration-only tier (placeholder/disabled-only chrome, never text): the
    * old subtle-foreground mix weight, kept faint on purpose. */
   --decoration-foreground: color-mix(in oklch, var(--ink) 30%, var(--canvas));
-  /* Recede tier between muted (7.77:1) and subtle (6.00:1); ~6.83:1 on white. */
+  /* Recede tier between muted (7.77:1) and subtle (5.10:1); ~6.83:1 on white. */
   --readback-foreground: oklch(0.47 0 0);
   /* Soft "paper blue" timeline accent — the one tint in the otherwise
    * achromatic timeline. ~5.0:1 on white. */
@@ -673,11 +673,11 @@
   --accent-foreground: var(--ink);
   --muted: color-mix(in oklch, var(--ink) 16%, var(--canvas));
   --muted-foreground: oklch(0.78 0 0);
-  --subtle-foreground: oklch(0.68 0 0);
+  --subtle-foreground: color-mix(in oklch, var(--ink) 69%, var(--canvas));
   /* Decoration-only tier (placeholder/disabled-only chrome, never text): the
    * old subtle-foreground mix weight, kept faint on purpose. */
   --decoration-foreground: color-mix(in oklch, var(--ink) 30%, var(--canvas));
-  /* Recede tier between muted (9.14:1) and subtle (6.35:1); ~7.24:1 on canvas. */
+  /* Recede tier between muted (9.14:1) and subtle (5.01:1); ~7.24:1 on canvas. */
   --readback-foreground: oklch(0.715 0 0);
   /* Soft "paper blue" timeline accent, lifted for the dark canvas (~6:1). */
   --timeline-accent: oklch(0.72 0.09 250);

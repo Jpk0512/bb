@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -381,5 +381,43 @@ describe("theme.css desktop portal hit testing", () => {
     expect(rule).toBeDefined();
     expect(rule).toMatch(/(?:^|\s)app-region:\s*no-drag;/);
     expect(rule).toMatch(/-webkit-app-region:\s*no-drag;/);
+  });
+});
+
+/**
+ * An opacity modifier on `text-subtle-foreground` (e.g. `/75`) lowers the
+ * rendered contrast below the opaque token's own guaranteed floor, silently
+ * reintroducing a sub-4.5:1 text color. `--decoration-foreground` exists for
+ * non-text chrome (placeholders, disabled state, icon-only affordances);
+ * legible text must use an opaque tier with no opacity modifier.
+ */
+function listSourceFiles(root: string): string[] {
+  const files: string[] = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const full = join(root, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...listSourceFiles(full));
+    } else if (/\.(ts|tsx)$/.test(entry.name)) {
+      files.push(full);
+    }
+  }
+  return files;
+}
+
+describe("theme.css subtle-foreground opacity guard", () => {
+  it("never applies an opacity modifier to text-subtle-foreground in apps/app/src", () => {
+    const appSrcRoot = join(
+      dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "..",
+    );
+    const offenders: string[] = [];
+    for (const file of listSourceFiles(appSrcRoot)) {
+      const source = readFileSync(file, "utf8");
+      if (/text-subtle-foreground\//.test(source)) {
+        offenders.push(file);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });

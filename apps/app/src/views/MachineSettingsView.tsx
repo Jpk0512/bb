@@ -134,7 +134,7 @@ function PermissionLimitCards({
                 {option.label}
               </span>
               {option.description ? (
-                <span className="mt-0.5 block text-xs leading-snug text-subtle-foreground/85">
+                <span className="mt-0.5 block text-xs leading-snug text-subtle-foreground">
                   {option.description}
                 </span>
               ) : null}
@@ -265,7 +265,7 @@ export function MachineSettingsView() {
                 </h1>
                 {isPrimary ? <SettingsBadge>this machine</SettingsBadge> : null}
               </div>
-              <p className="mt-1 text-xs text-subtle-foreground/75">
+              <p className="mt-1 text-xs text-subtle-foreground">
                 {headerMeta({ host, platformLabel, now })}
               </p>
             </div>
