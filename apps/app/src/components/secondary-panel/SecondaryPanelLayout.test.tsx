@@ -11,6 +11,7 @@ import {
   type PaneSecondaryPanelViewModel,
 } from "@/views/thread-detail/PaneContext";
 import {
+  isConversationTooNarrowForSecondaryPanel,
   SecondaryPanelLayout,
   type SecondaryPanelRenderArgs,
 } from "./SecondaryPanelLayout";
@@ -276,6 +277,12 @@ beforeEach(() => {
 });
 
 describe("SecondaryPanelLayout", () => {
+  it("closes the right panel only after the conversation drops below 420px", () => {
+    expect(isConversationTooNarrowForSecondaryPanel(419)).toBe(true);
+    expect(isConversationTooNarrowForSecondaryPanel(420)).toBe(false);
+    expect(isConversationTooNarrowForSecondaryPanel(0)).toBe(false);
+  });
+
   it("owns the desktop open, closed, and conversation-collapse layouts", () => {
     const renderPanel = createPanelRenderer();
     const view = renderLayout({

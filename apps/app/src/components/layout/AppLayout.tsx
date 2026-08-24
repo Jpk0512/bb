@@ -94,6 +94,7 @@ import { applyThreadOpenToLayout } from "@/views/thread-detail/splitThreadNaviga
 import { useThreadSplitsEnabled } from "@/hooks/useThreadSplitsEnabled";
 import { useSplitWorkspaceActive } from "@/hooks/useSplitWorkspaceActive";
 import { useAppSettingsRouteMemory } from "@/hooks/useAppSettingsRouteMemory";
+import { sidebarAppearanceAtom } from "@/components/sidebar/sidebarAppearance";
 
 const SIDEBAR_WIDTH_KEY = "bb.sidebar.width";
 const SIDEBAR_OPEN_KEY = "bb.sidebar.open";
@@ -166,15 +167,22 @@ function SidebarStateBridge({
   children,
 }: SidebarStateBridgeProps) {
   const [open, setOpen] = useAtom(sidebarOpenAtom);
+  const [appearance, setAppearance] = useAtom(sidebarAppearanceAtom);
+  const effectiveOpen =
+    appearance === "auto" ? open : appearance === "expanded";
   const handleOpenChange = useCallback<SidebarOpenChangeHandler>(
     (nextOpen) => {
+      // An explicit presentation remains stable until the user asks the normal
+      // sidebar toggle to take over again. That click returns to Auto and then
+      // applies the requested open state, rather than appearing to do nothing.
+      if (appearance !== "auto") setAppearance("auto");
       setOpen(nextOpen);
       window.requestAnimationFrame(dispatchBrowserViewBoundsSync);
     },
-    [setOpen],
+    [appearance, setAppearance, setOpen],
   );
   useAppCommandHandler("sidebar.toggle", () => {
-    handleOpenChange(!open);
+    handleOpenChange(!effectiveOpen);
     return true;
   });
   return (
@@ -183,7 +191,7 @@ function SidebarStateBridge({
       style={style}
       className={className}
       data-testid="app-layout-root"
-      open={open}
+      open={effectiveOpen}
       onOpenChange={handleOpenChange}
     >
       {children}
