@@ -11,7 +11,11 @@ permissions:
 jobs:
   check:
     name: Check bb-app and desktop versions
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # Blacksmith runners only exist on upstream get-bb/bb. On a fork the job
+    # queues for a runner that never arrives and GitHub kills it at the 24h
+    # queue limit — timeout-minutes does not help, it caps execution, not queue
+    # time. Fall back to GitHub-hosted runners anywhere but upstream.
+    runs-on: ${{ github.repository == 'get-bb/bb' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest' }}
     timeout-minutes: 5
 
     steps:
