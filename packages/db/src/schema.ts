@@ -761,11 +761,20 @@ export const events = sqliteTable(
     itemKind: text("item_kind").$type<ThreadEventItemType>(),
     data: text("data").notNull().default("{}"),
     createdAt: integer("created_at").notNull(),
+    // Daemon-minted idempotence key from the session event envelope. Null for
+    // server-appended events, which never ride the daemon's retry queue.
+    daemonEventId: text("daemon_event_id"),
   },
   (table) => [
     uniqueIndex("events_thread_sequence_idx").on(
       table.threadId,
       table.sequence,
+    ),
+    // Re-posted daemon batches dedupe on this; SQLite treats NULLs as
+    // distinct, so server-appended rows never collide.
+    uniqueIndex("events_thread_daemon_event_idx").on(
+      table.threadId,
+      table.daemonEventId,
     ),
     // Timeline in-turn pagination checks whether a delegated child above a
     // candidate cut belongs to a tool call below it. Keep that parent probe on

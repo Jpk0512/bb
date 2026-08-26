@@ -34,9 +34,9 @@ function event(index: number): ThreadEvent {
 describe("daemon-to-server event payload sizes", () => {
   it("preserves event order when a thread recurs after another thread", () => {
     const envelopes: HostDaemonEventEnvelope[] = [
-      { threadId: "thr_a", event: event(1) },
-      { threadId: "thr_b", event: event(2) },
-      { threadId: "thr_a", event: event(3) },
+      { eventId: "devt_1", threadId: "thr_a", event: event(1) },
+      { eventId: "devt_2", threadId: "thr_b", event: event(2) },
+      { eventId: "devt_3", threadId: "thr_a", event: event(3) },
     ];
 
     const groups = groupHostDaemonEvents(envelopes);
@@ -54,6 +54,7 @@ describe("daemon-to-server event payload sizes", () => {
       const events: HostDaemonEventEnvelope[] = Array.from(
         { length: eventCount },
         (_, index) => ({
+          eventId: `devt_measurement_${index}`,
           threadId: "thr_payload_measurement_123456789",
           event: event(index),
         }),
@@ -74,20 +75,22 @@ describe("daemon-to-server event payload sizes", () => {
     });
 
     expect(measurements).toEqual([
+      // Sizes include the per-event `eventId` idempotence key: ~40 JSON bytes
+      // per event, a few gzipped, which buys exactly-once ingest.
       {
         eventCount: 1,
-        legacyEnvelope: { gzipBytes: 194, jsonBytes: 413 },
-        grouped: { gzipBytes: 198, jsonBytes: 421 },
+        legacyEnvelope: { gzipBytes: 201, jsonBytes: 444 },
+        grouped: { gzipBytes: 215, jsonBytes: 462 },
       },
       {
         eventCount: 10,
-        legacyEnvelope: { gzipBytes: 246, jsonBytes: 3_554 },
-        grouped: { gzipBytes: 247, jsonBytes: 3_049 },
+        legacyEnvelope: { gzipBytes: 281, jsonBytes: 3_864 },
+        grouped: { gzipBytes: 287, jsonBytes: 3_459 },
       },
       {
         eventCount: 50,
-        legacyEnvelope: { gzipBytes: 406, jsonBytes: 17_554 },
-        grouped: { gzipBytes: 407, jsonBytes: 14_769 },
+        legacyEnvelope: { gzipBytes: 568, jsonBytes: 19_144 },
+        grouped: { gzipBytes: 562, jsonBytes: 16_859 },
       },
     ]);
 

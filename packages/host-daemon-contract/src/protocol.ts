@@ -1,3 +1,12 @@
+// Version 132 adds a REQUIRED daemon-minted `eventId` to every session event
+// envelope (and to each entry of the grouped wire format). The server persists
+// it with a unique index per thread and acknowledges a re-posted event without
+// committing it again, making the daemon's at-least-once queue safe against
+// lost responses — previously a post-commit failure or dropped response
+// duplicated the entire batch on every ~3s retry. An old daemon cannot supply
+// the field and the schemas are strict, so the mismatch must trigger its
+// automatic update.
+//
 // Version 131 adds provider/sessionReplaced as a normalized daemon event.
 // It is emitted alongside the existing provider/warning for a bridge's
 // session/replaced notification, preserving structured context-loss facts for
@@ -29,7 +38,7 @@
 //
 // The version mismatch is what triggers the enrolled daemon's automatic update
 // instead of an `invalid-message` reconnect loop.
-export const HOST_DAEMON_PROTOCOL_VERSION = 131 as const;
+export const HOST_DAEMON_PROTOCOL_VERSION = 132 as const;
 
 /**
  * Absolute ceiling for any executable artifact delivered to a host daemon —

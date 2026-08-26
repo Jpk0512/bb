@@ -383,10 +383,13 @@ describe("createServerClient", () => {
             threadId: "thr_123",
             events: [
               {
-                type: "turn/started",
-                threadId: "thr_123",
-                providerThreadId: "provider-thread",
-                scope: { kind: "turn", turnId: "turn-1" },
+                eventId: "devt_1",
+                event: {
+                  type: "turn/started",
+                  threadId: "thr_123",
+                  providerThreadId: "provider-thread",
+                  scope: { kind: "turn", turnId: "turn-1" },
+                },
               },
             ],
           },
@@ -422,6 +425,7 @@ describe("createServerClient", () => {
     await expect(
       client.postEvents([
         {
+          eventId: "devt_1",
           threadId: "thr_123",
           event: {
             type: "turn/started",

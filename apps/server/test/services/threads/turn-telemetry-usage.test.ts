@@ -141,6 +141,91 @@ describe("buildThreadTurnRecord usage resolution", () => {
     });
   });
 
+  it("falls back to provider-last when a component delta goes negative", async () => {
+    await withTestHarness(async (harness) => {
+      const { thread } = await seedTelemetryThread(harness);
+      upsertThreadTurnRecord(
+        harness.db,
+        priorRootTurnRecord({ threadId: thread.id, turnId: "root-turn-1" }),
+      );
+
+      appendThreadEvent(harness.deps, {
+        threadId: thread.id,
+        type: "turn/started",
+        scope: turnScope("root-turn-2"),
+        data: { providerThreadId: "provider-1" },
+      });
+      // Cumulative input shrank below the prior turn's 700 (the provider
+      // re-bucketed input into cachedInput) while the total still grew — the
+      // per-component delta math would yield inputTokens: -200.
+      appendThreadEvent(harness.deps, {
+        threadId: thread.id,
+        type: "thread/tokenUsage/updated",
+        scope: turnScope("root-turn-2"),
+        data: {
+          providerThreadId: "provider-1",
+          tokenUsage: {
+            total: {
+              totalTokens: 2_000,
+              inputTokens: 500,
+              cachedInputTokens: 1_100,
+              outputTokens: 400,
+              reasoningOutputTokens: 100,
+            },
+            last: {
+              totalTokens: 1_000,
+              inputTokens: 400,
+              cachedInputTokens: 400,
+              outputTokens: 200,
+              reasoningOutputTokens: 50,
+            },
+            modelContextWindow: 128_000,
+          },
+        },
+      });
+      appendThreadEvent(harness.deps, {
+        threadId: thread.id,
+        type: "turn/completed",
+        scope: turnScope("root-turn-2"),
+        data: { providerThreadId: "provider-1", status: "completed" },
+      });
+
+      const record = buildThreadTurnRecord(harness.db, {
+        threadId: thread.id,
+        turnId: "root-turn-2",
+      });
+      expect(record.usage).toEqual({
+        totalTokens: 1_000,
+        inputTokens: 400,
+        cachedInputTokens: 400,
+        outputTokens: 200,
+        reasoningOutputTokens: 50,
+        modelContextWindow: 128_000,
+        source: "provider-last",
+        costUsd: null,
+      });
+    });
+  });
+
+  it("refuses to persist an out-of-contract record instead of poisoning the row", async () => {
+    await withTestHarness(async (harness) => {
+      const { thread } = await seedTelemetryThread(harness);
+      const record = priorRootTurnRecord({
+        threadId: thread.id,
+        turnId: "root-turn-poison",
+      });
+      record.usage = { ...record.usage, inputTokens: -2_934 };
+
+      expect(() => upsertThreadTurnRecord(harness.db, record)).toThrow();
+      expect(
+        getThreadTurnRecord(harness.db, {
+          threadId: thread.id,
+          turnId: "root-turn-poison",
+        }),
+      ).toBeNull();
+    });
+  });
+
   it("falls back to provider-last usage for the first root turn in a thread", async () => {
     await withTestHarness(async (harness) => {
       const { thread } = await seedTelemetryThread(harness);

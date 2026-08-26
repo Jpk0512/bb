@@ -202,6 +202,11 @@ export type HostDaemonProjectAttachmentContentQuery = z.infer<
 
 export const hostDaemonEventEnvelopeSchema = z
   .object({
+    // Daemon-minted idempotence key. The daemon's queue is at-least-once: a
+    // lost response re-posts the whole batch, and without this key the server
+    // cannot tell a re-post from new events and durably commits a duplicate
+    // copy. Unique per emitted event, stable across retries of that event.
+    eventId: z.string().min(1),
     threadId: z.string().min(1),
     event: threadEventSchema,
   })
@@ -240,10 +245,17 @@ const hostDaemonWireEventSchema = z
   })
   .pipe(threadEventSchema);
 
+const hostDaemonWireEventEntrySchema = z
+  .object({
+    eventId: z.string().min(1),
+    event: hostDaemonWireEventSchema,
+  })
+  .strict();
+
 export const hostDaemonEventGroupSchema = z
   .object({
     threadId: z.string().min(1),
-    events: z.array(hostDaemonWireEventSchema).min(1),
+    events: z.array(hostDaemonWireEventEntrySchema).min(1),
   })
   .strict();
 export type HostDaemonEventGroup = z.infer<typeof hostDaemonEventGroupSchema>;
@@ -268,11 +280,12 @@ export function groupHostDaemonEvents(
 ): HostDaemonEventGroup[] {
   const groups: HostDaemonEventGroup[] = [];
   for (const envelope of envelopes) {
+    const entry = { eventId: envelope.eventId, event: envelope.event };
     const last = groups.at(-1);
     if (last?.threadId === envelope.threadId) {
-      last.events.push(envelope.event);
+      last.events.push(entry);
     } else {
-      groups.push({ threadId: envelope.threadId, events: [envelope.event] });
+      groups.push({ threadId: envelope.threadId, events: [entry] });
     }
   }
   return groups;
@@ -282,7 +295,11 @@ export function ungroupHostDaemonEvents(
   groups: readonly HostDaemonEventGroup[],
 ): HostDaemonEventEnvelope[] {
   return groups.flatMap((group) =>
-    group.events.map((event) => ({ threadId: group.threadId, event })),
+    group.events.map((entry) => ({
+      eventId: entry.eventId,
+      threadId: group.threadId,
+      event: entry.event,
+    })),
   );
 }
 

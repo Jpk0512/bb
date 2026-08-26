@@ -81,8 +81,11 @@ function recordFromThreadTurnRow(row: ThreadTurnRow): ThreadTurnRecord {
  */
 export function upsertThreadTurnRecord(
   db: ThreadTurnWriteConnection,
-  record: ThreadTurnRecord,
+  candidate: ThreadTurnRecord,
 ): ThreadTurnRecord {
+  // Parse before writing: an out-of-contract record must fail here, not
+  // persist and then throw on every later read of this row.
+  const record = threadTurnRecordSchema.parse(candidate);
   const now = Date.now();
   const spansJson = record.spans.length === 0 ? null : JSON.stringify(record.spans);
   const persisted = db

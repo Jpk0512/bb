@@ -288,13 +288,17 @@ function buildDefaultBranchListResult(
 
 export interface CreateTestDaemonEventEnvelopeArgs {
   event: ThreadEvent;
+  eventId?: string;
   threadId?: string;
 }
+
+let nextTestDaemonEventId = 0;
 
 export function createTestDaemonEventEnvelope(
   args: CreateTestDaemonEventEnvelopeArgs,
 ): HostDaemonEventEnvelope {
   return {
+    eventId: args.eventId ?? `devt_test_${++nextTestDaemonEventId}`,
     threadId: args.threadId ?? args.event.threadId,
     event: args.event,
   };

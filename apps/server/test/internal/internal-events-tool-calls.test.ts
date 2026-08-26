@@ -37,17 +37,23 @@ import type { TestAppHarness } from "../helpers/test-app.js";
 import { setPluginAgentContributions } from "../../src/services/plugins/plugin-agent-contributions.js";
 import type { PluginAgentToolRecord } from "../../src/services/plugins/plugin-api.js";
 
+let nextPostedEventId = 0;
+
 async function postEventBatch(args: {
-  events: HostDaemonEventEnvelope[];
+  events: Array<Omit<HostDaemonEventEnvelope, "eventId"> & { eventId?: string }>;
   harness: TestAppHarness;
   sessionId: string;
 }): Promise<Response> {
+  const envelopes: HostDaemonEventEnvelope[] = args.events.map((envelope) => ({
+    ...envelope,
+    eventId: envelope.eventId ?? `devt_posted_${++nextPostedEventId}`,
+  }));
   return args.harness.app.request("/internal/session/events", {
     method: "POST",
     headers: internalAuthHeaders(args.harness),
     body: JSON.stringify({
       sessionId: args.sessionId,
-      eventGroups: groupHostDaemonEvents(args.events),
+      eventGroups: groupHostDaemonEvents(envelopes),
     }),
   });
 }
@@ -215,6 +221,7 @@ describe("internal event and tool-call routes", () => {
           sessionId: session.id,
           events: [
             {
+              eventId: "devt_gen_1",
               threadId: thread.id,
               event: {
                 type: "turn/started",
@@ -224,6 +231,7 @@ describe("internal event and tool-call routes", () => {
               },
             },
             ...(["item/started", "item/completed"] as const).map((type) => ({
+              eventId: `devt_gen_2_${type}`,
               threadId: thread.id,
               event: {
                 type,
@@ -287,6 +295,7 @@ describe("internal event and tool-call routes", () => {
         sessionId: session.id,
         events: [
           {
+            eventId: "devt_gen_3",
             threadId: thread.id,
             event: {
               type: "turn/started",
@@ -296,6 +305,7 @@ describe("internal event and tool-call routes", () => {
             },
           },
           {
+            eventId: "devt_gen_4",
             threadId: thread.id,
             event: {
               type: "turn/completed",
@@ -357,6 +367,7 @@ describe("internal event and tool-call routes", () => {
         sessionId: session.id,
         events: [
           {
+            eventId: "devt_gen_5",
             threadId: thread.id,
             event: {
               type: "turn/started",
@@ -435,6 +446,7 @@ describe("internal event and tool-call routes", () => {
         sessionId: session.id,
         events: [
           {
+            eventId: "devt_gen_6",
             threadId: thread.id,
             event: {
               type: "turn/completed",
@@ -482,6 +494,7 @@ describe("internal event and tool-call routes", () => {
         sessionId: session.id,
         events: [
           {
+            eventId: "devt_gen_7",
             threadId: thread.id,
             event: {
               type: "turn/started",
@@ -491,6 +504,7 @@ describe("internal event and tool-call routes", () => {
             },
           },
           {
+            eventId: "devt_gen_8",
             threadId: thread.id,
             event: {
               type: "turn/completed",
@@ -533,6 +547,7 @@ describe("internal event and tool-call routes", () => {
         sessionId: session.id,
         events: [
           {
+            eventId: "devt_gen_9",
             threadId: thread.id,
             event: {
               type: "turn/started",
@@ -542,6 +557,7 @@ describe("internal event and tool-call routes", () => {
             },
           },
           {
+            eventId: "devt_gen_10",
             threadId: thread.id,
             event: {
               type: "turn/started",
@@ -552,6 +568,7 @@ describe("internal event and tool-call routes", () => {
             },
           },
           {
+            eventId: "devt_gen_11",
             threadId: thread.id,
             event: {
               type: "turn/completed",
@@ -640,6 +657,7 @@ describe("internal event and tool-call routes", () => {
         sessionId: session.id,
         events: [
           {
+            eventId: "devt_gen_12",
             threadId: thread.id,
             event: {
               type: "turn/started",
@@ -650,6 +668,7 @@ describe("internal event and tool-call routes", () => {
             },
           },
           {
+            eventId: "devt_gen_13",
             threadId: thread.id,
             event: {
               type: "turn/completed",
@@ -710,6 +729,7 @@ describe("internal event and tool-call routes", () => {
         sessionId: session.id,
         events: [
           {
+            eventId: "devt_gen_14",
             threadId: childThread.id,
             event: {
               type: "turn/started",
@@ -719,6 +739,7 @@ describe("internal event and tool-call routes", () => {
             },
           },
           {
+            eventId: "devt_gen_15",
             threadId: childThread.id,
             event: {
               type: "turn/started",
@@ -729,6 +750,7 @@ describe("internal event and tool-call routes", () => {
             },
           },
           {
+            eventId: "devt_gen_16",
             threadId: childThread.id,
             event: {
               type: "turn/completed",
@@ -798,6 +820,7 @@ describe("internal event and tool-call routes", () => {
         sessionId: session.id,
         events: [
           {
+            eventId: "devt_gen_17",
             threadId: childThread.id,
             event: {
               type: "turn/started",
@@ -807,6 +830,7 @@ describe("internal event and tool-call routes", () => {
             },
           },
           {
+            eventId: "devt_gen_18",
             threadId: childThread.id,
             event: {
               type: "turn/completed",
@@ -868,6 +892,7 @@ describe("internal event and tool-call routes", () => {
         sessionId: session.id,
         events: [
           {
+            eventId: "devt_gen_19",
             threadId: childThread.id,
             event: {
               type: "turn/started",
@@ -877,6 +902,7 @@ describe("internal event and tool-call routes", () => {
             },
           },
           {
+            eventId: "devt_gen_20",
             threadId: childThread.id,
             event: {
               type: "turn/completed",
@@ -937,6 +963,7 @@ describe("internal event and tool-call routes", () => {
         sessionId: session.id,
         events: [
           {
+            eventId: "devt_gen_21",
             threadId: thread.id,
             event: {
               type: "turn/started",
@@ -973,6 +1000,7 @@ describe("internal event and tool-call routes", () => {
       });
       const eventBatch: HostDaemonEventEnvelope[] = [
         {
+          eventId: "devt_gen_22",
           threadId: thread.id,
           event: {
             type: "turn/started",
@@ -982,6 +1010,7 @@ describe("internal event and tool-call routes", () => {
           },
         },
         {
+          eventId: "devt_gen_23",
           threadId: thread.id,
           event: {
             type: "turn/completed",
@@ -1010,13 +1039,17 @@ describe("internal event and tool-call routes", () => {
         harness.db.select().from(threads).where(eq(threads.id, thread.id)).get()
           ?.status,
       ).toBe("idle");
+      // The re-post carries the same daemon event ids, so the server
+      // acknowledges it without storing a second copy. This batch used to
+      // land twice, which is how a retry loop buried threads under duplicate
+      // turn lifecycle events.
       expect(
         harness.db
           .select()
           .from(events)
           .where(eq(events.threadId, thread.id))
           .all(),
-      ).toHaveLength(4);
+      ).toHaveLength(2);
     });
   });
 
@@ -1064,6 +1097,7 @@ describe("internal event and tool-call routes", () => {
         sessionId: session.id,
         events: [
           {
+            eventId: "devt_gen_24",
             threadId: thread.id,
             event: {
               type: "turn/completed",

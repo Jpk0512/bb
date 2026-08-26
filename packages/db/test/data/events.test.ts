@@ -95,10 +95,17 @@ const threadEventFields = {
   scope: threadScope(),
 };
 
+let nextDaemonEventId = 0;
+
 const daemonThreadEventFields = {
   ...threadEventFields,
   environmentId: null,
   providerThreadId: null,
+  // A getter so every spread mints a fresh id — reusing one id within a thread
+  // would trip the ingest's idempotence replay path instead of inserting.
+  get daemonEventId() {
+    return `daemon-event-${++nextDaemonEventId}`;
+  },
 };
 
 interface CreateTurnEventFieldsArgs {
@@ -109,6 +116,7 @@ function createTurnEventFields(args: CreateTurnEventFieldsArgs) {
   return {
     ...emptyItemFields,
     scope: turnScope(args.turnId),
+    daemonEventId: `daemon-event-${++nextDaemonEventId}`,
   };
 }
 
@@ -362,6 +370,7 @@ describe("events", () => {
         },
       ],
       insertedInputIndexes: [0, 1],
+      replayedEvents: [],
       skippedTurnUnstartedInputIndexes: [],
     });
     expect(listEvents(db, { threadId: thread.id })).toMatchObject([
@@ -373,6 +382,76 @@ describe("events", () => {
         sequence: 7,
       },
     ]);
+  });
+
+  it("acknowledges a re-posted batch without inserting it again", () => {
+    const { db, thread } = setup();
+
+    // The daemon queue is at-least-once: a lost response re-posts the whole
+    // batch with the same daemon event ids. The second append must not commit
+    // a second copy — that was the 68k-duplicate-rows incident.
+    const batch = [
+      {
+        threadId: thread.id,
+        type: "system/error" as const,
+        ...daemonThreadEventFields,
+        daemonEventId: "devt_replay_1",
+        data: JSON.stringify({ message: "first daemon" }),
+      },
+      {
+        threadId: thread.id,
+        type: "system/error" as const,
+        ...daemonThreadEventFields,
+        daemonEventId: "devt_replay_2",
+        data: JSON.stringify({ message: "second daemon" }),
+      },
+    ];
+
+    const first = db.transaction(
+      (tx) => appendDaemonEventsInTransaction(tx, batch),
+      { behavior: "immediate" },
+    );
+    expect(first.acceptedEvents.map((event) => event.sequence)).toEqual([1, 2]);
+
+    const replay = db.transaction(
+      (tx) => appendDaemonEventsInTransaction(tx, batch),
+      { behavior: "immediate" },
+    );
+    expect(replay).toEqual({
+      acceptedEvents: [],
+      insertedInputIndexes: [],
+      replayedEvents: [
+        { inputIndex: 0, sequence: 1, threadId: thread.id },
+        { inputIndex: 1, sequence: 2, threadId: thread.id },
+      ],
+      skippedTurnUnstartedInputIndexes: [],
+    });
+    expect(listEvents(db, { threadId: thread.id })).toHaveLength(2);
+
+    // A partial replay (one stored event, one new) inserts only the new event
+    // and continues the sequence from the stored high-water mark.
+    const partial = db.transaction(
+      (tx) =>
+        appendDaemonEventsInTransaction(tx, [
+          batch[1] as (typeof batch)[number],
+          {
+            threadId: thread.id,
+            type: "system/error" as const,
+            ...daemonThreadEventFields,
+            daemonEventId: "devt_replay_3",
+            data: JSON.stringify({ message: "third daemon" }),
+          },
+        ]),
+      { behavior: "immediate" },
+    );
+    expect(partial.replayedEvents).toEqual([
+      { inputIndex: 0, sequence: 2, threadId: thread.id },
+    ]);
+    expect(partial.acceptedEvents).toEqual([
+      { sequence: 3, threadId: thread.id },
+    ]);
+    expect(partial.insertedInputIndexes).toEqual([1]);
+    expect(listEvents(db, { threadId: thread.id })).toHaveLength(3);
   });
 
   it("rejects daemon turn-scoped events before turn/started is stored", () => {

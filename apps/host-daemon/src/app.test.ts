@@ -909,12 +909,15 @@ describe("createHostDaemonApp", () => {
             threadId: "thr_pending_turn_exit",
             events: [
               {
-                type: "system/error",
-                threadId: "thr_pending_turn_exit",
-                scope: threadScope(),
-                code: "provider_process_exited",
-                message:
-                  'Provider "claude-code" exited unexpectedly with code 1',
+                eventId: expect.any(String),
+                event: {
+                  type: "system/error",
+                  threadId: "thr_pending_turn_exit",
+                  scope: threadScope(),
+                  code: "provider_process_exited",
+                  message:
+                    'Provider "claude-code" exited unexpectedly with code 1',
+                },
               },
             ],
           },

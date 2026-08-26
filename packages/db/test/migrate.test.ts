@@ -306,6 +306,7 @@ function dropRewindAddedTables(db: DbConnection): void {
   dropEnvironmentRetireRequestedAtColumn(db);
   dropPhase6CharterSchema(db);
   dropOrchestratorModelPolicySchema(db);
+  dropDaemonEventIdSchema(db);
   dropPluginArtifactGitCheckoutRootColumn(db);
   dropThreadSectionSchema(db);
   restoreWideExperimentsTable(db);
@@ -711,6 +712,29 @@ function dropOrchestratorModelPolicySchema(db: DbConnection): void {
   }
 }
 
+/**
+ * Rewind 0902: the daemon event idempotence key and its unique index. Needed
+ * by every test that deletes ledger rows past the fork migrations and replays
+ * them, since the replay re-adds this column. The index is dropped first
+ * because SQLite refuses to drop an indexed column.
+ */
+function dropDaemonEventIdSchema(db: DbConnection): void {
+  db.$client
+    .prepare("DROP INDEX IF EXISTS events_thread_daemon_event_idx")
+    .run();
+  const columns = new Set(
+    db.$client
+      .prepare<[], TableInfoRow>("PRAGMA table_info(events)")
+      .all()
+      .map((column) => column.name),
+  );
+  if (columns.has("daemon_event_id")) {
+    db.$client
+      .prepare("ALTER TABLE events DROP COLUMN daemon_event_id")
+      .run();
+  }
+}
+
 function dropEnvironmentNameColumn(db: DbConnection): void {
   db.$client.prepare("ALTER TABLE environments DROP COLUMN name").run();
 }
@@ -806,6 +830,7 @@ function dropPost0023Tables(db: DbConnection): void {
   dropEnvironmentRetireRequestedAtColumn(db);
   dropPhase6CharterSchema(db);
   dropOrchestratorModelPolicySchema(db);
+  dropDaemonEventIdSchema(db);
   dropPluginArtifactGitCheckoutRootColumn(db);
   dropProjectGitRemoteUrlColumn(db);
   db.$client.prepare("DROP TABLE IF EXISTS thread_tabs").run();
@@ -1579,6 +1604,7 @@ describe("migrate", () => {
     dropEnvironmentRetireRequestedAtColumn(db);
     dropPhase6CharterSchema(db);
     dropOrchestratorModelPolicySchema(db);
+  dropDaemonEventIdSchema(db);
     dropPluginArtifactGitCheckoutRootColumn(db);
     dropMarketplaceCatalogSchema(db);
     // Delete by the journal timestamp, not a hash substring: migration hashes
@@ -1874,6 +1900,7 @@ describe("migrate", () => {
       dropEnvironmentRetireRequestedAtColumn(db);
       dropPhase6CharterSchema(db);
     dropOrchestratorModelPolicySchema(db);
+  dropDaemonEventIdSchema(db);
       dropPluginArtifactGitCheckoutRootColumn(db);
       dropMarketplaceCatalogSchema(db);
 
@@ -2278,6 +2305,7 @@ describe("migrate", () => {
       dropEnvironmentRetireRequestedAtColumn(db);
       dropPhase6CharterSchema(db);
     dropOrchestratorModelPolicySchema(db);
+  dropDaemonEventIdSchema(db);
       dropPluginArtifactGitCheckoutRootColumn(db);
       dropMarketplaceCatalogSchema(db);
 
@@ -2379,6 +2407,7 @@ describe("migrate", () => {
       dropEnvironmentRetireRequestedAtColumn(db);
       dropPhase6CharterSchema(db);
     dropOrchestratorModelPolicySchema(db);
+  dropDaemonEventIdSchema(db);
       dropPluginArtifactGitCheckoutRootColumn(db);
       dropMarketplaceCatalogSchema(db);
 
@@ -3911,6 +3940,7 @@ describe("migrate", () => {
         "item_kind",
         "data",
         "created_at",
+        "daemon_event_id",
       ]);
       const eventIndexNames = readIndexNames({
         db,
@@ -3921,6 +3951,7 @@ describe("migrate", () => {
         "events_completed_item_truncation_idx",
         "events_environment_idx",
         "events_goal_thread_sequence_idx",
+        "events_thread_daemon_event_idx",
         "events_thread_sequence_idx",
         "events_thread_turn_type_item_sequence_idx",
         "events_thread_type_item_kind_sequence_idx",

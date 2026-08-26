@@ -278,23 +278,33 @@ function usageForTurn(args: {
     latest.tokenUsage.total.totalTokens >= previous.totalTokens
   ) {
     const total = latest.tokenUsage.total;
-    return usageFromBreakdown({
-      breakdown: {
-        totalTokens: total.totalTokens - previous.totalTokens,
-        inputTokens:
-          previous.inputTokens === null ? total.inputTokens : total.inputTokens - previous.inputTokens,
-        cachedInputTokens:
-          previous.cachedInputTokens === null ? total.cachedInputTokens : total.cachedInputTokens - previous.cachedInputTokens,
-        outputTokens:
-          previous.outputTokens === null ? total.outputTokens : total.outputTokens - previous.outputTokens,
-        reasoningOutputTokens:
-          previous.reasoningOutputTokens === null
-            ? total.reasoningOutputTokens
-            : total.reasoningOutputTokens - previous.reasoningOutputTokens,
-      },
-      modelContextWindow: latest.tokenUsage.modelContextWindow,
-      source: "provider-turn-delta",
-    });
+    const breakdown = {
+      totalTokens: total.totalTokens - previous.totalTokens,
+      inputTokens:
+        previous.inputTokens === null ? total.inputTokens : total.inputTokens - previous.inputTokens,
+      cachedInputTokens:
+        previous.cachedInputTokens === null ? total.cachedInputTokens : total.cachedInputTokens - previous.cachedInputTokens,
+      outputTokens:
+        previous.outputTokens === null ? total.outputTokens : total.outputTokens - previous.outputTokens,
+      reasoningOutputTokens:
+        previous.reasoningOutputTokens === null
+          ? total.reasoningOutputTokens
+          : total.reasoningOutputTokens - previous.reasoningOutputTokens,
+    };
+    // A provider can re-bucket cumulative components between turns (pi moves
+    // input into cachedInput), driving a per-component delta negative while the
+    // total still grows. Such deltas are meaningless per component, and a
+    // negative value violates the record contract downstream.
+    const deltasValid = Object.values(breakdown).every(
+      (value) => value === null || value >= 0,
+    );
+    if (deltasValid) {
+      return usageFromBreakdown({
+        breakdown,
+        modelContextWindow: latest.tokenUsage.modelContextWindow,
+        source: "provider-turn-delta",
+      });
+    }
   }
   return usageFromBreakdown({
     breakdown: latest.tokenUsage.last,

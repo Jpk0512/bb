@@ -97,6 +97,7 @@ describe("internal runtime-hook delivery", () => {
           sessionId: session.id,
           eventGroups: groupHostDaemonEvents([
             {
+              eventId: "devt_hooks_1",
               threadId: thread.id,
               event: {
                 type: "thread/identity",
@@ -106,6 +107,7 @@ describe("internal runtime-hook delivery", () => {
               },
             },
             {
+              eventId: "devt_hooks_2",
               threadId: thread.id,
               event: {
                 type: "provider/warning",
@@ -138,6 +140,7 @@ describe("internal runtime-hook delivery", () => {
             sessionId: session.id,
             eventGroups: groupHostDaemonEvents([
               {
+                eventId: "devt_hooks_3",
                 threadId: thread.id,
                 event: {
                   type: "thread/identity",

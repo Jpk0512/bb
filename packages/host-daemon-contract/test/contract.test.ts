@@ -1135,7 +1135,7 @@ describe("host-daemon command schemas", () => {
   // mixed version. Version 113 carried the Devin Desktop open target rename
   // and remains part of the protocol lineage.
   it("uses the current host-daemon protocol version", () => {
-    expect(HOST_DAEMON_PROTOCOL_VERSION).toBe(131);
+    expect(HOST_DAEMON_PROTOCOL_VERSION).toBe(132);
     expect(HOST_ARTIFACT_MAX_BYTES).toBe(256 * 1024 * 1024);
   });
 
@@ -3302,10 +3302,13 @@ describe("host-daemon session schemas", () => {
             threadId: "thr_123",
             events: [
               {
-                type: "system/error",
-                threadId: "thr_123",
-                scope: threadScope(),
-                message: "boom",
+                eventId: "devt_1",
+                event: {
+                  type: "system/error",
+                  threadId: "thr_123",
+                  scope: threadScope(),
+                  message: "boom",
+                },
               },
             ],
           },
@@ -3328,10 +3331,13 @@ describe("host-daemon session schemas", () => {
             threadId: "thr_123",
             events: [
               {
-                type: "thread/context/cleared",
-                threadId: "thr_123",
-                providerThreadId: "provider-thread-123",
-                scope: turnScope("turn_123"),
+                eventId: "devt_2",
+                event: {
+                  type: "thread/context/cleared",
+                  threadId: "thr_123",
+                  providerThreadId: "provider-thread-123",
+                  scope: turnScope("turn_123"),
+                },
               },
             ],
           },
@@ -3340,7 +3346,7 @@ describe("host-daemon session schemas", () => {
     ).toMatchObject({
       eventGroups: [
         {
-          events: [{ type: "thread/context/cleared" }],
+          events: [{ event: { type: "thread/context/cleared" } }],
         },
       ],
     });

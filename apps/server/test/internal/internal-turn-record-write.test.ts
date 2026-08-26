@@ -69,6 +69,7 @@ describe("turn telemetry write seam on turn completion", () => {
         sessionId: session.id,
         events: [
           {
+            eventId: "devt_gen_25",
             threadId: thread.id,
             event: {
               type: "turn/started",
@@ -78,6 +79,7 @@ describe("turn telemetry write seam on turn completion", () => {
             },
           },
           {
+            eventId: "devt_gen_26",
             threadId: thread.id,
             event: {
               type: "item/started",
@@ -88,6 +90,7 @@ describe("turn telemetry write seam on turn completion", () => {
             },
           },
           {
+            eventId: "devt_gen_27",
             threadId: thread.id,
             event: {
               type: "item/completed",
@@ -98,6 +101,7 @@ describe("turn telemetry write seam on turn completion", () => {
             },
           },
           {
+            eventId: "devt_gen_28",
             threadId: thread.id,
             event: {
               type: "turn/completed",
@@ -126,6 +130,7 @@ describe("turn telemetry write seam on turn completion", () => {
 
       const turnEvents = [
         {
+          eventId: "devt_gen_29",
           threadId: thread.id,
           event: {
             type: "turn/started" as const,
@@ -135,6 +140,7 @@ describe("turn telemetry write seam on turn completion", () => {
           },
         },
         {
+          eventId: "devt_gen_30",
           threadId: thread.id,
           event: {
             type: "turn/completed" as const,
@@ -167,6 +173,7 @@ describe("turn telemetry write seam on turn completion", () => {
         sessionId: session.id,
         events: [
           {
+            eventId: "devt_gen_31",
             threadId: thread.id,
             event: {
               type: "turn/started",
@@ -176,6 +183,7 @@ describe("turn telemetry write seam on turn completion", () => {
             },
           },
           {
+            eventId: "devt_gen_32",
             threadId: thread.id,
             event: {
               type: "turn/started",
@@ -186,6 +194,7 @@ describe("turn telemetry write seam on turn completion", () => {
             },
           },
           {
+            eventId: "devt_gen_33",
             threadId: thread.id,
             event: {
               type: "turn/completed",
@@ -287,6 +296,7 @@ describe("turn telemetry write seam on turn completion", () => {
         sessionId: session.id,
         events: [
           {
+            eventId: "devt_gen_34",
             threadId: thread.id,
             event: {
               type: "turn/started",
@@ -296,6 +306,7 @@ describe("turn telemetry write seam on turn completion", () => {
             },
           },
           {
+            eventId: "devt_gen_35",
             threadId: thread.id,
             event: {
               type: "item/started",
@@ -306,6 +317,7 @@ describe("turn telemetry write seam on turn completion", () => {
             },
           },
           {
+            eventId: "devt_gen_36",
             threadId: thread.id,
             event: {
               type: "item/completed",
@@ -316,6 +328,7 @@ describe("turn telemetry write seam on turn completion", () => {
             },
           },
           {
+            eventId: "devt_gen_37",
             threadId: thread.id,
             event: {
               type: "turn/completed",

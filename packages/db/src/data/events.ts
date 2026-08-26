@@ -132,6 +132,7 @@ export interface InsertEventsResult {
 }
 
 export interface AppendDaemonEventInput {
+  daemonEventId: string;
   data: string;
   environmentId: string | null;
   itemId: string | null;
@@ -147,9 +148,22 @@ export interface AcceptedDaemonEvent {
   threadId: string;
 }
 
+export interface ReplayedDaemonEvent {
+  inputIndex: number;
+  sequence: number;
+  threadId: string;
+}
+
 export interface AppendDaemonEventsResult {
   acceptedEvents: AcceptedDaemonEvent[];
   insertedInputIndexes: number[];
+  /**
+   * Inputs whose daemonEventId is already stored for their thread — a re-post
+   * from the daemon's at-least-once queue after a lost response. They are
+   * acknowledged with the stored row's sequence but not inserted again, and
+   * must trigger no effects.
+   */
+  replayedEvents: ReplayedDaemonEvent[];
   /**
    * Indexes of inputs dropped because they were orphan thread-state snapshots
    * (token/context usage scoped to a turn with no stored turn/started). Surfaced
@@ -563,6 +577,7 @@ export function appendDaemonEventsInTransaction(
     return {
       acceptedEvents: [],
       insertedInputIndexes: [],
+      replayedEvents: [],
       skippedTurnUnstartedInputIndexes: [],
     };
   }
@@ -577,6 +592,7 @@ export function appendDaemonEventsInTransaction(
   );
   const acceptedEvents: AcceptedDaemonEvent[] = [];
   const insertedInputIndexes: number[] = [];
+  const replayedEvents: ReplayedDaemonEvent[] = [];
   const skippedTurnUnstartedInputIndexes: number[] = [];
 
   const startedTurnKeys = listStoredTurnStartedKeySet(
@@ -585,6 +601,24 @@ export function appendDaemonEventsInTransaction(
   );
   const now = Date.now();
   for (const [index, input] of eventInputs.entries()) {
+    const replayed = db
+      .select({ sequence: events.sequence })
+      .from(events)
+      .where(
+        and(
+          eq(events.threadId, input.threadId),
+          eq(events.daemonEventId, input.daemonEventId),
+        ),
+      )
+      .get();
+    if (replayed !== undefined) {
+      replayedEvents.push({
+        inputIndex: index,
+        sequence: replayed.sequence,
+        threadId: input.threadId,
+      });
+      continue;
+    }
     if (
       resolveDaemonTurnStartDisposition(input, startedTurnKeys) ===
       "skip-orphan-snapshot"
@@ -600,7 +634,7 @@ export function appendDaemonEventsInTransaction(
     const turnId = getThreadEventScopeTurnId(input.scope) ?? null;
     db.run(
       sql`INSERT INTO events
-        (id, thread_id, environment_id, scope_kind, turn_id, provider_thread_id, sequence, type, item_id, item_kind, data, created_at)
+        (id, thread_id, environment_id, scope_kind, turn_id, provider_thread_id, sequence, type, item_id, item_kind, data, created_at, daemon_event_id)
         VALUES (
           ${createEventId()},
           ${input.threadId},
@@ -613,7 +647,8 @@ export function appendDaemonEventsInTransaction(
           ${input.itemId},
           ${input.itemKind},
           ${input.data},
-          ${now}
+          ${now},
+          ${input.daemonEventId}
         )`,
     );
     const event = parseDaemonThreadEvent(input);
@@ -647,6 +682,7 @@ export function appendDaemonEventsInTransaction(
   return {
     acceptedEvents,
     insertedInputIndexes,
+    replayedEvents,
     skippedTurnUnstartedInputIndexes,
   };
 }

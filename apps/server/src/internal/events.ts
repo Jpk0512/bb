@@ -309,6 +309,7 @@ function toStoredEvent(args: ToStoredEventArgs): AppendDaemonEventInput {
   const envelope = args.envelope;
   const { scope, type, threadId, ...data } = envelope.event;
   return {
+    daemonEventId: envelope.eventId,
     threadId: envelope.threadId,
     environmentId: args.environmentId,
     ...resolveProviderIdentifiers(envelope.event),
@@ -1263,6 +1264,15 @@ export function registerInternalEventRoutes(app: Hono, deps: AppDeps): void {
         }
         throw error;
       }
+      if (appendResult.replayedEvents.length > 0) {
+        deps.logger.warn(
+          {
+            replayedEventCount: appendResult.replayedEvents.length,
+            sessionId: session.id,
+          },
+          "Acknowledged re-posted daemon events without re-inserting",
+        );
+      }
       for (const index of appendResult.skippedTurnUnstartedInputIndexes) {
         const skipped = eventInputs[index];
         deps.logger.warn(
@@ -1274,67 +1284,91 @@ export function registerInternalEventRoutes(app: Hono, deps: AppDeps): void {
           "Dropped orphan thread-state snapshot with no stored turn/started",
         );
       }
-      notifyInsertedEventThreads(deps, {
-        eventInputs,
-        insertedInputIndexes: appendResult.insertedInputIndexes,
-      });
+      // The batch is committed. From here on, a throw must not become a 500:
+      // the daemon's at-least-once queue treats a failed response as
+      // undelivered and re-posts the whole batch, and without an ingest
+      // idempotence key each re-post durably commits another full copy.
+      try {
+        notifyInsertedEventThreads(deps, {
+          eventInputs,
+          insertedInputIndexes: appendResult.insertedInputIndexes,
+        });
 
-      const followUps = await applyEventEffects(
-        deps,
-        resolveEventsToApply({
-          db: deps.db,
+        const followUps = await applyEventEffects(
+          deps,
+          resolveEventsToApply({
+            db: deps.db,
+            events: postableEvents,
+            insertedEventIndexes: appendResult.insertedInputIndexes,
+          }),
+        );
+        const insertedEvents = appendResult.insertedInputIndexes.map(
+          (index) => {
+            const event = postableEvents[index];
+            if (event === undefined) {
+              throw new Error("Missing postable event for inserted daemon event");
+            }
+            return event;
+          },
+        );
+        deferPluginRuntimeHooks({
+          deps,
+          providerEvents: buildProviderEventObservations({
+            acceptedEvents: appendResult.acceptedEvents,
+            entries: labelledEntries,
+            insertedInputIndexes: appendResult.insertedInputIndexes,
+          }),
+          signals: buildRuntimeSignals(deps, {
+            events: insertedEvents,
+            previousProviderThreadIdByThreadId,
+          }),
+        });
+        for (const candidate of resolveActivePruneCandidates({
+          acceptedEvents: appendResult.acceptedEvents,
           events: postableEvents,
           insertedEventIndexes: appendResult.insertedInputIndexes,
-        }),
-      );
-      const insertedEvents = appendResult.insertedInputIndexes.map((index) => {
-        const event = postableEvents[index];
-        if (event === undefined) {
-          throw new Error("Missing postable event for inserted daemon event");
+        })) {
+          maybePruneActiveThreadEventHistory(deps, candidate);
         }
-        return event;
-      });
-      deferPluginRuntimeHooks({
-        deps,
-        providerEvents: buildProviderEventObservations({
-          acceptedEvents: appendResult.acceptedEvents,
-          entries: labelledEntries,
-          insertedInputIndexes: appendResult.insertedInputIndexes,
-        }),
-        signals: buildRuntimeSignals(deps, {
-          events: insertedEvents,
-          previousProviderThreadIdByThreadId,
-        }),
-      });
-      for (const candidate of resolveActivePruneCandidates({
-        acceptedEvents: appendResult.acceptedEvents,
-        events: postableEvents,
-        insertedEventIndexes: appendResult.insertedInputIndexes,
-      })) {
-        maybePruneActiveThreadEventHistory(deps, candidate);
-      }
 
-      deferEventFollowUpBatch(deps, followUps);
-      return context.json({
-        acceptedEvents: appendResult.acceptedEvents.map(
-          (acceptedEvent, acceptedIndex) => {
-            const inputIndex = appendResult.insertedInputIndexes[acceptedIndex];
-            if (inputIndex === undefined) {
-              throw new Error(
-                "Missing inserted event index for accepted daemon event",
-              );
-            }
-            const entry = entries[inputIndex];
-            if (entry === undefined) {
-              throw new Error("Missing daemon event entry for accepted event");
-            }
-            return {
-              eventIndex: entry.eventIndex,
-              sequence: acceptedEvent.sequence,
-              threadId: acceptedEvent.threadId,
-            };
+        deferEventFollowUpBatch(deps, followUps);
+      } catch (error) {
+        deps.logger.error(
+          {
+            sessionId: session.id,
+            ...runtimeErrorLogFields(deps.config, error),
           },
-        ),
+          "Post-commit daemon event processing failed",
+        );
+      }
+      const insertedAcceptedEvents = appendResult.acceptedEvents.map(
+        (acceptedEvent, acceptedIndex) => {
+          const inputIndex = appendResult.insertedInputIndexes[acceptedIndex];
+          if (inputIndex === undefined) {
+            throw new Error(
+              "Missing inserted event index for accepted daemon event",
+            );
+          }
+          return { inputIndex, ...acceptedEvent };
+        },
+      );
+      // A replayed event is already durably stored, so the daemon must see it
+      // acknowledged like any other accepted event.
+      return context.json({
+        acceptedEvents: [
+          ...insertedAcceptedEvents,
+          ...appendResult.replayedEvents,
+        ].map((acceptedEvent) => {
+          const entry = entries[acceptedEvent.inputIndex];
+          if (entry === undefined) {
+            throw new Error("Missing daemon event entry for accepted event");
+          }
+          return {
+            eventIndex: entry.eventIndex,
+            sequence: acceptedEvent.sequence,
+            threadId: acceptedEvent.threadId,
+          };
+        }),
         rejectedEvents,
       });
     },

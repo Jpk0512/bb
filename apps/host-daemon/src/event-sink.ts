@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { ThreadEvent } from "@bb/domain";
 import type {
   HostDaemonEventBatchResponse,
@@ -284,6 +285,9 @@ export function createEventSink(options: CreateEventSinkOptions): EventSink {
         backedUpSinceMs = Date.now();
       }
       queue.push({
+        // Minted once here so every retry of this event re-posts the same id —
+        // the server dedupes re-posts on it.
+        eventId: randomUUID(),
         threadId: input.threadId,
         event: input.event,
       });

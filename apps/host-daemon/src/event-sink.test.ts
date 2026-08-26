@@ -59,7 +59,11 @@ describe("event sink", () => {
     await sink.flush();
 
     expect(postEvents).toHaveBeenCalledWith([
-      { threadId: "thr_1", event: systemErrorEvent("thr_1") },
+      {
+        eventId: expect.any(String),
+        threadId: "thr_1",
+        event: systemErrorEvent("thr_1"),
+      },
     ]);
   });
 
@@ -81,7 +85,11 @@ describe("event sink", () => {
 
     expect(postEvents).toHaveBeenCalledTimes(1);
     expect(postEvents).toHaveBeenCalledWith([
-      { threadId: "thr_1", event: systemErrorEvent("thr_1") },
+      {
+        eventId: expect.any(String),
+        threadId: "thr_1",
+        event: systemErrorEvent("thr_1"),
+      },
     ]);
   });
 
@@ -111,8 +119,19 @@ describe("event sink", () => {
 
     expect(postEvents).toHaveBeenCalledTimes(2);
     expect(postEvents).toHaveBeenLastCalledWith([
-      { threadId: "thr_1", event: systemErrorEvent("thr_1") },
+      {
+        eventId: expect.any(String),
+        threadId: "thr_1",
+        event: systemErrorEvent("thr_1"),
+      },
     ]);
+    // The redelivered envelope must carry the SAME id as the lost attempt —
+    // that identity is what lets the server recognize the re-post instead of
+    // committing a second copy of the event.
+    const firstAttempt = postEvents.mock.calls[0]?.[0];
+    const secondAttempt = postEvents.mock.calls[1]?.[0];
+    expect(firstAttempt?.[0]?.eventId).toBeDefined();
+    expect(secondAttempt?.[0]?.eventId).toBe(firstAttempt?.[0]?.eventId);
   });
 
   it("drops rejected events with a warning without throwing", async () => {
@@ -297,7 +316,11 @@ describe("event sink", () => {
 
     expect(postEvents).toHaveBeenCalledTimes(2);
     expect(postEvents).toHaveBeenLastCalledWith([
-      { threadId: "thr_1", event: systemErrorEvent("thr_1") },
+      {
+        eventId: expect.any(String),
+        threadId: "thr_1",
+        event: systemErrorEvent("thr_1"),
+      },
     ]);
   });
 
@@ -342,8 +365,16 @@ describe("event sink", () => {
 
     await sink.flush();
     expect(postEvents).toHaveBeenLastCalledWith([
-      { threadId: "thr_1", event: systemErrorEvent("thr_1") },
-      { threadId: "thr_2", event: systemErrorEvent("thr_2") },
+      {
+        eventId: expect.any(String),
+        threadId: "thr_1",
+        event: systemErrorEvent("thr_1"),
+      },
+      {
+        eventId: expect.any(String),
+        threadId: "thr_2",
+        event: systemErrorEvent("thr_2"),
+      },
     ]);
   });
 

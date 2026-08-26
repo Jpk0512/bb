@@ -868,6 +868,7 @@ describe("generated managed branch names", () => {
             sessionId: session.id,
             eventGroups: groupHostDaemonEvents([
               {
+                eventId: "devt_branch_1",
                 threadId: thread.id,
                 event: {
                   type: "turn/started",
@@ -877,6 +878,7 @@ describe("generated managed branch names", () => {
                 },
               },
               {
+                eventId: "devt_branch_2",
                 threadId: thread.id,
                 event: {
                   type: "turn/completed",

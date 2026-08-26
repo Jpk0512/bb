@@ -32,16 +32,22 @@ interface SeedEventRouteArgs {
 interface PostEventBatchArgs {
   harness: TestAppHarness;
   sessionId: string;
-  events: HostDaemonEventEnvelope[];
+  events: Array<Omit<HostDaemonEventEnvelope, "eventId"> & { eventId?: string }>;
 }
 
+let nextPostedEventId = 0;
+
 async function postEventBatch(args: PostEventBatchArgs): Promise<Response> {
+  const envelopes: HostDaemonEventEnvelope[] = args.events.map((envelope) => ({
+    ...envelope,
+    eventId: envelope.eventId ?? `devt_posted_${++nextPostedEventId}`,
+  }));
   return args.harness.app.request("/internal/session/events", {
     method: "POST",
     headers: internalAuthHeaders(args.harness),
     body: JSON.stringify({
       sessionId: args.sessionId,
-      eventGroups: groupHostDaemonEvents(args.events),
+      eventGroups: groupHostDaemonEvents(envelopes),
     }),
   });
 }
