@@ -19,6 +19,7 @@ import {
   readTerminalOutputLines,
   type ActiveThinking,
   type Thread,
+  type ThreadEventItemPresentation,
   type ThreadTimelineActivePromptMode,
   type ThreadTimelineGoal,
   type ThreadTimelineModelFallback,
@@ -69,11 +70,10 @@ import { extractThreadTimelineModelFallback } from "./model-fallback-extraction.
 import { extractThreadTimelinePendingTodos } from "./todo-snapshot-extraction.js";
 import { buildTimelineErrorDisplay } from "./error-display.js";
 
-export type ThreadTimelineTurnMessageDetail = "summary" | "full";
+type ThreadTimelineTurnMessageDetail = "summary" | "full";
 
 interface ThreadTimelineFromEventsBaseOptions {
   contextOnlyToolCallIds?: ReadonlySet<string>;
-  includeDebugRawEvents: boolean;
   includeProviderUnhandledOperations: boolean;
   /**
    * Tail-only state (`pendingTodos`) is only meaningful on the latest page —
@@ -112,12 +112,12 @@ interface ThreadTimelineFromEventsBaseOptions {
   workspaceRoot: string | null;
 }
 
-export interface ThreadTimelineFromEventsOptions extends ThreadTimelineFromEventsBaseOptions {
+interface ThreadTimelineFromEventsOptions extends ThreadTimelineFromEventsBaseOptions {
   includeNestedRows: boolean;
   turnMessageDetail: ThreadTimelineTurnMessageDetail;
 }
 
-export interface BuildThreadTimelineFromEventsArgs {
+interface BuildThreadTimelineFromEventsArgs {
   acceptedClientRequestContext: AcceptedClientRequestContext;
   contextWindowEvents: ThreadEventWithMeta[];
   events: ThreadEventWithMeta[];
@@ -136,12 +136,12 @@ export interface ThreadTimelineFromEventsResult {
   rows: TimelineRow[];
 }
 
-export interface ThreadTimelineSourceSeqRange {
+interface ThreadTimelineSourceSeqRange {
   sourceSeqEnd: number;
   sourceSeqStart: number;
 }
 
-export interface BuildThreadTimelineTurnDetailsFromEventsOptions extends ThreadTimelineSourceSeqRange {
+interface BuildThreadTimelineTurnDetailsFromEventsOptions extends ThreadTimelineSourceSeqRange {
   includeProviderUnhandledOperations: boolean;
   providerDisplayName?: string;
   threadStatus: Thread["status"];
@@ -151,12 +151,12 @@ export interface BuildThreadTimelineTurnDetailsFromEventsOptions extends ThreadT
   workspaceRoot: string | null;
 }
 
-export interface BuildThreadTimelineTurnDetailsFromEventsArgs {
+interface BuildThreadTimelineTurnDetailsFromEventsArgs {
   events: ThreadEventWithMeta[];
   options: BuildThreadTimelineTurnDetailsFromEventsOptions;
 }
 
-export type ThreadTimelineTurnDetailsFromEventsResult =
+type ThreadTimelineTurnDetailsFromEventsResult =
   | {
       kind: "matched";
       rows: TimelineRow[];
@@ -359,12 +359,14 @@ function buildWorkflowWorkRow(
     taskType: message.taskType,
     workflowName: message.workflowName,
     description: message.description,
+    model: message.model,
     taskStatus: message.taskStatus,
     workflow: message.workflow,
     usage: message.usage,
     summary: message.summary,
     error: message.error,
     completedAt: message.completedAt,
+    ...rowPresentation(message),
   };
 }
 
@@ -400,6 +402,16 @@ function toConversationAttachments(
     localImagePaths: attachments.localImagePaths ?? [],
     localFilePaths: attachments.localFilePaths ?? [],
   };
+}
+
+/**
+ * The bridge's presentation, spread onto a row only when the item had one so
+ * pre-presentation rows keep an absent field rather than an `undefined` key.
+ */
+function rowPresentation(message: {
+  presentation?: ThreadEventItemPresentation;
+}): { presentation?: ThreadEventItemPresentation } {
+  return message.presentation ? { presentation: message.presentation } : {};
 }
 
 function convertActivityIntent(
@@ -599,6 +611,7 @@ function convertMessage(
           completedAt: message.completedAt,
           approvalStatus: message.approvalStatus,
           activityIntents: message.parsedIntents.map(convertActivityIntent),
+          ...rowPresentation(message),
         },
       ];
     case "tool-call":
@@ -611,13 +624,10 @@ function convertMessage(
           callId: message.callId,
           toolName: message.toolName,
           toolArgs: message.toolArgs,
-          ...(message.statusLabels
-            ? { statusLabels: message.statusLabels }
-            : {}),
           output: message.output,
           completedAt: message.completedAt,
           approvalStatus: message.approvalStatus,
-          activityIntents: message.parsedIntents.map(convertActivityIntent),
+          ...rowPresentation(message),
         },
       ];
     case "file-edit":
@@ -652,6 +662,7 @@ function convertMessage(
           stdout: message.stdout ?? null,
           stderr: message.stderr ?? null,
           approvalStatus: message.approvalStatus,
+          ...rowPresentation(message),
         };
       });
     case "web-search":
@@ -664,6 +675,7 @@ function convertMessage(
           callId: message.callId,
           queries: message.queries,
           completedAt: message.completedAt,
+          ...rowPresentation(message),
         },
       ];
     case "web-fetch":
@@ -678,6 +690,7 @@ function convertMessage(
           prompt: message.prompt,
           pattern: message.pattern,
           completedAt: message.completedAt,
+          ...rowPresentation(message),
         },
       ];
     case "image-view":
@@ -690,6 +703,65 @@ function convertMessage(
           callId: message.callId,
           path: message.path,
           completedAt: message.completedAt,
+          ...rowPresentation(message),
+        },
+      ];
+    case "file-read":
+      return [
+        {
+          ...buildTimelineRowBase(message, options.rowIdPrefix),
+          kind: "work",
+          workKind: "file-read",
+          status: message.status,
+          callId: message.callId,
+          path: message.path,
+          cmd: message.cmd,
+          completedAt: message.completedAt,
+          ...rowPresentation(message),
+        },
+      ];
+    case "search":
+      return [
+        {
+          ...buildTimelineRowBase(message, options.rowIdPrefix),
+          kind: "work",
+          workKind: "search",
+          status: message.status,
+          callId: message.callId,
+          mode: message.mode,
+          query: message.query,
+          path: message.path,
+          cmd: message.cmd,
+          completedAt: message.completedAt,
+          ...rowPresentation(message),
+        },
+      ];
+    case "plan-steps":
+      return [
+        {
+          ...buildTimelineRowBase(message, options.rowIdPrefix),
+          kind: "work",
+          workKind: "plan-steps",
+          status: message.status,
+          callId: message.callId,
+          steps: message.steps,
+          explanation: message.explanation,
+          completedAt: message.completedAt,
+          ...rowPresentation(message),
+        },
+      ];
+    case "extension":
+      return [
+        {
+          ...buildTimelineRowBase(message, options.rowIdPrefix),
+          kind: "work",
+          workKind: "extension",
+          status: message.status,
+          callId: message.callId,
+          extensionKind: message.extensionKind,
+          payload: message.payload,
+          completedAt: message.completedAt,
+          presentation: message.presentation,
         },
       ];
     case "delegation": {
@@ -702,6 +774,8 @@ function convertMessage(
           status: message.status,
           callId: message.callId,
           toolName: message.toolName,
+          childRef: message.childRef,
+          background: message.background,
           subagentType: message.subagentType ?? null,
           description: message.description ?? null,
           output: message.output,
@@ -713,6 +787,7 @@ function convertMessage(
               workspaceRoot: options.workspaceRoot,
             }),
           ),
+          ...rowPresentation(message),
         },
       ];
     }
@@ -814,17 +889,6 @@ function convertMessage(
         },
       ];
     }
-    case "debug/raw-event":
-      return [
-        {
-          ...buildTimelineRowBase(message, options.rowIdPrefix),
-          kind: "system",
-          systemKind: "debug",
-          title: message.rawType,
-          detail: JSON.stringify(message.rawEvent),
-          status: null,
-        },
-      ];
     default:
       return assertNever(message);
   }
@@ -1235,6 +1299,15 @@ function hasTurnSummaryRows(rows: TimelineRow[]): boolean {
   return rows.some((row) => row.kind === "turn");
 }
 
+function isRootOwnedHumanSteerRow(row: TimelineRow): boolean {
+  return (
+    row.kind === "conversation" &&
+    row.role === "user" &&
+    row.initiator === "user" &&
+    row.turnRequest?.kind === "steer"
+  );
+}
+
 function collectExternalUserBoundarySeqs(
   projection: EventProjection,
 ): number[] {
@@ -1333,7 +1406,6 @@ export function buildThreadTimelineFromEvents(
 ): ThreadTimelineFromEventsResult {
   const projectionOptions = {
     acceptedClientRequestContext: args.acceptedClientRequestContext,
-    includeDebugRawEvents: args.options.includeDebugRawEvents,
     includeProviderUnhandledOperations:
       args.options.includeProviderUnhandledOperations,
     contextOnlyToolCallIds: args.options.contextOnlyToolCallIds,
@@ -1400,7 +1472,6 @@ export function buildThreadTimelineTurnDetailsFromEvents(
   args: BuildThreadTimelineTurnDetailsFromEventsArgs,
 ): ThreadTimelineTurnDetailsFromEventsResult {
   const projection = buildEventProjectionEntries(args.events, {
-    includeDebugRawEvents: false,
     includeProviderUnhandledOperations:
       args.options.includeProviderUnhandledOperations,
     providerDisplayName: args.options.providerDisplayName,
@@ -1432,6 +1503,13 @@ export function buildThreadTimelineTurnDetailsFromEvents(
 
   return {
     kind: "ungrouped",
-    rows: nestedRows,
+    // A work item can begin before a steer and complete after it, so the
+    // summary's source range necessarily overlaps the steer. Lazy details do
+    // not include the later turn/completed event and therefore project that
+    // slice as ungrouped rows. External human steers belong to the root
+    // timeline regardless of outcome, just as they do when children are built
+    // eagerly; returning one here would render the same row both inside and
+    // outside the summary.
+    rows: nestedRows.filter((row) => !isRootOwnedHumanSteerRow(row)),
   };
 }

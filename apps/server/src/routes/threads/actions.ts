@@ -1,5 +1,4 @@
 import {
-  createQueuedThreadMessage,
   deleteQueuedThreadMessage,
   getEnvironment,
   getQueuedThreadMessage,
@@ -20,10 +19,8 @@ import {
 import {
   publicApiRoutes,
   typedRoutes,
-  type CreateQueuedMessageRequest,
   type ThreadListResponse,
   type PublicApiSchema,
-  type SendMessageRequest,
 } from "@bb/server-contract";
 import type { Hono } from "hono";
 import {
@@ -44,25 +41,22 @@ import { requirePublicThread } from "../../services/lib/entity-lookup.js";
 import { parseSafeRelativeRoutePath } from "../relative-route-path.js";
 import { validatePromptAttachmentReferences } from "../../services/projects/attachments.js";
 import {
-  requestQueuedMessageAutoSendForThread,
+  createQueuedMessageForThread,
   sendQueuedMessage,
 } from "../../services/threads/queued-messages.js";
 import {
   ensureThreadIsNotAwaitingUserInteraction,
   ensureThreadIsWritable,
-  resolveMessageSenderThreadId,
   sendThreadMessage,
 } from "../../services/threads/thread-send.js";
+import { acceptThreadSendRequest } from "../../services/threads/thread-send-request.js";
 import { editThreadMessage } from "../../services/threads/thread-edit-message.js";
 import {
   buildExecutionOptions,
   dispatchThreadUnarchiveCommand,
   prepareTurnSubmitCommandPayload,
 } from "../../services/threads/thread-commands.js";
-import {
-  getLastProviderThreadId,
-  isManualCompactionActive,
-} from "../../services/threads/thread-events.js";
+import { getLastProviderThreadId } from "../../services/threads/thread-events.js";
 import { stopThreadForCurrentState } from "../../services/threads/thread-lifecycle.js";
 import {
   getThreadPromptBannerActivity,
@@ -72,21 +66,19 @@ import {
 import {
   archiveThreadAndChildren,
   archiveThreadAndHiddenSourceForks,
+  resolveArchiveThreadEnvironment,
 } from "../../services/threads/thread-archive.js";
 import { setThreadLineage } from "../../services/threads/thread-lineage.js";
 import { switchThreadProvider } from "../../services/threads/thread-provider-switch.js";
 import {
   requireThreadCommandEnvironment,
   requireThreadHostCommandEnvironment,
+  resolveThreadHostCommandEnvironment,
 } from "../../services/threads/thread-command-environment.js";
 import {
   LIVE_DAEMON_COMMAND_TIMEOUT_MS,
   runLiveHostCommand,
 } from "../../services/hosts/live-command.js";
-import {
-  continueThreadAfterProviderRateLimit,
-  getProviderRateLimitRecoveryStatus,
-} from "../../services/threads/provider-rate-limit-recovery.js";
 
 function toQueuedMessageOrderResponse(
   result: ReorderQueuedThreadMessageResult,
@@ -230,143 +222,16 @@ function assertPinnedThreadOrderResult(
   }
 }
 
-interface CreateQueuedMessageForThreadArgs {
-  payload: CreateQueuedMessageRequest;
-  thread: Thread;
-}
-
-function queuedMessagePayloadFromSendRequest(
-  payload: SendMessageRequest,
-): CreateQueuedMessageRequest {
-  return {
-    input: payload.input,
-    ...(payload.model !== undefined ? { model: payload.model } : {}),
-    ...(payload.serviceTier !== undefined
-      ? { serviceTier: payload.serviceTier }
-      : {}),
-    ...(payload.reasoningLevel !== undefined
-      ? { reasoningLevel: payload.reasoningLevel }
-      : {}),
-    ...(payload.permissionMode !== undefined
-      ? { permissionMode: payload.permissionMode }
-      : {}),
-    ...(payload.executionInputSources !== undefined
-      ? { executionInputSources: payload.executionInputSources }
-      : {}),
-    ...(payload.senderThreadId !== undefined
-      ? { senderThreadId: payload.senderThreadId }
-      : {}),
-  };
-}
-
-async function createQueuedMessageForThread(
-  deps: AppDeps,
-  args: CreateQueuedMessageForThreadArgs,
-): Promise<ThreadQueuedMessage> {
-  const { payload, thread } = args;
-  ensureThreadIsWritable(thread);
-  await validatePromptAttachmentReferences({
-    dataDir: deps.config.dataDir,
-    input: payload.input,
-    projectId: thread.projectId,
-  });
-  const execution = await buildExecutionOptions(
-    deps,
-    payload,
-    {
-      threadId: thread.id,
-    },
-    "client/turn/requested",
-  );
-  const senderThreadId = resolveMessageSenderThreadId(deps, {
-    senderThreadId: payload.senderThreadId,
-    targetThread: thread,
-  });
-  const queuedMessage = createQueuedThreadMessage(deps.db, deps.hub, {
-    threadId: thread.id,
-    content: payload.input,
-    senderThreadId,
-    model: execution.model,
-    reasoningLevel: execution.reasoningLevel,
-    permissionMode: execution.permissionMode,
-    serviceTier: execution.serviceTier,
-  });
-  if (senderThreadId === null && payload.input.length > 0) {
-    deps.telemetry.capture({
-      name: "user_message_sent",
-      properties: {
-        is_child_thread: thread.parentThreadId !== null,
-        message_source: "queued_message",
-        provider: thread.providerId,
-      },
-    });
-  }
-  if (
-    thread.status === "idle" &&
-    getLastProviderThreadId(deps, thread.id) !== null
-  ) {
-    requestQueuedMessageAutoSendForThread(deps, {
-      queuedMessageId: queuedMessage.id,
-      threadId: thread.id,
-    });
-  }
-  return toThreadQueuedMessage(queuedMessage);
-}
-
 export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
-  const { get, post, patch, del } = typedRoutes<PublicApiSchema>(app, {
+  const { post, patch, del } = typedRoutes<PublicApiSchema>(app, {
     onValidationError: (msg) => new ApiError(400, "invalid_request", msg),
   });
   const routes = publicApiRoutes.threads;
 
   post(routes.send, async (context, payload) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
-    const shouldQueue =
-      thread.status === "active" &&
-      (payload.mode === "queue-if-active" ||
-        (payload.mode !== "start" && isManualCompactionActive(deps, thread)));
-    if (shouldQueue) {
-      ensureThreadIsNotAwaitingUserInteraction(deps, thread.id);
-      await createQueuedMessageForThread(deps, {
-        payload: queuedMessagePayloadFromSendRequest(payload),
-        thread,
-      });
-      return context.json({ ok: true });
-    }
-    const environment = await requireThreadCommandEnvironment(deps, {
-      thread,
-    });
-    await sendThreadMessage(deps, {
-      environment,
-      payload,
-      thread,
-      trigger: "user",
-    });
-    return context.json({ ok: true });
-  });
-
-  get(routes.rateLimitRecovery, async (context) => {
-    const thread = requirePublicThread(deps.db, context.req.param("id"));
-    const environment = await requireThreadCommandEnvironment(deps, {
-      thread,
-    });
     return context.json(
-      getProviderRateLimitRecoveryStatus(deps, { environment, thread }),
-    );
-  });
-
-  post(routes.continueAfterRateLimit, async (context, payload) => {
-    const thread = requirePublicThread(deps.db, context.req.param("id"));
-    const environment = await requireThreadCommandEnvironment(deps, {
-      thread,
-    });
-    return context.json(
-      await continueThreadAfterProviderRateLimit(deps, {
-        environment,
-        failedRequestId: payload.failedRequestId,
-        mode: payload.mode ?? "manual",
-        thread,
-      }),
+      await acceptThreadSendRequest(deps, { payload, thread }),
     );
   });
 
@@ -494,13 +359,10 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
 
   post(routes.stop, async (context) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
-    const environment =
-      thread.environmentId === null
-        ? null
-        : requireThreadHostCommandEnvironment({
-            db: deps.db,
-            thread,
-          });
+    const environment = resolveThreadHostCommandEnvironment({
+      db: deps.db,
+      thread,
+    });
     await stopThreadForCurrentState(deps, thread, environment);
     return context.json({ ok: true });
   });
@@ -553,13 +415,8 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
 
   post(routes.clearGoal, async (context) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
-    if (thread.providerId !== "codex") {
-      throw new ApiError(
-        409,
-        "invalid_request",
-        "This provider does not support active Goals",
-      );
-    }
+    // No provider gate: a Goal is provider extension state, so a thread whose
+    // provider never declares one simply has no active Goal to clear.
     const activity = getThreadPromptBannerActivity(deps, thread);
     if (activity.activeGoalCount === 0) {
       throw new ApiError(409, "invalid_request", "No active Goal to clear");
@@ -571,7 +428,6 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
       deps,
       {},
       { threadId: thread.id },
-      "client/turn/requested",
     );
     const preparedRuntimeCommand = await prepareTurnSubmitCommandPayload(deps, {
       environment,
@@ -590,9 +446,6 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
         threadId: thread.id,
         options: preparedRuntimeCommand.options,
         resumeContext: preparedRuntimeCommand.resumeContext,
-        ...(preparedRuntimeCommand.acpLaunchSpec !== undefined
-          ? { acpLaunchSpec: preparedRuntimeCommand.acpLaunchSpec }
-          : {}),
         bridgeLaunch: preparedRuntimeCommand.bridgeLaunch,
       },
       hostId: environment.hostId,
@@ -702,10 +555,7 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
       environmentId: thread.environmentId,
       excludeThreadId: thread.id,
     });
-    const environment = requireThreadHostCommandEnvironment({
-      db: deps.db,
-      thread,
-    });
+    const environment = resolveArchiveThreadEnvironment(deps, { thread });
     const archiveResult = archiveThreadAndHiddenSourceForks(deps, {
       environment,
       thread,

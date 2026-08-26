@@ -49,10 +49,6 @@ interface PendingParentNotificationDelivery {
   row: PendingParentNotificationRow;
 }
 
-interface RenderChildThreadTurnStatusBatchMessageArgs {
-  items: ChildThreadTurnNotificationBatchItem[];
-}
-
 interface ChildThreadTurnStatusBatchLine {
   item: ChildThreadTurnNotificationBatchItem;
   mention: ParentSystemRenderedMention;
@@ -312,27 +308,8 @@ function buildChildThreadTurnStatusBatchSegments(
   return segments;
 }
 
-function parentSystemSegmentText(segment: ParentSystemInputSegment): string {
-  switch (segment.kind) {
-    case "text":
-      return segment.text;
-    case "mention":
-      return segment.mention.serializedText;
-    default: {
-      const exhaustiveCheck: never = segment;
-      return exhaustiveCheck;
-    }
-  }
-}
-
-function parentSystemSegmentsText(
-  segments: readonly ParentSystemInputSegment[],
-): string {
-  return segments.map(parentSystemSegmentText).join("");
-}
-
 function buildChildThreadTurnStatusBatchLines(
-  args: RenderChildThreadTurnStatusBatchMessageArgs,
+  args: BuildChildThreadTurnStatusBatchInputArgs,
 ): ChildThreadTurnStatusBatchLine[] {
   return args.items.map((item) => ({
     item,
@@ -340,25 +317,6 @@ function buildChildThreadTurnStatusBatchLines(
       thread: item.childThread,
     }),
   }));
-}
-
-function renderChildThreadTurnStatusBatchText(
-  args: RenderChildThreadTurnStatusBatchTextArgs,
-): string {
-  const updates = parentSystemSegmentsText(
-    buildChildThreadTurnStatusBatchSegments(args),
-  );
-  return renderTemplate("systemMessageChildThreadOutcomeBatch", {
-    updates,
-  });
-}
-
-export function renderChildThreadTurnStatusBatchMessage(
-  args: RenderChildThreadTurnStatusBatchMessageArgs,
-): string {
-  return renderChildThreadTurnStatusBatchText({
-    lines: buildChildThreadTurnStatusBatchLines(args),
-  });
 }
 
 function childThreadSubject(

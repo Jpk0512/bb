@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useDebounceValue } from "usehooks-ts";
@@ -348,6 +348,19 @@ function groupByPublisher(
   return groups;
 }
 
+/**
+ * Store counts are read at a glance, not audited: "1.2k" carries the scale a
+ * card needs, and the exact number stays in the title attribute.
+ */
+const INSTALL_COUNT_FORMATTER = new Intl.NumberFormat(undefined, {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
+export function formatInstallCount(installs: number): string {
+  return `${INSTALL_COUNT_FORMATTER.format(installs)} ${installs === 1 ? "install" : "installs"}`;
+}
+
 function BrowseCard({
   entry,
   installedPluginId,
@@ -397,11 +410,56 @@ function BrowseCard({
   // The publisher label, not the marketplace's raw display name: a third-party
   // manifest names itself, and the raw name would print a reserved BB label on
   // the card that the server already refused to grant.
-  const footerMeta = entry.official ? undefined : (
-    <span className="text-2xs text-subtle-foreground">
-      {entry.publisherLabel}
-    </span>
-  );
+  // The repository link sits with the publisher label: both say where the
+  // plugin comes from. The card footer ignores pointer events so clicks fall
+  // through to the open button; the link opts back in to take its own click.
+  const repositoryLink =
+    entry.repositoryUrl === null ? null : (
+      <a
+        href={entry.repositoryUrl}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={`Open ${entry.displayName} repository`}
+        className="pointer-events-auto inline-flex items-center gap-0.5 leading-none underline underline-offset-2 hover:text-foreground"
+      >
+        repo
+        {/* Optical nudge: centered against the line box, the glyph sits a
+            pixel above the x-height of the lowercase label beside it. */}
+        <Icon
+          name="ExternalLink"
+          className="size-2.5 shrink-0 translate-y-px"
+          aria-hidden
+        />
+      </a>
+    );
+  // Only the curated marketplace publishes counts, so this is null for every
+  // third-party listing and for any entry its sidecar does not name.
+  const installs =
+    entry.installs === null ? null : (
+      <span
+        title={`${entry.installs.toLocaleString()} ${entry.installs === 1 ? "install" : "installs"}`}
+      >
+        {formatInstallCount(entry.installs)}
+      </span>
+    );
+  const footerParts = [
+    entry.official ? null : entry.publisherLabel,
+    installs,
+    repositoryLink,
+  ].filter((part) => part !== null);
+  const footerMeta =
+    footerParts.length === 0 ? undefined : (
+      <span className="text-2xs text-subtle-foreground">
+        {footerParts.map((part, index) => (
+          // Index keys: the parts are a fixed, ordered set, not a reorderable
+          // list, so position is their identity.
+          <Fragment key={index}>
+            {index > 0 ? " · " : null}
+            {part}
+          </Fragment>
+        ))}
+      </span>
+    );
   const headerAction =
     installedPluginId !== null ? (
       <ResourceInstallControl
@@ -427,6 +485,7 @@ function BrowseCard({
             displayName: entry.displayName,
             icon: entry.icon,
             iconUrl: entry.iconUrl,
+            iconTinted: entry.iconTinted,
             source: entry.source,
           })
         }
@@ -454,7 +513,7 @@ function BrowseCard({
       >
         <ConfirmDeleteDialogContent
           title={`Uninstall ${entry.displayName}?`}
-          description="The plugin will be removed from this BB host. Plugin data may be retained for a future reinstall."
+          description="The plugin, its installed files, and its settings, secrets, and schedules are removed from this BB host."
           confirmLabel={uninstall.isPending ? "Uninstalling…" : "Uninstall"}
           pending={uninstall.isPending}
           onConfirm={() => uninstall.mutate()}

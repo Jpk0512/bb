@@ -31,14 +31,17 @@ const MEMORY_ENTRY: PluginCatalogSearchEntry = {
   description: "Provider-independent durable memory for agents.",
   icon: "Brain",
   iconUrl: null,
+  iconTinted: false,
   category: "Context & knowledge",
   source: "builtin:memory",
+  repositoryUrl: null,
   marketplaceDisplayName: "BB Community",
   publisherKey: "builtin",
   publisherLabel: "BB Official",
   official: true,
   author: null,
   installed: false,
+  installs: null,
   compatible: true,
   incompatibleReason: null,
 };
@@ -68,6 +71,7 @@ const GITHUB_ENTRY: PluginCatalogSearchEntry = {
   description: "Browse GitHub issues and pull requests in BB.",
   icon: "Github",
   iconUrl: null,
+  iconTinted: false,
   category: "Developer tools",
   source: "builtin:github",
 };
@@ -153,10 +157,7 @@ describe("BrowsePluginsTab", () => {
         ),
       ].map((button) => button.getAttribute("aria-label"));
     // "Middle" is the incompatible entry: hidden from Browse entirely.
-    expect(cardOrder()).toEqual([
-      "Open Alpha details",
-      "Open Zulu details",
-    ]);
+    expect(cardOrder()).toEqual(["Open Alpha details", "Open Zulu details"]);
 
     const sortTrigger = screen.getByRole("button", {
       name: "Sort: Plugin name, ascending",
@@ -164,10 +165,7 @@ describe("BrowsePluginsTab", () => {
     expect(sortTrigger.querySelector('[data-icon="ArrowUpDown"]')).toBeTruthy();
     fireEvent.pointerDown(sortTrigger);
     fireEvent.click(screen.getByRole("menuitemradio", { name: "Plugin name" }));
-    expect(cardOrder()).toEqual([
-      "Open Zulu details",
-      "Open Alpha details",
-    ]);
+    expect(cardOrder()).toEqual(["Open Zulu details", "Open Alpha details"]);
     // Category never renders as a heading; it stays a filter only.
     expect(screen.queryByText("Context & knowledge")).toBeNull();
     expect(screen.queryByText("Developer tools")).toBeNull();
@@ -188,6 +186,7 @@ describe("BrowsePluginsTab", () => {
         publisherLabel: "Acme Plugins",
         official: false,
         author: { name: "Acme", url: "https://github.com/acme" },
+        repositoryUrl: "https://github.com/acme/notes",
       },
     ];
     vi.stubGlobal(
@@ -226,6 +225,79 @@ describe("BrowsePluginsTab", () => {
     expect(screen.getByText("third-party marketplace")).toBeTruthy();
     // Cards carry the author with the "By:" prefix.
     expect(screen.getByText("By: Acme")).toBeTruthy();
+    // The card links the repository; a bundled entry has none to link.
+    const repositoryLink = screen.getByRole("link", {
+      name: "Open Acme Notes repository",
+    });
+    expect(repositoryLink.getAttribute("href")).toBe(
+      "https://github.com/acme/notes",
+    );
+    expect(
+      screen.queryByRole("link", { name: "Open Memory repository" }),
+    ).toBeNull();
+  });
+
+  it("shows a compact install count beside the other card footer facts", async () => {
+    const entries = [
+      { ...MEMORY_ENTRY, displayName: "Memory", installs: 4_210 },
+      {
+        ...MEMORY_ENTRY,
+        entryId: "notes",
+        pluginId: "notes",
+        displayName: "Acme Notes",
+        marketplace: "acme-plugins",
+        marketplaceDisplayName: "Acme Plugins",
+        publisherKey: "acme-plugins",
+        publisherLabel: "Acme Plugins",
+        official: false,
+        // Third-party listings publish no counts; the card says nothing
+        // rather than implying zero.
+        installs: null,
+      },
+      {
+        ...MEMORY_ENTRY,
+        entryId: "solo",
+        pluginId: "solo",
+        displayName: "Solo",
+        installs: 1,
+      },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url === "/api/v1/plugin-catalog") {
+          return jsonResponse({ catalog: CATALOG_STATUS });
+        }
+        if (url === "/api/v1/plugin-catalog/search?q=") {
+          return jsonResponse({ results: entries });
+        }
+        if (url === "/api/v1/plugins") {
+          return jsonResponse({ enabled: true, plugins: [] });
+        }
+        return jsonResponse({ error: "not found" }, 404);
+      }),
+    );
+
+    const { wrapper } = createQueryClientTestHarness();
+    render(
+      <MemoryRouter>
+        <BrowsePluginsTab
+          onInstall={() => {}}
+          onOpenPlugin={() => {}}
+          onInstallFromSource={() => {}}
+        />
+      </MemoryRouter>,
+      { wrapper },
+    );
+
+    await screen.findByText("Acme Notes");
+    const count = screen.getByText("4.2K installs");
+    expect(count.getAttribute("title")).toBe("4,210 installs");
+    expect(screen.getByText("1 install")).toBeTruthy();
+    // The uncounted card still shows its publisher, so the footer did not
+    // collapse into a stray separator.
+    expect(screen.getAllByText("Acme Plugins").length).toBeGreaterThan(0);
+    expect(screen.queryByText("0 installs")).toBeNull();
   });
 
   it("keeps a marketplace that copies a publisher label in its own group", async () => {
@@ -407,25 +479,10 @@ describe("BrowsePluginsTab", () => {
     expect(
       screen.getByRole("textbox", { name: "Search plugins" }),
     ).toBeTruthy();
-    const githubGrid = screen
-      .getByRole("button", { name: "Open GitHub details" })
-      .closest('[class*="auto-fill"]');
-    expect(githubGrid?.className).toContain("auto-fill");
-    expect(githubGrid?.className).toContain("18rem");
-    const githubCard = screen
-      .getByRole("button", { name: "Open GitHub details" })
-      .closest(".group");
-    expect(githubCard?.className).toContain("min-h-20");
-    expect(githubCard?.className).toContain("p-2.5");
-    const memoryDescriptions = screen.getAllByText(MEMORY_ENTRY.description);
-    const githubDescription = screen.getByText(GITHUB_ENTRY.description);
-    for (const memoryDescription of memoryDescriptions) {
-      expect(memoryDescription.className).toContain("min-h-[2lh]");
-      expect(memoryDescription.parentElement?.className).toContain(
-        "line-clamp-2",
-      );
-    }
-    expect(githubDescription.className).toContain("min-h-[2lh]");
+    expect(
+      screen.getAllByText(MEMORY_ENTRY.description).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText(GITHUB_ENTRY.description)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Category" })).toBeTruthy();
     // The catalog grid stays flat — no per-source section heading above it.
     // The discovery hero's own heading sits above the results and is expected.
@@ -451,7 +508,6 @@ describe("BrowsePluginsTab", () => {
     expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
 
     const install = screen.getByRole("button", { name: "Install Memory" });
-    expect(install.className).toContain("w-7");
     expect(install.querySelector('[data-icon="Download"]')).not.toBeNull();
     fireEvent.pointerMove(install);
     expect((await screen.findByRole("tooltip")).textContent).toBe(
@@ -465,6 +521,7 @@ describe("BrowsePluginsTab", () => {
       displayName: "Memory",
       icon: "Brain",
       iconUrl: null,
+      iconTinted: false,
       source: "builtin:memory",
     });
     fireEvent.click(
@@ -555,7 +612,6 @@ describe("BrowsePluginsTab", () => {
     const installed = await screen.findByRole("button", {
       name: "Uninstall Memory",
     });
-    expect(installed.className).toContain("w-7");
     fireEvent.pointerMove(installed);
     expect((await screen.findByRole("tooltip")).textContent).toBe(
       "Installed — uninstall Memory",

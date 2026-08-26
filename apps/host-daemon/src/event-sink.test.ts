@@ -27,7 +27,6 @@ function createLogger(): CreateEventSinkOptions["logger"] {
 
 function acceptingPostEvents() {
   return vi.fn<CreateEventSinkOptions["postEvents"]>(async (events) => ({
-    kind: "accepted",
     acceptedEvents: events.map((event, eventIndex) => ({
       eventIndex,
       sequence: eventIndex + 1,
@@ -98,7 +97,6 @@ describe("event sink", () => {
       .fn<CreateEventSinkOptions["postEvents"]>()
       .mockRejectedValueOnce(new Error("response lost"))
       .mockImplementation(async (events) => ({
-        kind: "accepted",
         acceptedEvents: events.map((event, eventIndex) => ({
           eventIndex,
           sequence: eventIndex + 1,
@@ -136,17 +134,18 @@ describe("event sink", () => {
 
   it("drops rejected events with a warning without throwing", async () => {
     const logger = createLogger();
-    const postEvents = vi.fn<CreateEventSinkOptions["postEvents"]>(async () => ({
-      kind: "accepted",
-      acceptedEvents: [],
-      rejectedEvents: [
-        {
-          eventIndex: 0,
-          reason: "thread_not_owned_by_host",
-          threadId: "thr_1",
-        },
-      ],
-    }));
+    const postEvents = vi.fn<CreateEventSinkOptions["postEvents"]>(
+      async () => ({
+        acceptedEvents: [],
+        rejectedEvents: [
+          {
+            eventIndex: 0,
+            reason: "thread_not_owned_by_host",
+            threadId: "thr_1",
+          },
+        ],
+      }),
+    );
     const sink = createEventSink({
       isSessionOpen: () => true,
       logger,
@@ -163,11 +162,13 @@ describe("event sink", () => {
     expect(postEvents).toHaveBeenCalledTimes(1);
   });
 
-  it("warns once when the queue grows large while undelivered", () => {
+  it("warns once when a large queue remains undelivered", () => {
     const logger = createLogger();
+    let now = 0;
     const sink = createEventSink({
       isSessionOpen: () => false,
       logger,
+      now: () => now,
       postEvents: acceptingPostEvents(),
     });
 
@@ -176,12 +177,36 @@ describe("event sink", () => {
     }
     expect(logger.warn).not.toHaveBeenCalled();
 
-    // Crossing the depth threshold fires the tripwire once...
+    // A fresh event burst is throughput, not evidence of a stalled delivery.
     sink.emit({ threadId: "thr_1", event: systemErrorEvent("thr_1") });
+    expect(logger.warn).not.toHaveBeenCalled();
+
+    // Remaining above the depth threshold for five seconds fires once.
+    now = 5_000;
     sink.emit({ threadId: "thr_1", event: systemErrorEvent("thr_1") });
     expect(logger.warn).toHaveBeenCalledTimes(1);
     expect(logger.warn).toHaveBeenCalledWith(
-      expect.objectContaining({ queueDepth: 512 }),
+      expect.objectContaining({ queueAgeMs: 5_000, queueDepth: 513 }),
+      expect.any(String),
+    );
+  });
+
+  it("warns when even a small queue is stalled for thirty seconds", () => {
+    const logger = createLogger();
+    let now = 0;
+    const sink = createEventSink({
+      isSessionOpen: () => false,
+      logger,
+      now: () => now,
+      postEvents: acceptingPostEvents(),
+    });
+
+    sink.emit({ threadId: "thr_1", event: systemErrorEvent("thr_1") });
+    now = 30_000;
+    sink.emit({ threadId: "thr_1", event: systemErrorEvent("thr_1") });
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ queueAgeMs: 30_000, queueDepth: 2 }),
       expect.any(String),
     );
   });
@@ -196,7 +221,6 @@ describe("event sink", () => {
           );
         }
         return {
-          kind: "accepted",
           acceptedEvents: events.map((event, eventIndex) => ({
             eventIndex,
             sequence: eventIndex + 1,
@@ -240,7 +264,6 @@ describe("event sink", () => {
         }
         delivered.push(...events.map((event) => event.threadId));
         return {
-          kind: "accepted",
           acceptedEvents: events.map((event, eventIndex) => ({
             eventIndex,
             sequence: eventIndex + 1,
@@ -296,7 +319,6 @@ describe("event sink", () => {
         }),
       )
       .mockImplementation(async (events) => ({
-        kind: "accepted",
         acceptedEvents: events.map((event, eventIndex) => ({
           eventIndex,
           sequence: eventIndex + 1,
@@ -342,7 +364,6 @@ describe("event sink", () => {
         }),
       )
       .mockImplementation(async (events) => ({
-        kind: "accepted",
         acceptedEvents: events.map((event, eventIndex) => ({
           eventIndex,
           sequence: eventIndex + 1,

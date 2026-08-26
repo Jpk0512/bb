@@ -10,32 +10,11 @@ const normalizedToolCallRequestSchema = z.object({
   callId: z.string().min(1),
   tool: z.string().min(1),
   arguments: z.unknown(),
-});
-
-const providerNativeToolCallRequestSchema = z.object({
-  threadId: z.string().min(1),
-  // Native provider tool calls use the same required turn id shape as bridge
-  // tool calls: null means unresolved and must be resolved by the runtime.
-  turnId: z.union([z.string().min(1), z.null()]),
-  callId: z.string().min(1),
-  tool: z.string().min(1),
-  arguments: z.unknown(),
-});
-
-export const providerToolCallResponseSchema = z.object({
-  success: z.boolean(),
-  contentItems: z.array(
-    z.discriminatedUnion("type", [
-      z.object({
-        type: z.literal("inputText"),
-        text: z.string(),
-      }),
-      z.object({
-        type: z.literal("inputImage"),
-        imageUrl: z.string().min(1),
-      }),
-    ]),
-  ),
+  /**
+   * turnId/callId are provider-native (thread/delta bridges hold no bb ids);
+   * the runtime adapter translates them through the delta assembler's maps.
+   */
+  providerNativeIds: z.boolean().optional(),
 });
 
 export function decodeNormalizedProviderToolCallRequest(
@@ -62,31 +41,5 @@ export function decodeNormalizedProviderToolCallRequest(
       ? { arguments: parsed.data.arguments }
       : {}),
     ...(parsed.data.threadId ? { threadId: parsed.data.threadId } : {}),
-  };
-}
-
-export function decodeNativeProviderToolCallRequest(
-  requestId: string | number,
-  method: string,
-  params: unknown,
-): DecodedToolCallRequest | null {
-  if (method !== "item/tool/call") {
-    return null;
-  }
-
-  const parsed = providerNativeToolCallRequestSchema.safeParse(params);
-  if (!parsed.success) {
-    return null;
-  }
-
-  return {
-    requestId,
-    providerThreadId: parsed.data.threadId,
-    turnId: parsed.data.turnId,
-    callId: parsed.data.callId,
-    tool: parsed.data.tool,
-    ...(parsed.data.arguments !== undefined
-      ? { arguments: parsed.data.arguments }
-      : {}),
   };
 }

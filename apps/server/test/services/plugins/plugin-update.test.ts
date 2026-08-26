@@ -32,6 +32,7 @@ import {
 import type { Logger } from "@bb/logger";
 import { registerPluginRoutes } from "../../../src/routes/plugins.js";
 import { createPluginCatalogService } from "../../../src/services/plugin-catalog/plugin-catalog-service.js";
+import { createAiServiceRegistry } from "../../../src/services/ai/ai-service-registry.js";
 import {
   createPluginService,
   type PluginService,
@@ -77,6 +78,41 @@ async function commitPlugin(
   return git(repo, ["rev-parse", "HEAD"]);
 }
 
+describe("plugin update scheduling", () => {
+  it("waits one full interval when no plugins are eligible for update checks", async () => {
+    const HOUR = 60 * 60 * 1_000;
+    const emptyDb = createConnection(":memory:");
+    migrate(emptyDb);
+    const scheduled: number[] = [];
+    const emptyService = createPluginService({
+      aiServices: createAiServiceRegistry(),
+      telemetry: createNoopTelemetryService(),
+      db: emptyDb,
+      hub: {
+        getDaemonSessionIdForHost: () => null,
+        notifyPluginSignal: () => 0,
+        notifySystem: () => {},
+      },
+      logger,
+      dataDir: join(tmpdir(), "bb-plugin-update-empty-test"),
+      appVersion: "1.0.0",
+      stabilizationWindowMs: 0,
+      scheduleUpdateCheck: (delayMs) => {
+        scheduled.push(delayMs);
+        return () => {};
+      },
+    });
+
+    try {
+      emptyService.startPeriodicUpdateChecks();
+      expect(scheduled).toEqual([6 * HOUR]);
+    } finally {
+      await emptyService.stop();
+      emptyDb.$client.close();
+    }
+  });
+});
+
 describe("plugin update service and routes", () => {
   let db: DbConnection;
   let workDir: string;
@@ -105,6 +141,7 @@ describe("plugin update service and routes", () => {
     afterArtifactPromoted = undefined;
     materializationCount = 0;
     service = createPluginService({
+      aiServices: createAiServiceRegistry(),
       telemetry: createNoopTelemetryService(),
       db,
       hub: {
@@ -379,6 +416,7 @@ describe("plugin update service and routes", () => {
       manifestUrl: workDir,
       sourceGitRef: null,
       sourceGitCommit: null,
+      statsJson: null,
       manifestJson: JSON.stringify({
         schemaVersion: 1,
         name: "acme-plugins",
@@ -508,6 +546,8 @@ describe("plugin update service and routes", () => {
     expect(listPluginArtifacts(db, "updater")).toHaveLength(2);
   });
 
+  // A real git update is built, promoted, crashed, and rolled back here.
+  // Under full-workspace load it can exceed the suite's 30s default.
   it("rolls back when a background service crashes during stabilization", async () => {
     const installedCommit = getInstalledPluginRegistration(
       db,
@@ -523,6 +563,7 @@ describe("plugin update service and routes", () => {
     vi.stubGlobal("__bbPluginStabilizationCrash", serviceCrash);
     await service.stop();
     service = createPluginService({
+      aiServices: createAiServiceRegistry(),
       telemetry: createNoopTelemetryService(),
       db,
       hub: {
@@ -578,7 +619,7 @@ describe("plugin update service and routes", () => {
     expect(
       service.list().find((entry) => entry.id === "updater"),
     ).toMatchObject({ id: "updater", version: "1.0.0", status: "running" });
-  });
+  }, 60_000);
 
   it("finishes an interrupted rollback before loading plugins after restart", async () => {
     const pluginDir = join(workDir, "data", "plugins", "updater");
@@ -624,6 +665,7 @@ describe("plugin update service and routes", () => {
     );
     await service.stop();
     service = createPluginService({
+      aiServices: createAiServiceRegistry(),
       telemetry: createNoopTelemetryService(),
       db,
       hub: {
@@ -661,6 +703,7 @@ describe("plugin update service and routes", () => {
 
     await service.stop();
     service = createPluginService({
+      aiServices: createAiServiceRegistry(),
       telemetry: createNoopTelemetryService(),
       db,
       hub: {
@@ -704,11 +747,149 @@ describe("plugin update service and routes", () => {
     ]);
   }, 60_000);
 
+  /** An npm row with no recorded check; registry and provenance vary per test. */
+  function upsertNpmRow(
+    id: string,
+    registry: string,
+    provenance:
+      | { kind: "direct" }
+      | { kind: "catalog"; marketplace: string; entryId: string } = {
+      kind: "direct",
+    },
+  ): void {
+    const packageName = `bb-plugin-${id}`;
+    upsertInstalledPlugin(db, {
+      id,
+      source: `npm:${packageName}`,
+      provenance,
+      sourceIntent: {
+        kind: "npm",
+        packageName,
+        registry,
+        requestedSpec: "",
+        specKind: "default",
+      },
+      exactResolution: {
+        kind: "npm",
+        version: "1.0.0",
+        integrity: "sha512-current",
+      },
+      updateState: {
+        lastCheckAt: null,
+        availableCompatibleVersion: null,
+        newestIncompatibleVersion: null,
+        statusDetail: null,
+      },
+      activeArtifactId: null,
+      rootDir: join(workDir, id),
+      version: "1.0.0",
+      enabled: false,
+    });
+  }
+
+  /** Replaces `service` with one whose clock and sweep timer the test drives. */
+  async function restartWithScheduler(clock: () => number) {
+    const scheduled: Array<{ delayMs: number; onElapsed: () => void }> = [];
+    await service.stop();
+    service = createPluginService({
+      aiServices: createAiServiceRegistry(),
+      telemetry: createNoopTelemetryService(),
+      db,
+      hub: {
+        getDaemonSessionIdForHost: () => null,
+        notifyPluginSignal: () => 0,
+        notifySystem: () => {},
+      },
+      logger,
+      dataDir: join(workDir, "data"),
+      appVersion: "1.0.0",
+      stabilizationWindowMs: 0,
+      now: clock,
+      scheduleUpdateCheck: (delayMs, onElapsed) => {
+        const entry = { delayMs, onElapsed };
+        scheduled.push(entry);
+        return () => {
+          const index = scheduled.indexOf(entry);
+          if (index !== -1) scheduled.splice(index, 1);
+        };
+      },
+    });
+    await service.start();
+    return scheduled;
+  }
+
+  it("sweeps on start when a plugin was never checked, then waits out the interval across restarts", async () => {
+    const HOUR = 60 * 60 * 1_000;
+    let clock = Date.now();
+    let scheduled = await restartWithScheduler(() => clock);
+    const nextCommit = await commitPlugin(repo, "1.1.0");
+
+    service.startPeriodicUpdateChecks();
+    expect(scheduled.map((entry) => entry.delayMs)).toEqual([0]);
+    scheduled.shift()?.onElapsed();
+    await vi.waitFor(() =>
+      expect(getInstalledPlugin(db, "updater")).toMatchObject({
+        lastUpdateCheckAt: clock,
+        availableCompatibleVersion: nextCommit,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(scheduled.map((entry) => entry.delayMs)).toEqual([6 * HOUR]),
+    );
+    await service.stopPeriodicUpdateChecks();
+    expect(scheduled).toHaveLength(0);
+
+    // A restart 2h later waits the remaining 4h instead of checking again.
+    clock += 2 * HOUR;
+    scheduled = await restartWithScheduler(() => clock);
+    service.startPeriodicUpdateChecks();
+    expect(scheduled.map((entry) => entry.delayMs)).toEqual([4 * HOUR]);
+    await service.stopPeriodicUpdateChecks();
+
+    // The stalest plugin drives the delay: a scoped check of one plugin does
+    // not push out a never-checked one.
+    upsertNpmRow("never-checked", "https://never-checked.test");
+    await service.checkForUpdates("updater");
+    service.startPeriodicUpdateChecks();
+    expect(scheduled.map((entry) => entry.delayMs)).toEqual([0]);
+    await service.stopPeriodicUpdateChecks();
+  }, 60_000);
+
+  it("shares one in-flight full sweep between concurrent callers", async () => {
+    const first = service.checkForUpdates();
+    expect(service.checkForUpdates()).toBe(first);
+    await first;
+    expect(service.checkForUpdates()).not.toBe(first);
+  }, 60_000);
+
+  it("keeps the guarded registry policy for catalog installs during a check", async () => {
+    // A listing that names a loopback registry must never be fetched.
+    upsertNpmRow("listed", "https://127.0.0.1", {
+      kind: "catalog",
+      marketplace: "bb-community",
+      entryId: "listed",
+    });
+    const fetchMock = vi.fn(async () => {
+      throw new Error("unexpected unguarded fetch");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(service.checkForUpdates("listed")).resolves.toEqual([
+      expect.objectContaining({
+        id: "listed",
+        outcome: "unavailable",
+        detail: expect.stringContaining("non-public address 127.0.0.1"),
+      }),
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("retains rollback state through the grace period and collects it afterward", async () => {
     await service.stop();
     let clock = Date.now();
     const makeService = () =>
       createPluginService({
+      aiServices: createAiServiceRegistry(),
         telemetry: createNoopTelemetryService(),
         db,
         hub: {

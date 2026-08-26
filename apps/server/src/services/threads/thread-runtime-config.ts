@@ -1,9 +1,4 @@
-import {
-  getEnvironment,
-  getHost,
-  getProject,
-  listThreadPluginAgentConfigRows,
-} from "@bb/db";
+import { getEnvironment, getHost, getProject } from "@bb/db";
 import type {
   DynamicTool,
   InstructionMode,
@@ -33,8 +28,7 @@ import {
   getPluginSkillRootContributions,
   resolvePluginAgentConfiguration,
 } from "../plugins/plugin-agent-contributions.js";
-import { threadPluginAgentConfigurationSchema } from "@bb/server-contract";
-import { resolveSkillCatalogSources } from "../skills/skill-catalog.js";
+import { resolveSkillCatalog } from "../skills/skill-catalog.js";
 import { discoverPluginSkillIds } from "../skills/injected-skills.js";
 import { resolveWorkspaceProjectSkills } from "../skills/workspace-skills.js";
 import { resolveSharedSkills } from "../skills/shared-skills.js";
@@ -56,37 +50,6 @@ const UPDATE_ENVIRONMENT_DIRECTORY_INSTRUCTIONS =
 /** Cap on each plugin's contributeInstructions output (per resolution). */
 const PLUGIN_INSTRUCTION_CONTRIBUTION_MAX_CHARS = 4096;
 
-function loadSpawnPinnedAgentConfigurations(args: {
-  db: AppDeps["db"];
-  logger: AppDeps["logger"];
-  threadId: string;
-}): ReadonlyMap<string, unknown> {
-  const pinnedByPluginId = new Map<string, unknown>();
-  for (const row of listThreadPluginAgentConfigRows(args.db, args.threadId)) {
-    try {
-      pinnedByPluginId.set(
-        row.pluginId,
-        threadPluginAgentConfigurationSchema.parse({
-          tools: JSON.parse(row.toolsJson),
-          skills: JSON.parse(row.skillsJson),
-          ...(row.instructions === null
-            ? {}
-            : { instructions: row.instructions }),
-        }),
-      );
-    } catch (error) {
-      // A persisted pin must never fall back to configure(): fail closed for
-      // that plugin, preserving spawn-time authority even after corruption.
-      args.logger.error(
-        { err: error, pluginId: row.pluginId, threadId: args.threadId },
-        "Invalid spawn-pinned agent configuration; selecting no plugin tools or skills",
-      );
-      pinnedByPluginId.set(row.pluginId, null);
-    }
-  }
-  return pinnedByPluginId;
-}
-
 export interface ThreadRuntimeCommandEnvironment {
   hostId: string;
   id: string;
@@ -95,25 +58,24 @@ export interface ThreadRuntimeCommandEnvironment {
   workspaceProvisionType: WorkspaceProvisionType;
 }
 
-export interface ResolveExecutionOptionsArgs {
+interface ResolveExecutionOptionsArgs {
   projectDefaults?: ProjectExecutionDefaults | null;
   requestedExecution: RequestedExecutionOptions;
   threadId: string;
 }
 
-export interface RequestedExecutionOptions extends ThreadExecutionOptions {
+interface RequestedExecutionOptions extends ThreadExecutionOptions {
   source: ThreadExecutionSource;
 }
 
-export interface ResolveThreadRuntimeCommandConfigArgs {
+interface ResolveThreadRuntimeCommandConfigArgs {
   environment: ThreadRuntimeCommandEnvironment;
   model: string;
   thread: Thread;
 }
 
-export interface ResolvePermissionEscalationArgs {
+interface ResolvePermissionEscalationArgs {
   initiator: ThreadTurnInitiator;
-  thread: Thread;
 }
 
 export interface ResolvedThreadRuntimeCommandConfig {
@@ -201,9 +163,6 @@ export async function resolveThreadRuntimeCommandConfig(
   deps: LoggedWorkSessionDeps,
   args: ResolveThreadRuntimeCommandConfigArgs,
 ): Promise<ResolvedThreadRuntimeCommandConfig> {
-  // Per-turn plugin preflight runs before this session-construction config.
-  // Tool and skill selection remains owned by configure/spawn-pinned config;
-  // preflight may only affect the current command's input and binding hints.
   const workspacePath = requireWorkspacePath(args.environment);
   const project = getProject(deps.db, args.thread.projectId);
   if (!project) {
@@ -242,7 +201,6 @@ export async function resolveThreadRuntimeCommandConfig(
   const conditionalConfiguration = await resolvePluginAgentConfiguration({
     context: {
       thread: {
-        childKind: args.thread.childKind,
         id: args.thread.id,
         title: args.thread.title,
         parentThreadId: args.thread.parentThreadId,
@@ -266,9 +224,9 @@ export async function resolveThreadRuntimeCommandConfig(
         id: args.thread.providerId,
         model: args.model,
         capabilities: {
-          // Absent registration (an ACP tier id, or a provider whose plugin
-          // is disabled mid-thread) reads as "no native affordance", which is
-          // the safe answer: the plugin contributes its own.
+          // Absent registration (a provider whose plugin is disabled
+          // mid-thread) reads as "no native affordance", which is the safe
+          // answer: the plugin contributes its own.
           supportsNativeUserQuestion:
             deps.providerRegistry.get(args.thread.providerId)?.info.capabilities
               .supportsNativeUserQuestion ?? false,
@@ -279,18 +237,13 @@ export async function resolveThreadRuntimeCommandConfig(
         pluginId: args.thread.originPluginId,
       },
     },
-    pinnedByPluginId: loadSpawnPinnedAgentConfigurations({
-      db: deps.db,
-      logger: deps.logger,
-      threadId: args.thread.id,
-    }),
     skillIdsByPlugin,
   });
-  const injectedSkillSources = resolveSkillCatalogSources(deps, {
+  const injectedSkillSources = resolveSkillCatalog(deps, {
     projectSkillSources,
     sharedSkillSources: sharedSkills.runtimeSources,
     pluginSkillSelections: conditionalConfiguration.selectedSkillIdsByPlugin,
-  });
+  }).map((entry) => entry.runtimeSource);
   const dataDirAgentInstructions = readDataDirAgentInstructions(
     deps.logger,
     deps.config.dataDir,

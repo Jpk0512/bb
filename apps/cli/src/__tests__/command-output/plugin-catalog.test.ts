@@ -16,8 +16,10 @@ const searchResult = {
   description: "Linear issue tools",
   icon: null,
   iconUrl: null,
+  iconTinted: false,
   category: "Developer tools",
   source: "builtin:linear",
+  repositoryUrl: null,
   marketplace: "bb-community",
   marketplaceDisplayName: "BB Official",
   publisherKey: "builtin",
@@ -25,6 +27,7 @@ const searchResult = {
   official: true,
   author: null,
   installed: false,
+  installs: null,
   compatible: true,
   incompatibleReason: null,
 };
@@ -92,6 +95,8 @@ const installedPlugin = {
   app: { hasApp: false, bundle: null },
   logoUrl: null,
   logoDarkUrl: null,
+  providerIds: [],
+  icons: {},
 };
 
 function json(value: object, status = 200): Response {
@@ -146,6 +151,25 @@ describe("bb plugin catalog", () => {
     expect(output).toContain("BB Official");
   });
 
+  it("adds an Installs column only once a listing reports counts", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(json({ results: [searchResult] }));
+    await runCommand(["plugin", "search", "lin"], register);
+    expect(collectLogPayloads(vi.mocked(console.log)).join("\n")).not.toContain(
+      "Installs",
+    );
+
+    vi.mocked(console.log).mockClear();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      json({ results: [{ ...searchResult, installs: 4210 }] }),
+    );
+    await runCommand(["plugin", "search", "lin"], register);
+
+    // Exact, not compact: a terminal column is read to be compared.
+    const output = collectLogPayloads(vi.mocked(console.log)).join("\n");
+    expect(output).toContain("Installs");
+    expect(output).toContain("4,210");
+  });
+
   it("outputs raw catalog search results as JSON", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(json({ results: [searchResult] }));
 
@@ -182,7 +206,7 @@ describe("bb plugin catalog", () => {
     );
     expect(
       JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body)),
-    ).toEqual({ source, selection: { kind: "root" } });
+    ).toEqual({ source });
   });
 
   it("sends --plugin and --subdirectory as the install selection", async () => {
@@ -339,7 +363,10 @@ describe("bb plugin catalog", () => {
       .mockResolvedValueOnce(json({ plan: thirdPartyPlan }))
       .mockResolvedValueOnce(json({ ok: true, plugin: installedPlugin }));
 
-    await runCommand(["plugin", "install", "notes@acme-plugins", "--yes"], register);
+    await runCommand(
+      ["plugin", "install", "notes@acme-plugins", "--yes"],
+      register,
+    );
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "http://server/api/v1/plugin-catalog/install-plan?entryId=notes&marketplace=acme-plugins",
@@ -380,7 +407,10 @@ describe("bb plugin catalog", () => {
       )
       .mockResolvedValueOnce(json({ ok: true, plugin: installedPlugin }));
 
-    await runCommand(["plugin", "install", "notes@acme-plugins", "--yes"], register);
+    await runCommand(
+      ["plugin", "install", "notes@acme-plugins", "--yes"],
+      register,
+    );
 
     const output = collectLogPayloads(vi.mocked(console.log)).join("\n");
     expect(output).toContain("npm package: bb-plugin-notes@beta");
@@ -405,7 +435,10 @@ describe("bb plugin catalog", () => {
       )
       .mockResolvedValueOnce(json({ ok: true, plugin: installedPlugin }));
 
-    await runCommand(["plugin", "install", "notes@acme-plugins", "--yes"], register);
+    await runCommand(
+      ["plugin", "install", "notes@acme-plugins", "--yes"],
+      register,
+    );
 
     expect(collectLogPayloads(vi.mocked(console.log)).join("\n")).toContain(
       "not resolved right now: no release tag matches ^1.0.0",

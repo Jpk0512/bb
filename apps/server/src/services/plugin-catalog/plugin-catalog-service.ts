@@ -1,4 +1,5 @@
-import { mkdir, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -45,6 +46,10 @@ import {
 } from "../plugins/update-resolver.js";
 import { fetchMarketplaceIcons } from "./marketplace-icons.js";
 import {
+  fetchMarketplaceStats,
+  installCountsFromStatsJson,
+} from "./marketplace-stats.js";
+import {
   marketplaceErrorMessage,
   publicMarketplaceFetch,
   type MarketplaceFetch,
@@ -53,6 +58,8 @@ import {
   BUILTIN_PUBLISHER_KEY,
   BUILTIN_PUBLISHER_LABEL,
   entryIconName,
+  entryIconTinted,
+  entryRepositoryUrl,
   entrySourceDisplay,
   CURATED_MARKETPLACE_NAME,
   parseMarketplaceManifestJson,
@@ -70,7 +77,10 @@ import {
 import { BUNDLED_CURATED_MARKETPLACE } from "./curated-marketplace.js";
 import { marketplacePublisherLabel } from "./marketplace-publishers.js";
 
-const MARKETPLACE_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1_000;
+const MARKETPLACE_REFRESH_INTERVAL_MS = 2 * 60 * 60 * 1_000;
+
+/** branding.icon paths are validated as SVG, so bundled icons are only ever this. */
+const BUNDLED_ICON_CONTENT_TYPE = "image/svg+xml";
 
 interface PluginCatalogIcon {
   bytes: Buffer;
@@ -112,8 +122,15 @@ export interface PluginCatalogService {
     selector: PluginCatalogEntrySelector,
   ): Promise<PluginCatalogInstallPlan>;
   install(input: PluginCatalogInstallInput): Promise<InstalledPlugin>;
-  /** Cached bytes behind GET /plugin-catalog/icons/:marketplace/:entryId. */
-  icon(marketplace: string, entryId: string): PluginCatalogIcon | undefined;
+  /**
+   * Bytes behind GET /plugin-catalog/icons/:marketplace/:entryId: a fetched
+   * marketplace icon from the cache, or a bundled entry's own compact icon
+   * read from its plugin directory.
+   */
+  icon(
+    marketplace: string,
+    entryId: string,
+  ): Promise<PluginCatalogIcon | undefined>;
   listMarketplaces(): PluginMarketplace[];
   /** Validate, store, and refresh a marketplace. Installs nothing. */
   addMarketplace(source: string): Promise<PluginMarketplace>;
@@ -263,6 +280,8 @@ export function createPluginCatalogService(deps: {
       sourceGitRef: null,
       sourceGitCommit: null,
       manifestJson: JSON.stringify(BUNDLED_CURATED_MARKETPLACE),
+      // Counts are keyed by entry id, so they survive a manifest fallback.
+      statsJson: existing?.statsJson ?? null,
       etag: null,
       lastModified: null,
       lastSuccessfulRefreshAt: null,
@@ -357,9 +376,37 @@ export function createPluginCatalogService(deps: {
     });
   }
 
+  /**
+   * A bundled plugin's own compact icon, hashed so the browse card's URL
+   * busts its cache with the plugin's bytes. Null when the manifest names a
+   * host glyph instead of shipping an SVG, or the file cannot be read.
+   */
+  async function bundledIcon(
+    manifest: PluginManifest,
+  ): Promise<{ bytes: Buffer; hash: string } | null> {
+    const path = manifest.branding.compactIconPath;
+    if (path === undefined) return null;
+    try {
+      const bytes = await readFile(path);
+      return {
+        bytes,
+        hash: createHash("sha256").update(bytes).digest("hex").slice(0, 16),
+      };
+    } catch (error: unknown) {
+      deps.warn?.(
+        `bundled plugin ${manifest.id} icon is unreadable: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return null;
+    }
+  }
+
   function bundledSearchResult(
     entry: { name: string; pluginId: string; category: string },
     manifest: PluginManifest,
+    iconHash: string | null,
+    installs: number | null,
   ): PluginCatalogSearchResult {
     const problem = compatibilityProblem({
       bbRange: manifest.bbEngineRange,
@@ -371,9 +418,17 @@ export function createPluginCatalogService(deps: {
       displayName: manifest.name,
       description: manifest.description,
       icon: manifest.branding.icon ?? null,
-      iconUrl: null,
+      iconUrl:
+        iconHash === null
+          ? null
+          : entryIconAssetUrl(CURATED_MARKETPLACE_NAME, entry.name, iconHash),
+      // A bundled icon is the plugin's own compact SVG, authored to take the
+      // surrounding text color.
+      iconTinted: iconHash !== null,
       category: entry.category,
       source: builtinPluginSource(entry.name),
+      // The build ships the code; there is no separate repository to open.
+      repositoryUrl: null,
       // Plugins bundled with the app are BB's own, so the store groups them
       // with the official marketplace rather than inventing a fourth origin.
       marketplace: CURATED_MARKETPLACE_NAME,
@@ -386,6 +441,10 @@ export function createPluginCatalogService(deps: {
       // Bundled plugins are BB's own; attribute them like the seed entries.
       author: { name: "BB Team", url: "https://getbb.app" },
       installed: getInstalledPlugin(deps.db, entry.pluginId) !== undefined,
+      // Bundled plugins are counted under their canonical plugin id: telemetry
+      // sends that id too, so the curated sidecar names them alongside the
+      // entries it lists.
+      installs,
       compatible: problem === null,
       incompatibleReason: problem,
     };
@@ -409,11 +468,27 @@ export function createPluginCatalogService(deps: {
     return first === undefined ? "Other" : titleCaseTag(first);
   }
 
-  function entryIconUrl(marketplace: string, entryId: string): string | null {
+  /** Same-origin URL of the bytes `icon(marketplace, entryId)` serves. */
+  function entryIconAssetUrl(
+    marketplace: string,
+    entryId: string,
+    contentHash: string,
+  ): string {
+    return `/api/v1/plugin-catalog/icons/${encodeURIComponent(marketplace)}/${encodeURIComponent(entryId)}?h=${contentHash}`;
+  }
+
+  /** The cached icon's same-origin URL and how the app paints it. */
+  function entryIconAsset(
+    marketplace: string,
+    entryId: string,
+  ): { iconUrl: string | null; iconTinted: boolean } {
     const icon = getPluginMarketplaceIcon(deps.db, marketplace, entryId);
     return icon === undefined
-      ? null
-      : `/api/v1/plugin-catalog/icons/${encodeURIComponent(marketplace)}/${encodeURIComponent(entryId)}?h=${icon.contentHash}`;
+      ? { iconUrl: null, iconTinted: false }
+      : {
+          iconUrl: entryIconAssetUrl(marketplace, entryId, icon.contentHash),
+          iconTinted: entryIconTinted(icon.contentType),
+        };
   }
 
   function catalogSearchResult(args: {
@@ -421,6 +496,8 @@ export function createPluginCatalogService(deps: {
     row: PluginMarketplaceRow;
     catalog: MarketplaceManifest;
     installedEntryIds: ReadonlySet<string>;
+    /** Null for every third-party listing, which publishes no counts. */
+    installs: number | null;
   }): PluginCatalogSearchResult {
     const { entry, row, catalog } = args;
     const official = row.name === CURATED_MARKETPLACE_NAME;
@@ -432,9 +509,10 @@ export function createPluginCatalogService(deps: {
       displayName: entry.displayName,
       description: entry.description,
       icon: entryIconName(entry),
-      iconUrl: entryIconUrl(row.name, entry.id),
+      ...entryIconAsset(row.name, entry.id),
       category: entryCategory(entry, official),
       source: entrySourceDisplay(entry),
+      repositoryUrl: entryRepositoryUrl(entry),
       marketplace: row.name,
       marketplaceDisplayName: catalog.displayName,
       publisherKey: row.name,
@@ -447,6 +525,7 @@ export function createPluginCatalogService(deps: {
       installed:
         args.installedEntryIds.has(catalogEntryKey(row.name, entry.id)) ||
         getInstalledPlugin(deps.db, entry.id) !== undefined,
+      installs: args.installs,
       // The listing declares no ranges, so bb cannot judge a marketplace
       // entry until it has fetched the plugin's own manifest.
       compatible: true,
@@ -478,6 +557,36 @@ export function createPluginCatalogService(deps: {
       },
       error: `dropped ${colliding.length} catalog ${colliding.length === 1 ? "entry" : "entries"} whose id matches a bundled plugin: ${ids}`,
     };
+  }
+
+  /**
+   * The install-count sidecar to store for this refresh.
+   *
+   * Only the curated marketplace publishes counts: BB measures them from its
+   * own telemetry, so a number beside a third-party listing would be that
+   * publisher's claim wearing BB's label. A fetch failure keeps the counts
+   * already stored — a cosmetic number must never fail a catalog refresh.
+   */
+  async function refreshedStatsJson(
+    row: PluginMarketplaceRow,
+  ): Promise<string | null> {
+    if (row.name !== CURATED_MARKETPLACE_NAME || row.sourceKind !== "https") {
+      return null;
+    }
+    try {
+      const stats = await fetchMarketplaceStats({
+        manifestUrl: row.manifestUrl,
+        fetch: fetchMarketplace,
+      });
+      // A published-then-withdrawn sidecar clears the counts; a 404 that was
+      // never there to begin with leaves the (already null) column alone.
+      return stats === null ? null : JSON.stringify(stats);
+    } catch (error) {
+      deps.warn?.(
+        `${row.name} install counts were not refreshed: ${marketplaceErrorMessage(error)}`,
+      );
+      return row.statsJson;
+    }
   }
 
   async function performRefresh(
@@ -524,6 +633,7 @@ export function createPluginCatalogService(deps: {
         fetch: fetchMarketplace,
         ...(deps.warn === undefined ? {} : { warn: deps.warn }),
       });
+      const statsJson = await refreshedStatsJson(row);
       // The catalog and all icon rows form one snapshot. Network work happens
       // first, then SQLite publishes the complete snapshot in one commit.
       deps.db.transaction((tx) => {
@@ -532,6 +642,7 @@ export function createPluginCatalogService(deps: {
           ...marketplaceSourceColumns(source),
           sourceGitCommit: materialized.commit,
           manifestJson,
+          statsJson,
           etag: materialized.etag,
           lastModified: materialized.lastModified,
           lastSuccessfulRefreshAt: attemptedAt,
@@ -932,14 +1043,28 @@ export function createPluginCatalogService(deps: {
 
     refreshMarketplaces,
 
-    icon(marketplace, entryId) {
+    async icon(marketplace, entryId) {
       const row = getPluginMarketplaceIcon(deps.db, marketplace, entryId);
-      return row === undefined
+      if (row !== undefined) {
+        return {
+          bytes: row.bytes,
+          contentType: row.contentType,
+          hash: row.contentHash,
+        };
+      }
+      // Bundled entries have no fetched icon: their compact SVG ships in the
+      // plugin directory, so serve it from there under the same route.
+      if (marketplace !== CURATED_MARKETPLACE_NAME) return undefined;
+      const bundled = officialPlugins.find((entry) => entry.name === entryId);
+      if (bundled === undefined) return undefined;
+      const manifest = await entryManifest(bundled);
+      const icon = manifest === null ? null : await bundledIcon(manifest);
+      return icon === null
         ? undefined
         : {
-            bytes: row.bytes,
-            contentType: row.contentType,
-            hash: row.contentHash,
+            bytes: icon.bytes,
+            contentType: BUNDLED_ICON_CONTENT_TYPE,
+            hash: icon.hash,
           };
     },
 
@@ -985,6 +1110,9 @@ export function createPluginCatalogService(deps: {
               ...marketplaceSourceColumns(source),
               sourceGitCommit: materialized.commit,
               manifestJson: materialized.manifestJson,
+              // Only the curated marketplace publishes install counts, and it
+              // can never be added here — its name is reserved above.
+              statsJson: null,
               etag: materialized.etag,
               lastModified: materialized.lastModified,
               lastSuccessfulRefreshAt: addedAt,
@@ -1029,17 +1157,32 @@ export function createPluginCatalogService(deps: {
 
     async search(rawQuery) {
       const query = rawQuery.trim().toLowerCase();
+      // Bundled plugins are listed under the curated marketplace, so they read
+      // their counts from that marketplace's sidecar too.
+      const curatedRow = getPluginMarketplace(
+        deps.db,
+        CURATED_MARKETPLACE_NAME,
+      );
+      const curatedInstalls = installCountsFromStatsJson(
+        curatedRow?.statsJson ?? null,
+        (message) => deps.warn?.(message),
+      );
       const bundledEntries = await Promise.all(
         officialPlugins.map(async (entry) => {
           const manifest = await entryManifest(entry);
-          return manifest === null
-            ? null
-            : {
-                pluginId: entry.pluginId,
-                tags: [] as string[],
-                marketplaceRank: 0,
-                result: bundledSearchResult(entry, manifest),
-              };
+          if (manifest === null) return null;
+          const icon = await bundledIcon(manifest);
+          return {
+            pluginId: entry.pluginId,
+            tags: [] as string[],
+            marketplaceRank: 0,
+            result: bundledSearchResult(
+              entry,
+              manifest,
+              icon?.hash ?? null,
+              curatedInstalls.get(entry.pluginId) ?? null,
+            ),
+          };
         }),
       );
       const installedEntryIds = new Set(
@@ -1061,6 +1204,7 @@ export function createPluginCatalogService(deps: {
       const catalogEntries = orderedMarketplaces().flatMap((row, index) => {
         const catalog = catalogOf(row);
         if (catalog === null) return [];
+        const official = row.name === CURATED_MARKETPLACE_NAME;
         return catalog.plugins.map((entry) => ({
           pluginId: entry.id,
           tags: entry.tags ?? [],
@@ -1070,6 +1214,7 @@ export function createPluginCatalogService(deps: {
             row,
             catalog,
             installedEntryIds,
+            installs: official ? (curatedInstalls.get(entry.id) ?? null) : null,
           }),
         }));
       });

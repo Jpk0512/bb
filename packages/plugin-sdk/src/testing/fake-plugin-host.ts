@@ -5,40 +5,50 @@ import Database from "better-sqlite3";
 import { CronExpressionParser } from "cron-parser";
 import { Hono } from "hono";
 import { z } from "zod";
-import { threadEventTypeValues, type ThreadEventType } from "@bb/domain";
 import { PLUGIN_INTERACTION_MAX_TITLE_LENGTH } from "@bb/domain/plugin-interaction-limits";
 import {
+  adoptHttpRouteResponse,
   AGENT_TOOL_NAME_PATTERN,
+  agentToolIconRefusalMessage,
+  aiServiceAlreadyRegisteredMessage,
+  assertAiServiceRegistrable,
+  assertNoRecursiveJsonSchemaReferences,
   BACKGROUND_NAME_PATTERN,
   CLI_COMMAND_NAME_PATTERN,
   enforcePluginCliOutputLimit,
-  isZodSchemaLike,
   isStandardSchema,
+  isZodSchemaLike,
   KV_VALUE_MAX_BYTES,
   MENTION_PROVIDER_ID_PATTERN,
   normalizeMentionProviderTriggers,
+  parsePluginAgentToolPresentation,
+  pluginCliCollisionWarning,
   PLUGIN_AGENT_DYNAMIC_INSTRUCTIONS_MAX_CHARS,
   PLUGIN_AGENT_SELECTION_MAX_IDS,
   PLUGIN_AGENT_STATIC_INSTRUCTIONS_MAX_CHARS,
-  PLUGIN_AGENT_STATUS_LABEL_MAX_CHARS,
   PLUGIN_AGENT_TOOL_PARAMETERS_MAX_BYTES,
   PLUGIN_HTTP_METHODS,
+  providerAlreadyRegisteredMessage,
+  providerIconRefusalMessage,
+  providerWithoutBridgeMessage,
   readRpcMethodContract,
   registerSettingDescriptors,
+  rejectStaleAgentToolFields,
   RESERVED_AGENT_TOOL_NAMES,
-  RESERVED_BB_CLI_COMMANDS,
   RPC_METHOD_PATTERN,
   summarizeParseIssues,
+  undeclaredIconProblem,
+  validatePluginAiServiceDeclaration,
   validatePluginProviderDeclaration,
   validateSettingsUpdate,
-  adoptHttpRouteResponse,
+  type NormalizedPluginProviderDeclaration,
 } from "../internal/host-policy.js";
 import type {
   BbPluginApi,
   PluginAgentConfiguration,
   PluginAgentConfigurationContext,
   PluginAgentToolContext,
-  PluginAgentToolExperimentalStatusLabels,
+  PluginAgentToolPresentation,
   PluginAgentToolResult,
   PluginAgents,
   PluginBackground,
@@ -47,10 +57,7 @@ import type {
   PluginCliContext,
   PluginCliExecutionResult,
   PluginCliResult,
-  BindingLifecycleHandler,
-  BindingLifecycleSignal,
   PluginEvents,
-  PluginRuntime,
   PluginHttp,
   PluginHttpAuthMode,
   PluginHttpHandler,
@@ -63,7 +70,10 @@ import type {
   PluginMentionItem,
   PluginMentionSearchContext,
   PluginMentionTrigger,
+  PluginAiServiceDeclaration,
+  PluginAiServices,
   PluginProviderDeclaration,
+  PluginProviders,
   PluginRealtime,
   PluginRpc,
   PluginServerApi,
@@ -76,19 +86,12 @@ import type {
   PluginThreadEventHandler,
   PluginThreadEventName,
   PluginThreadEventPayloads,
-  ProviderEventHandler,
-  ProviderEventObservation,
   PluginUi,
   PluginRpcError,
   PluginRpcValidationIssue,
   StandardSchemaV1,
   StandardSchemaV1Issue,
   StandardSchemaV1Result,
-  TurnPreflightContext,
-  TurnPreflightDecision,
-  TurnPreflightHandler,
-  TurnSettledHandler,
-  TurnSettledSignal,
   JsonValue,
 } from "@get-bb/plugin-sdk";
 import {
@@ -173,8 +176,14 @@ export interface FakeCliRecord {
 export interface FakeAgentToolRecord {
   name: string;
   description: string;
-  experimentalStatusLabels: PluginAgentToolExperimentalStatusLabels | null;
   instructions: string | null;
+  /**
+   * The plugin's declared row presentation, null when it declared none.
+   * Parsed by the shared `parsePluginAgentToolPresentation`, so the record
+   * holds exactly what the production host stores and a presentation bb
+   * rejects is rejected here with the same message.
+   */
+  presentation: PluginAgentToolPresentation | null;
   /** JSON-schema object the host would send providers. */
   inputSchema: unknown;
   parse(
@@ -200,17 +209,8 @@ export interface FakeMentionProviderRecord {
 
 export interface FakeRealtimeSignal {
   channel: string;
-  /** JSON-round-tripped, like the WS frame; `undefined` → `null`. */
+  /** JSON-round-tripped, like the WS broadcast; `undefined` → `null`. */
   payload: unknown;
-  /** Entity id the publish was scoped to; null for the channel-wide stream. */
-  scope: string | null;
-}
-
-/** One `bb.realtime.declare` entry, as the last call left it. */
-export interface FakeRealtimeChannelDeclaration {
-  channel: string;
-  label: string;
-  scoped: boolean;
 }
 
 export interface ExperimentalFakeHostRpcCall {
@@ -238,16 +238,13 @@ export interface FakePluginRegistrations {
     | ((ctx: { threadId: string; projectId: string }) => string | null)
     | null;
   threadEventHandlers: Record<PluginThreadEventName, number>;
-  runtimeHooks: {
-    turnPreflight: number;
-    providerEvent: number;
-    turnSettled: number;
-    bindingLifecycle: number;
-  };
   mentionProviders: FakeMentionProviderRecord[];
-  /** Live provider registrations from `experimental_registerProvider`
+  /** Live provider registrations from `bb.providers.register`
    * (normalized declarations, registration order; dispose removes). */
-  providerRegistrations: PluginProviderDeclaration[];
+  providerRegistrations: NormalizedPluginProviderDeclaration[];
+  /** Live AI-service registrations from `experimental_aiServices.register`
+   * (normalized declarations, registration order; dispose removes). */
+  aiServiceRegistrations: PluginAiServiceDeclaration[];
 }
 
 /** Read-only state for assertions after a plugin registers or handles work. */
@@ -257,8 +254,6 @@ export interface FakePluginInspectionState {
   readonly logEntries: FakeLogEntry[];
   /** Every `bb.realtime.publish`, payload normalized like the wire. */
   readonly realtimeSignals: FakeRealtimeSignal[];
-  /** Channels declared public with `bb.realtime.declare`, in declaration order. */
-  readonly realtimeChannelDeclarations: FakeRealtimeChannelDeclaration[];
   /** Every `bb.status.needsConfiguration` message, in order. */
   readonly needsConfigurationMessages: string[];
   /** Recorded `bb.sdk` calls + stub control. */
@@ -342,17 +337,6 @@ export interface FakePluginBehaviorDrivers {
     event: E,
     payload: PluginThreadEventPayloads[E],
   ): Promise<{ errors: unknown[] }>;
-  /** Run this plugin's preflight handlers with production waterfall rules. */
-  runTurnPreflight(
-    context: TurnPreflightContext,
-  ): Promise<TurnPreflightDecision>;
-  emitProviderEvent(observation: ProviderEventObservation): Promise<{
-    errors: unknown[];
-  }>;
-  emitTurnSettled(signal: TurnSettledSignal): Promise<{ errors: unknown[] }>;
-  emitBindingLifecycle(
-    signal: BindingLifecycleSignal,
-  ): Promise<{ errors: unknown[] }>;
   /**
    * Call a registered agent tool the way a provider tool-call would:
    * arguments go through the tool's parse step (zod-validated for zod
@@ -416,6 +400,11 @@ export interface CreateFakePluginHostOptions {
    */
   loopbackBaseUrl?: string;
   /**
+   * Value served by `bb.server.experimental_dataDir`. Defaults to
+   * "/tmp/bb-fake-data-dir".
+   */
+  dataDir?: string;
+  /**
    * Pre-seeded stored settings values (as if saved before this load) —
    * including secret ones, which the fake keeps in memory instead of
    * files. Values with the wrong type for their descriptor fall back to
@@ -428,6 +417,24 @@ export interface CreateFakePluginHostOptions {
   agentSkillIds?: readonly string[];
   /** Read-only identities returned by bb.hosts.ensureSharedPortTunnel. */
   sharedPortTunnelIdentities?: Record<string, PluginSharedPortTunnelIdentity>;
+  /**
+   * Whether the plugin's manifest declares a `bb.host` entry. Production
+   * refuses `bb.providers.register` (the provider would have no bridge to
+   * run on) and `experimental_aiServices.register` (the service would have
+   * nothing to run on) without one; the fake applies the same rules.
+   * Defaults to true.
+   */
+  experimental_hostEntry?: boolean;
+  /**
+   * The icon names the plugin's manifest declares under
+   * `bb.branding.experimental_icons`. Production refuses a provider `icon`
+   * or a tool `presentation.icon.glyph` that is a namespaced glyph
+   * (`"<pluginId>/<name>"`) naming another plugin or a name not declared
+   * there; the fake applies the same rule against this list. Defaults to
+   * none declared, so every namespaced glyph is refused until the test
+   * names the icons the manifest would.
+   */
+  experimental_declaredIconNames?: readonly string[];
   /** Deterministic stand-in for the targeted daemon host entry. */
   experimental_callHostRpc?: (
     call: ExperimentalFakeHostRpcCall,
@@ -727,6 +734,10 @@ function normalizeAgentToolParameters(args: {
       `configure() output.tools[${index}].parameters must have root type "object"`,
     );
   }
+  assertNoRecursiveJsonSchemaReferences(
+    parameters,
+    `configure() output.tools[${index}].parameters`,
+  );
   return parameters;
 }
 
@@ -860,6 +871,7 @@ function createFakePluginHostInternal(
       ),
     } satisfies FakePluginPersistentState);
   const pluginId = options.pluginId ?? "test-plugin";
+  const declaredIconNames = new Set(options.experimental_declaredIconNames ?? []);
   const agentSkillIds = [...(options.agentSkillIds ?? [])];
   if (new Set(agentSkillIds).size !== agentSkillIds.length) {
     throw new Error("agentSkillIds must not contain duplicates");
@@ -922,13 +934,14 @@ function createFakePluginHostInternal(
   const storageRoot = persistentState.storageRoot;
 
   // One shared temp-file handle: every database() call sees the same data,
-  // like the host's handles over one on-disk file.
+  // like the host's handles over one on-disk file. Like the host, a handle
+  // the plugin closed itself is replaced on the next call.
   let databaseHandle: Database.Database | undefined;
   const storage: PluginStorage = {
     kv,
     database() {
       assertLive();
-      if (!databaseHandle) {
+      if (!databaseHandle?.open) {
         databaseHandle = new Database(join(storageRoot, "data.db"));
         databaseHandle.pragma("busy_timeout = 5000");
       }
@@ -1097,47 +1110,11 @@ function createFakePluginHostInternal(
 
   // --- realtime ---
   const realtimeSignals: FakeRealtimeSignal[] = [];
-  const realtimeChannelDeclarations: FakeRealtimeChannelDeclaration[] = [];
   const realtime: PluginRealtime = {
-    declare(channels) {
-      assertLive();
-      if (!Array.isArray(channels)) {
-        throw new Error("realtime.declare expects an array of channels");
-      }
-      for (const entry of channels) {
-        if (
-          typeof entry?.channel !== "string" ||
-          entry.channel.length === 0 ||
-          typeof entry.label !== "string" ||
-          entry.label.trim().length === 0 ||
-          typeof entry.scoped !== "boolean"
-        ) {
-          throw new Error(
-            "realtime.declare entries need { channel, label, scoped }",
-          );
-        }
-        const existing = realtimeChannelDeclarations.findIndex(
-          (declared) => declared.channel === entry.channel,
-        );
-        const record = {
-          channel: entry.channel,
-          label: entry.label,
-          scoped: entry.scoped,
-        };
-        if (existing >= 0) realtimeChannelDeclarations[existing] = record;
-        else realtimeChannelDeclarations.push(record);
-      }
-    },
-    publish(channel, payload, options) {
+    publish(channel, payload) {
       assertLive();
       if (typeof channel !== "string" || channel.length === 0) {
         throw new Error("realtime channel must be a non-empty string");
-      }
-      const scope = options?.scope ?? null;
-      if (scope !== null && (typeof scope !== "string" || scope.length === 0)) {
-        throw new Error(
-          `realtime scope for channel "${channel}" must be a non-empty string or null`,
-        );
       }
       const normalized =
         payload === undefined
@@ -1146,7 +1123,7 @@ function createFakePluginHostInternal(
               payload,
               `realtime payload for channel "${channel}"`,
             ) ?? null);
-      realtimeSignals.push({ channel, payload: normalized, scope });
+      realtimeSignals.push({ channel, payload: normalized });
     },
   };
 
@@ -1211,11 +1188,6 @@ function createFakePluginHostInternal(
           `invalid cli command name ${JSON.stringify(name)} — use lowercase letters, digits, and "-"`,
         );
       }
-      if (RESERVED_BB_CLI_COMMANDS.includes(name)) {
-        throw new Error(
-          `cli command name "${name}" is reserved by the bb CLI — pick another name`,
-        );
-      }
       if (
         typeof registration.summary !== "string" ||
         registration.summary.trim().length === 0
@@ -1254,18 +1226,85 @@ function createFakePluginHostInternal(
         commands: validatedCommands,
         run: registration.run.bind(registration),
       };
+      const warning = pluginCliCollisionWarning(pluginId, name);
+      if (warning) emitLog("warn", warning);
     },
   };
 
   // --- agents ---
   const agentTools: FakeAgentToolRecord[] = [];
-  const providerRegistrations: PluginProviderDeclaration[] = [];
+  const providerRegistrations: NormalizedPluginProviderDeclaration[] = [];
   let agentConfigurationProvider:
     | ((context: PluginAgentConfigurationContext) => PluginAgentConfiguration)
     | null = null;
   let instructionProvider:
     | ((ctx: { threadId: string; projectId: string }) => string | null)
     | null = null;
+  function registerProviderDeclaration(
+    declaration: PluginProviderDeclaration,
+  ): { dispose(): void } {
+    assertLive();
+    // The shared validator: the fake host must accept and reject provider
+    // declarations exactly like production.
+    const normalized = validatePluginProviderDeclaration(declaration);
+    // The same refusals production makes at the register call, in its
+    // order: the icon against the manifest's declared icons, then the
+    // bridge the declaration runs on, then the id.
+    const iconProblem =
+      normalized.icon === undefined
+        ? null
+        : undeclaredIconProblem(pluginId, declaredIconNames, normalized.icon);
+    if (iconProblem !== null) {
+      throw new Error(providerIconRefusalMessage(normalized.id, iconProblem));
+    }
+    if (options.experimental_hostEntry === false) {
+      throw new Error(providerWithoutBridgeMessage(normalized.id));
+    }
+    if (
+      providerRegistrations.some((existing) => existing.id === normalized.id)
+    ) {
+      throw new Error(providerAlreadyRegisteredMessage(normalized.id));
+    }
+    providerRegistrations.push(normalized);
+    let disposed = false;
+    const dispose = (): void => {
+      if (disposed) return;
+      disposed = true;
+      const index = providerRegistrations.indexOf(normalized);
+      if (index !== -1) providerRegistrations.splice(index, 1);
+    };
+    disposeHooks.push(dispose);
+    return { dispose };
+  }
+
+  const aiServiceRegistrations: PluginAiServiceDeclaration[] = [];
+  const experimental_aiServices: PluginAiServices = {
+    register(declaration) {
+      assertLive();
+      const normalized = validatePluginAiServiceDeclaration(declaration);
+      // The same refusals production makes at the register call. The fake
+      // host builds no artifact; the declared entry stands in for it.
+      assertAiServiceRegistrable({
+        id: normalized.id,
+        hostArtifact: options.experimental_hostEntry === false ? null : "declared",
+        hostArtifactProblem: null,
+      });
+      if (aiServiceRegistrations.some((existing) => existing.id === normalized.id)) {
+        throw new Error(aiServiceAlreadyRegisteredMessage(normalized.id));
+      }
+      aiServiceRegistrations.push(normalized);
+      let disposed = false;
+      const dispose = (): void => {
+        if (disposed) return;
+        disposed = true;
+        const index = aiServiceRegistrations.indexOf(normalized);
+        if (index !== -1) aiServiceRegistrations.splice(index, 1);
+      };
+      disposeHooks.push(dispose);
+      return { dispose };
+    },
+  };
+
   const agents: PluginAgents = {
     configure(provider) {
       assertLive();
@@ -1291,34 +1330,11 @@ function createFakePluginHostInternal(
       }
       instructionProvider = provider;
     },
-    experimental_registerProvider(declaration) {
-      assertLive();
-      // The shared validator: the fake host must accept and reject provider
-      // declarations exactly like production.
-      const normalized = validatePluginProviderDeclaration(declaration);
-      if (
-        providerRegistrations.some((existing) => existing.id === normalized.id)
-      ) {
-        throw new Error(
-          `Provider "${normalized.id}" is already registered; a plugin cannot shadow an existing provider.`,
-        );
-      }
-      providerRegistrations.push(normalized);
-      let disposed = false;
-      const dispose = (): void => {
-        if (disposed) return;
-        disposed = true;
-        const index = providerRegistrations.indexOf(normalized);
-        if (index !== -1) providerRegistrations.splice(index, 1);
-      };
-      disposeHooks.push(dispose);
-      return { dispose };
-    },
     registerTool(tool: {
       name: string;
       description: string;
       instructions?: string;
-      experimental_statusLabels?: PluginAgentToolExperimentalStatusLabels;
+      presentation?: PluginAgentToolPresentation;
       parameters: unknown;
       execute(
         params: never,
@@ -1337,6 +1353,7 @@ function createFakePluginHostInternal(
           `tool name "${name}" is a built-in bb tool — pick another name`,
         );
       }
+      rejectStaleAgentToolFields(name, tool);
       if (
         typeof tool.description !== "string" ||
         tool.description.trim().length === 0
@@ -1357,30 +1374,21 @@ function createFakePluginHostInternal(
           `tool "${name}" instructions exceed the ${PLUGIN_AGENT_STATIC_INSTRUCTIONS_MAX_CHARS}-character limit`,
         );
       }
-      const experimentalStatusLabels = tool.experimental_statusLabels;
-      if (
-        experimentalStatusLabels !== undefined &&
-        (typeof experimentalStatusLabels !== "object" ||
-          experimentalStatusLabels === null ||
-          typeof experimentalStatusLabels.pending !== "string" ||
-          typeof experimentalStatusLabels.completed !== "string" ||
-          experimentalStatusLabels.pending.trim().length === 0 ||
-          experimentalStatusLabels.completed.trim().length === 0)
-      ) {
-        throw new Error(
-          `tool "${name}" experimental_statusLabels must provide non-empty pending and completed strings`,
+      const presentation = parsePluginAgentToolPresentation(
+        name,
+        tool.presentation,
+      );
+      if (presentation?.icon !== undefined) {
+        // A namespaced glyph must name one of THIS plugin's declared icons,
+        // checked here like production checks it at the register call.
+        const problem = undeclaredIconProblem(
+          pluginId,
+          declaredIconNames,
+          presentation.icon.glyph,
         );
-      }
-      if (
-        experimentalStatusLabels !== undefined &&
-        (experimentalStatusLabels.pending.length >
-          PLUGIN_AGENT_STATUS_LABEL_MAX_CHARS ||
-          experimentalStatusLabels.completed.length >
-            PLUGIN_AGENT_STATUS_LABEL_MAX_CHARS)
-      ) {
-        throw new Error(
-          `tool "${name}" experimental_statusLabels exceed the ${PLUGIN_AGENT_STATUS_LABEL_MAX_CHARS}-character limit`,
-        );
+        if (problem !== null) {
+          throw new Error(agentToolIconRefusalMessage(name, problem));
+        }
       }
       if (typeof tool.execute !== "function") {
         throw new Error(
@@ -1423,16 +1431,14 @@ function createFakePluginHostInternal(
           `tool "${name}" parameters must be a zod schema or a JSON-schema object`,
         );
       }
+      assertNoRecursiveJsonSchemaReferences(
+        inputSchema,
+        `tool "${name}" parameters`,
+      );
       const record: FakeAgentToolRecord = {
         name,
         description: tool.description,
-        experimentalStatusLabels:
-          experimentalStatusLabels === undefined
-            ? null
-            : {
-                pending: experimentalStatusLabels.pending,
-                completed: experimentalStatusLabels.completed,
-              },
+        presentation,
         instructions:
           tool.instructions !== undefined && tool.instructions.trim().length > 0
             ? tool.instructions
@@ -1509,42 +1515,22 @@ function createFakePluginHostInternal(
 
   // --- server ---
   const loopbackBaseUrl = options.loopbackBaseUrl ?? "http://127.0.0.1:38886";
+  const dataDir = options.dataDir ?? "/tmp/bb-fake-data-dir";
   const server: PluginServerApi = {
     get loopbackBaseUrl(): string {
       assertLive();
       return loopbackBaseUrl;
     },
+    get experimental_dataDir(): string {
+      assertLive();
+      return dataDir;
+    },
   };
 
   // --- sdk ---
-  const disposeHooks: Array<() => void | Promise<void>> = [];
-  const { sdk: unscopedSdk, harness: sdkHarness } = createFakeSdk({
+  const { sdk, harness: sdkHarness } = createFakeSdk({
     pluginId,
     overrides: options.sdk,
-  });
-  const sdkSubscriptions = new Set<() => void>();
-  disposeHooks.push(() => {
-    for (const unsubscribe of [...sdkSubscriptions]) unsubscribe();
-    sdkSubscriptions.clear();
-  });
-  const sdk: typeof unscopedSdk = new Proxy(unscopedSdk, {
-    get(target, property, receiver) {
-      if (property !== "subscribe") {
-        return Reflect.get(target, property, receiver);
-      }
-      return (args: Parameters<typeof unscopedSdk.subscribe>[0]) => {
-        const unsubscribe = unscopedSdk.subscribe(args);
-        let active = true;
-        const scopedUnsubscribe = () => {
-          if (!active) return;
-          active = false;
-          sdkSubscriptions.delete(scopedUnsubscribe);
-          unsubscribe();
-        };
-        sdkSubscriptions.add(scopedUnsubscribe);
-        return scopedUnsubscribe;
-      };
-    },
   });
 
   // --- thread events / dispose ---
@@ -1558,13 +1544,7 @@ function createFakePluginHostInternal(
     "thread.archived": [],
     "thread.deleted": [],
   };
-  const turnPreflightHandlers: TurnPreflightHandler[] = [];
-  const providerEventHandlers: Array<{
-    eventTypes: ReadonlySet<ThreadEventType> | null;
-    handler: ProviderEventHandler;
-  }> = [];
-  const turnSettledHandlers: TurnSettledHandler[] = [];
-  const bindingLifecycleHandlers: BindingLifecycleHandler[] = [];
+  const disposeHooks: Array<() => void | Promise<void>> = [];
   const serviceControllers: AbortController[] = [];
   let nextInteractionId = 1;
   const pendingInteractions = new Map<
@@ -1812,34 +1792,10 @@ function createFakePluginHostInternal(
       handlers.push(handler);
     },
   };
-  const knownThreadEventTypes = new Set<string>(threadEventTypeValues);
-  const runtime: PluginRuntime = {
-    onTurnPreflight(handler) {
-      assertLive();
-      turnPreflightHandlers.push(handler);
-    },
-    onProviderEvent(handler, options) {
-      assertLive();
-      let eventTypes: ReadonlySet<ThreadEventType> | null = null;
-      if (options?.eventTypes !== undefined) {
-        const normalized = new Set<ThreadEventType>();
-        for (const eventType of options.eventTypes) {
-          if (!knownThreadEventTypes.has(eventType)) {
-            throw new Error(`unknown provider event type "${eventType}"`);
-          }
-          normalized.add(eventType);
-        }
-        eventTypes = normalized;
-      }
-      providerEventHandlers.push({ eventTypes, handler });
-    },
-    onTurnSettled(handler) {
-      assertLive();
-      turnSettledHandlers.push(handler);
-    },
-    onBindingLifecycle(handler) {
-      assertLive();
-      bindingLifecycleHandlers.push(handler);
+
+  const providers: PluginProviders = {
+    register(declaration) {
+      return registerProviderDeclaration(declaration);
     },
   };
 
@@ -1854,12 +1810,13 @@ function createFakePluginHostInternal(
     background,
     cli,
     agents,
+    providers,
     ui,
     events,
-    runtime,
     status,
     server,
     hosts,
+    experimental_aiServices,
     get sdk() {
       assertLive();
       return sdk;
@@ -1900,10 +1857,6 @@ function createFakePluginHostInternal(
     }
     hostWorkerExitSubscriptions.splice(0);
     hostSignalSubscriptions.splice(0);
-    turnPreflightHandlers.splice(0);
-    providerEventHandlers.splice(0);
-    turnSettledHandlers.splice(0);
-    bindingLifecycleHandlers.splice(0);
     invalidated = true;
   }
 
@@ -1920,7 +1873,6 @@ function createFakePluginHostInternal(
     pluginId,
     logEntries,
     realtimeSignals,
-    realtimeChannelDeclarations,
     needsConfigurationMessages,
     sharedPortDeclarations,
     experimental_hostRpcCalls: hostRpcCalls,
@@ -1953,16 +1905,9 @@ function createFakePluginHostInternal(
           "thread.deleted": threadEventHandlers["thread.deleted"].length,
         };
       },
-      get runtimeHooks() {
-        return {
-          turnPreflight: turnPreflightHandlers.length,
-          providerEvent: providerEventHandlers.length,
-          turnSettled: turnSettledHandlers.length,
-          bindingLifecycle: bindingLifecycleHandlers.length,
-        };
-      },
       mentionProviders,
       providerRegistrations,
+      aiServiceRegistrations,
     },
     get pendingInteractions() {
       return [...pendingInteractions].map(([id, pending]) => ({
@@ -2182,127 +2127,6 @@ function createFakePluginHostInternal(
         } catch (error) {
           errors.push(error);
           emitLog("warn", `${event} handler failed: ${errorMessage(error)}`);
-        }
-      }
-      return { errors };
-    },
-
-    async runTurnPreflight(context) {
-      assertLive();
-      const contextItems = [] as NonNullable<
-        Extract<TurnPreflightDecision, { kind: "admit-with" }>["contextItems"]
-      >;
-      let replaceInput: Extract<
-        TurnPreflightDecision,
-        { kind: "admit-with" }
-      >["replaceInput"];
-      let binding: Extract<
-        TurnPreflightDecision,
-        { kind: "admit-with" }
-      >["binding"];
-      for (const handler of [...turnPreflightHandlers]) {
-        let decision: TurnPreflightDecision;
-        try {
-          decision = await handler(context);
-        } catch (error) {
-          emitLog(
-            "warn",
-            `turn preflight handler failed: ${errorMessage(error)}`,
-          );
-          continue;
-        }
-        if (
-          decision.kind === "reject" ||
-          decision.kind === "require-approval"
-        ) {
-          return decision;
-        }
-        if (decision.kind !== "admit-with") continue;
-        if (decision.contextItems !== undefined) {
-          contextItems.push(...decision.contextItems);
-        }
-        if (decision.replaceInput !== undefined) {
-          if (replaceInput === undefined && context.trigger !== "user") {
-            replaceInput = decision.replaceInput;
-          } else {
-            emitLog("warn", "turn preflight replaceInput claim was ignored");
-          }
-        }
-        if (decision.tools !== undefined || decision.skills !== undefined) {
-          emitLog(
-            "warn",
-            "turn preflight tool/skill selection was ignored; spawn-pinned configuration wins",
-          );
-        }
-        binding = decision.binding ?? binding;
-      }
-      if (
-        contextItems.length === 0 &&
-        replaceInput === undefined &&
-        binding === undefined
-      ) {
-        return { kind: "admit" };
-      }
-      return {
-        kind: "admit-with",
-        ...(contextItems.length > 0 ? { contextItems } : {}),
-        ...(replaceInput !== undefined ? { replaceInput } : {}),
-        ...(binding !== undefined ? { binding } : {}),
-      };
-    },
-
-    async emitProviderEvent(observation) {
-      assertLive();
-      const errors: unknown[] = [];
-      for (const record of [...providerEventHandlers]) {
-        if (
-          record.eventTypes !== null &&
-          !record.eventTypes.has(observation.event.type)
-        ) {
-          continue;
-        }
-        try {
-          await record.handler(observation);
-        } catch (error) {
-          errors.push(error);
-          emitLog(
-            "warn",
-            `provider event handler failed: ${errorMessage(error)}`,
-          );
-        }
-      }
-      return { errors };
-    },
-
-    async emitTurnSettled(signal) {
-      assertLive();
-      const errors: unknown[] = [];
-      for (const handler of [...turnSettledHandlers]) {
-        try {
-          await handler(signal);
-        } catch (error) {
-          errors.push(error);
-          emitLog(
-            "warn",
-            `turn settled handler failed: ${errorMessage(error)}`,
-          );
-        }
-      }
-      return { errors };
-    },
-
-    async emitBindingLifecycle(signal) {
-      assertLive();
-      const errors: unknown[] = [];
-      for (const handler of [...bindingLifecycleHandlers]) {
-        try {
-          await handler(signal);
-        } catch (error) {
-          errors.push(error);
-          emitLog(
-            "warn",
-            `binding lifecycle handler failed: ${errorMessage(error)}`,
-          );
         }
       }
       return { errors };

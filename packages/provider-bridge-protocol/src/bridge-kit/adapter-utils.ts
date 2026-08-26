@@ -6,25 +6,18 @@
  */
 
 import { z } from "zod";
-import type { ThreadEventItem } from "@bb/domain";
-import { contentWrapperSchema, textBlockSchema } from "./tool-arg-schemas.js";
+import type {
+  ThreadEventItem,
+  ThreadEventTokenUsageBreakdown,
+} from "@bb/domain";
+import { textBlockSchema } from "./tool-arg-schemas.js";
 import { getStringProperty, isRecord } from "./provider-visibility-helpers.js";
 
-export interface NormalizeProviderCommandOutputArgs {
-  emptyPlaceholders: readonly string[];
-  text: string;
-}
-
-export interface DiffCumulativeTextArgs {
-  nextText: string;
-  previousText?: string;
-}
-
-export interface DiffCumulativeTextResult {
-  delta: string;
-  nextText: string;
-  reset: boolean;
-}
+const contentWrapperSchema = z
+  .object({
+    content: z.array(z.unknown()),
+  })
+  .passthrough();
 
 const shellEnvironmentVariableKeySchema = z
   .string()
@@ -275,24 +268,6 @@ export function buildShellEnvOverrides(
   return overrides;
 }
 
-/**
- * The same overrides expressed as a codex/pi-style `shell_environment_policy`
- * config bag, for providers whose session construction takes config keys
- * rather than an environment map.
- */
-export function buildShellEnvironmentPolicyConfig(
-  envVars?: Record<string, string>,
-): Record<string, string> | undefined {
-  if (!envVars) {
-    return undefined;
-  }
-  const config: Record<string, string> = {};
-  for (const [key, value] of Object.entries(buildShellEnvOverrides(envVars))) {
-    config[`shell_environment_policy.set.${key}`] = value;
-  }
-  return Object.keys(config).length > 0 ? config : undefined;
-}
-
 // ---------------------------------------------------------------------------
 // Numeric helpers
 // ---------------------------------------------------------------------------
@@ -303,9 +278,10 @@ export function toNonNegativeNumber(value: unknown): number {
     : 0;
 }
 
-export function normalizeProviderCommandOutput(
-  args: NormalizeProviderCommandOutputArgs,
-): string | undefined {
+export function normalizeProviderCommandOutput(args: {
+  emptyPlaceholders: readonly string[];
+  text: string;
+}): string | undefined {
   // Compare placeholders against trimmed provider text, but preserve the
   // original bytes for real process output so downstream rendering stays exact.
   const trimmedText = args.text.trim();
@@ -315,37 +291,6 @@ export function normalizeProviderCommandOutput(
     return undefined;
   }
   return args.text.length > 0 ? args.text : undefined;
-}
-
-export function diffCumulativeText(
-  args: DiffCumulativeTextArgs,
-): DiffCumulativeTextResult | null {
-  const previousText = args.previousText ?? "";
-  if (args.nextText.length === 0 || args.nextText === previousText) {
-    return null;
-  }
-  if (previousText.length === 0) {
-    return {
-      delta: args.nextText,
-      nextText: args.nextText,
-      reset: false,
-    };
-  }
-  if (args.nextText.startsWith(previousText)) {
-    const delta = args.nextText.slice(previousText.length);
-    return delta.length > 0
-      ? {
-          delta,
-          nextText: args.nextText,
-          reset: false,
-        }
-      : null;
-  }
-  return {
-    delta: args.nextText,
-    nextText: args.nextText,
-    reset: true,
-  };
 }
 
 /**
@@ -433,4 +378,38 @@ function describeResultContentBlock(block: unknown): string | null {
     return `[${type}: ${url}]`;
   }
   return `[${type}]`;
+}
+
+// ---------------------------------------------------------------------------
+// Token usage
+// ---------------------------------------------------------------------------
+
+/** The empty breakdown a bridge's per-session usage accumulator starts from. */
+export const ZERO_TOKEN_USAGE: ThreadEventTokenUsageBreakdown = {
+  totalTokens: 0,
+  inputTokens: 0,
+  cachedInputTokens: 0,
+  outputTokens: 0,
+  reasoningOutputTokens: 0,
+};
+
+/**
+ * Sum a turn's usage into a running total, field by field. The `usage` delta
+ * carries both the turn's usage and the session total; a provider that only
+ * reports per-turn usage keeps the total itself with this, starting from
+ * {@link ZERO_TOKEN_USAGE} at every session construction (the same boundary
+ * as the `session.reset` delta).
+ */
+export function addTokenUsage(
+  total: ThreadEventTokenUsageBreakdown,
+  last: ThreadEventTokenUsageBreakdown,
+): ThreadEventTokenUsageBreakdown {
+  return {
+    totalTokens: total.totalTokens + last.totalTokens,
+    inputTokens: total.inputTokens + last.inputTokens,
+    cachedInputTokens: total.cachedInputTokens + last.cachedInputTokens,
+    outputTokens: total.outputTokens + last.outputTokens,
+    reasoningOutputTokens:
+      total.reasoningOutputTokens + last.reasoningOutputTokens,
+  };
 }

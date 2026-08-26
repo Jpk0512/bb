@@ -12,6 +12,8 @@ export interface PluginMarketplaceRow {
   sourceGitRef: string | null;
   sourceGitCommit: string | null;
   manifestJson: string;
+  /** Last-known-good `stats.json` document, verbatim; null when there is none. */
+  statsJson: string | null;
   etag: string | null;
   lastModified: string | null;
   lastSuccessfulRefreshAt: number | null;
@@ -28,6 +30,12 @@ export interface UpsertPluginMarketplaceInput {
   sourceGitRef: string | null;
   sourceGitCommit: string | null;
   manifestJson: string;
+  /**
+   * Last-known-good `stats.json`, verbatim. Every caller states it: passing
+   * the row's current value is how a refresh that did not re-read the sidecar
+   * keeps the counts it already had.
+   */
+  statsJson: string | null;
   etag: string | null;
   lastModified: string | null;
   lastSuccessfulRefreshAt: number | null;
@@ -160,7 +168,7 @@ export function getPluginMarketplaceIcon(
     .get();
 }
 
-export function upsertPluginMarketplaceIcon(
+function upsertPluginMarketplaceIcon(
   db: DbQueryConnection,
   input: UpsertPluginMarketplaceIconInput,
 ): void {
@@ -182,24 +190,6 @@ export function upsertPluginMarketplaceIcon(
       },
     })
     .run();
-}
-
-export function deletePluginMarketplaceIcon(
-  db: DbQueryConnection,
-  marketplaceName: string,
-  entryId: string,
-): boolean {
-  return (
-    db
-      .delete(pluginMarketplaceIcons)
-      .where(
-        and(
-          eq(pluginMarketplaceIcons.marketplaceName, marketplaceName),
-          eq(pluginMarketplaceIcons.entryId, entryId),
-        ),
-      )
-      .run().changes > 0
-  );
 }
 
 /** Replace one marketplace's complete icon set inside the caller's commit. */

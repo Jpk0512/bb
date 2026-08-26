@@ -11,7 +11,6 @@ import {
   type PaneSecondaryPanelViewModel,
 } from "@/views/thread-detail/PaneContext";
 import {
-  isConversationTooNarrowForSecondaryPanel,
   SecondaryPanelLayout,
   type SecondaryPanelRenderArgs,
 } from "./SecondaryPanelLayout";
@@ -19,6 +18,7 @@ import {
 type DrawerShellCallback = (open: boolean) => void;
 
 const panelGroupState = vi.hoisted(() => ({
+  getLayout: vi.fn(() => [60, 40]),
   setLayout: vi.fn(),
 }));
 const drawerShellState = vi.hoisted(() => ({
@@ -38,17 +38,23 @@ vi.mock("react-resizable-panels", async () => {
   const React = await import("react");
 
   const PanelGroup = React.forwardRef<
-    { setLayout: (layout: number[]) => void },
+    {
+      getLayout: () => number[];
+      setLayout: (layout: number[]) => void;
+    },
     { children?: ReactNode }
-  >(({ children }, ref) => {
+  >(({ children, ...props }, ref) => {
     React.useImperativeHandle(
       ref,
-      () => ({ setLayout: panelGroupState.setLayout }),
+      () => ({
+        getLayout: panelGroupState.getLayout,
+        setLayout: panelGroupState.setLayout,
+      }),
       [],
     );
     return React.createElement(
       "div",
-      { "data-testid": "panel-group" },
+      { ...props, "data-testid": "panel-group" },
       children,
     );
   });
@@ -99,8 +105,8 @@ interface RenderLayoutArgs {
   collapseActive?: boolean;
   isCompactViewport: boolean;
   isFocusedHosted?: boolean;
-  onClose?: () => void;
   open: boolean;
+  panelGroupKey?: string;
   renderPanel: (args: SecondaryPanelRenderArgs) => ReactNode;
   resetKey: string;
 }
@@ -150,7 +156,8 @@ function renderLayout(args: RenderLayoutArgs) {
         <SecondaryPanelLayout
           open={renderArgs.open}
           onToggle={noop}
-          onClose={renderArgs.onClose ?? noop}
+          onClose={noop}
+          panelGroupKey={renderArgs.panelGroupKey}
           resetKey={renderArgs.resetKey}
           contentKey={renderArgs.resetKey}
           drawerLabel="Details"
@@ -239,53 +246,6 @@ function installAnimationFrameQueue(order?: string[]): QueuedAnimationFrames {
   };
 }
 
-function installFakeResizeObserver(): { notify: (width: number) => void } {
-  let notifyObserver: ((width: number) => void) | null = null;
-
-  class FakeResizeObserver implements ResizeObserver {
-    #target: Element | null = null;
-
-    constructor(callback: ResizeObserverCallback) {
-      notifyObserver = (width) => {
-        const target = this.#target;
-        if (target === null) return;
-        callback(
-          [
-            {
-              borderBoxSize: [],
-              contentBoxSize: [],
-              contentRect: new DOMRect(0, 0, width, 600),
-              devicePixelContentBoxSize: [],
-              target,
-            },
-          ],
-          this,
-        );
-      };
-    }
-    observe(target: Element) {
-      this.#target = target;
-    }
-    unobserve() {
-      this.#target = null;
-    }
-    disconnect() {
-      this.#target = null;
-      notifyObserver = null;
-    }
-  }
-  vi.stubGlobal("ResizeObserver", FakeResizeObserver);
-
-  return {
-    notify(width) {
-      if (notifyObserver === null) {
-        throw new Error("No ResizeObserver was created");
-      }
-      notifyObserver(width);
-    },
-  };
-}
-
 function realizeDrawerPanel(frames: QueuedAnimationFrames) {
   act(() => {
     frames.flushAll();
@@ -311,25 +271,114 @@ function expectNativeBrowserVisibility(visible: boolean) {
   ).toBe(String(visible));
 }
 
+// `installAnimationFrameQueue` overwrites these with `Object.defineProperty`
+// before spying on them, so `vi.restoreAllMocks` restores the spy to that
+// overwrite rather than to the real function — leaving every test that runs
+// afterwards with a `requestAnimationFrame` that never invokes its callback.
+// Captured once at module load, before any test has had a chance to replace
+// them.
+const PRISTINE_REQUEST_ANIMATION_FRAME = window.requestAnimationFrame;
+const PRISTINE_CANCEL_ANIMATION_FRAME = window.cancelAnimationFrame;
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.clearAllMocks();
-  vi.unstubAllGlobals();
+  Object.defineProperty(window, "requestAnimationFrame", {
+    configurable: true,
+    writable: true,
+    value: PRISTINE_REQUEST_ANIMATION_FRAME,
+  });
+  Object.defineProperty(window, "cancelAnimationFrame", {
+    configurable: true,
+    writable: true,
+    value: PRISTINE_CANCEL_ANIMATION_FRAME,
+  });
   drawerShellState.onContentAnimationEnd = undefined;
 });
 
 beforeEach(() => {
   publishedHostedPanel = null;
+  panelGroupState.getLayout.mockReset().mockReturnValue([60, 40]);
   panelGroupState.setLayout.mockReset();
   vi.mocked(dispatchBrowserViewBoundsSync).mockReset();
 });
 
 describe("SecondaryPanelLayout", () => {
-  it("closes the right panel only after the conversation drops below 420px", () => {
-    expect(isConversationTooNarrowForSecondaryPanel(419)).toBe(true);
-    expect(isConversationTooNarrowForSecondaryPanel(420)).toBe(false);
-    expect(isConversationTooNarrowForSecondaryPanel(0)).toBe(false);
+  it("preserves routed main content when the panel state identity changes", () => {
+    const frames = installAnimationFrameQueue();
+    const view = renderLayout({
+      isCompactViewport: false,
+      open: true,
+      panelGroupKey: "plugin-pane-1",
+      renderPanel: createPanelRenderer(),
+      resetKey: "plugin-page-a",
+    });
+
+    act(() => {
+      frames.flushAll();
+      frames.flushAll();
+    });
+    const panelGroup = screen.getByTestId("panel-group");
+    const mainContent = screen.getByTestId("main-content");
+    expect(panelGroup.style.getPropertyValue("--panel-collapse-duration")).toBe(
+      "220ms",
+    );
+
+    view.rerenderWith({ resetKey: "plugin-page-b" });
+
+    expect(screen.getByTestId("panel-group")).toBe(panelGroup);
+    expect(screen.getByTestId("main-content")).toBe(mainContent);
+    expect(panelGroup.style.getPropertyValue("--panel-collapse-duration")).toBe(
+      "0ms",
+    );
+  });
+
+  it("settles mount-time panel state before enabling layout transitions", () => {
+    const frames = installAnimationFrameQueue();
+    const view = renderLayout({
+      isCompactViewport: false,
+      open: true,
+      renderPanel: createPanelRenderer(),
+      resetKey: "plugin-page",
+    });
+
+    const panelGroup = screen.getByTestId("panel-group");
+    expect(panelGroup.style.getPropertyValue("--panel-collapse-duration")).toBe(
+      "0ms",
+    );
+
+    // This mirrors storage hydration dropping a transient New tab. The panel
+    // closes while transitions are still suppressed.
+    view.rerenderWith({ open: false });
+    act(() => frames.flushAll());
+    expect(panelGroup.style.getPropertyValue("--panel-collapse-duration")).toBe(
+      "0ms",
+    );
+
+    act(() => frames.flushAll());
+    expect(panelGroup.style.getPropertyValue("--panel-collapse-duration")).toBe(
+      "220ms",
+    );
+  });
+
+  it("waits for a secondary panel before applying a two-panel layout", () => {
+    panelGroupState.getLayout.mockReturnValue([100]);
+    const view = renderLayout({
+      isCompactViewport: false,
+      open: false,
+      renderPanel: () => null,
+      resetKey: "plugin-page",
+    });
+
+    expect(panelGroupState.setLayout).not.toHaveBeenCalled();
+
+    panelGroupState.getLayout.mockReturnValue([60, 40]);
+    const renderPanel = createPanelRenderer();
+    view.rerenderWith({ open: true, renderPanel });
+
+    expect(panelGroupState.setLayout).toHaveBeenCalledTimes(1);
+    expect(panelGroupState.setLayout).toHaveBeenLastCalledWith([60, 40]);
   });
 
   it("owns the desktop open, closed, and conversation-collapse layouts", () => {
@@ -377,53 +426,8 @@ describe("SecondaryPanelLayout", () => {
     expect(panelGroupState.setLayout).toHaveBeenLastCalledWith([60, 40]);
   });
 
-  it("auto-collapses on a settled conversation width, never mid-transition", () => {
-    const frames = installAnimationFrameQueue();
-    const resizeObserver = installFakeResizeObserver();
-    const onClose = vi.fn();
-    renderLayout({
-      collapseActive: false,
-      isCompactViewport: false,
-      onClose,
-      open: true,
-      renderPanel: createPanelRenderer(),
-      resetKey: "thread-1",
-    });
-    const conversation = screen.getByTestId("main-content").parentElement;
-    if (conversation === null) {
-      throw new Error("Conversation element was not rendered");
-    }
-    let width = 600;
-    vi.spyOn(conversation, "getBoundingClientRect").mockImplementation(
-      () => new DOMRect(0, 0, width, 600),
-    );
-    const resizeTo = (nextWidth: number) => {
-      width = nextWidth;
-      act(() => resizeObserver.notify(nextWidth));
-    };
-    const settle = () => {
-      act(() => {
-        frames.flushAll();
-        frames.flushAll();
-      });
-    };
-
-    // Collapsing the conversation animates its width to zero, reporting a new
-    // (briefly narrow) width every frame on the way.
-    for (const animatedWidth of [420, 300, 120]) {
-      resizeTo(animatedWidth);
-      act(() => frames.flushAll());
-    }
-    resizeTo(0);
-    settle();
-    expect(onClose).not.toHaveBeenCalled();
-
-    resizeTo(300);
-    settle();
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
   it("publishes one hosted panel model and gates native content on pane focus", () => {
+    const frames = installAnimationFrameQueue();
     const renderPanel = createPanelRenderer();
     const view = renderLayout({
       collapseActive: true,
@@ -439,6 +443,7 @@ describe("SecondaryPanelLayout", () => {
       contentKey: "thread-1",
       isMainCollapsed: true,
       isOpen: true,
+      transitionsReady: false,
     });
     expect(renderPanel).toHaveBeenLastCalledWith(
       expect.objectContaining({
@@ -449,6 +454,12 @@ describe("SecondaryPanelLayout", () => {
       }),
     );
     expect(publishedHostedPanel?.onToggle).toBe(noop);
+
+    act(() => {
+      frames.flushAll();
+      frames.flushAll();
+    });
+    expect(publishedHostedPanel?.transitionsReady).toBe(true);
 
     view.rerenderWith({ isFocusedHosted: false });
     expect(renderPanel).toHaveBeenLastCalledWith(

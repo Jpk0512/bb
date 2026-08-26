@@ -63,16 +63,24 @@ describe("scaffold backend", () => {
   it("loads, inspects, and atomically reloads through the packed harness", async () => {
     const host = createFakePluginHost({ pluginId: "external-backend" });
     await plugin(host.bb);
-    await expect(host.harness.behavior.callRpc("greeting")).resolves.toEqual({
-      greeting: "hello",
-      loadCount: 1,
+    await expect(host.harness.behavior.callRpc("todos_list")).resolves.toEqual({
+      todos: [],
     });
-    expect(host.harness.inspection.registrations.rpcMethods).toEqual(["greeting"]);
+    const added = await host.harness.behavior.callRpc("todos_add", {
+      title: "Ship it",
+    });
+    expect(added).toMatchObject({ title: "Ship it", done: false });
+    expect(host.harness.inspection.registrations.rpcMethods).toEqual([
+      "todos_list",
+      "todos_add",
+      "todos_set_done",
+      "todos_remove",
+    ]);
 
+    // The todo store lives in bb.storage.kv, so it survives a reload.
     const next = await host.harness.lifecycle.reload(plugin);
-    await expect(next.harness.behavior.callRpc("greeting")).resolves.toEqual({
-      greeting: "hello",
-      loadCount: 2,
+    await expect(next.harness.behavior.callRpc("todos_list")).resolves.toEqual({
+      todos: [added],
     });
     await next.harness.lifecycle.dispose();
   });
@@ -86,20 +94,43 @@ import { describe, expect, it } from "vitest";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 
 describe("scaffold frontend", () => {
-  it("loads and renders a slot through the packed harness", async () => {
+  it("loads and renders the Example todos page through the packed harness", async () => {
     const app = await loadPluginApp(() => import("./app"));
+    const createdAt = "2026-01-01T00:00:00.000Z";
+    let todos = [{ id: "a1", title: "Ship it", done: false, createdAt }];
     const slot = renderSlot(
-      app.homepageSections[0]!,
-      { projectId: "proj_external" },
+      app.navPanels[0]!,
+      { subPath: "" },
       {
         context: { projectId: "proj_external", threadId: null },
-        rpc: { greeting: () => ({ greeting: "external", loadCount: 3 }) },
+        rpc: {
+          todos_list: () => ({ todos }),
+          todos_add: (input: unknown) => {
+            const { title } = input as { title: string };
+            const todo = { id: "b2", title, done: false, createdAt };
+            todos = [...todos, todo];
+            return todo;
+          },
+        },
       },
     );
+    await slot.findByText("Ship it");
 
-    fireEvent.click(slot.getByText("Say hello"));
-    await slot.findByText("external (#3)");
-    expect(slot.inspection.rpcCalls).toEqual([{ method: "greeting", input: null }]);
+    fireEvent.change(slot.getByLabelText("New todo"), {
+      target: { value: "Write docs" },
+    });
+    fireEvent.click(slot.getByText("Add"));
+    await slot.findByText("Write docs");
+    expect(slot.inspection.rpcCalls.map((call) => call.method)).toEqual([
+      "todos_list",
+      "todos_add",
+      "todos_list",
+    ]);
+
+    // A server-side write (bb <id> remove …) reaches the page as a signal.
+    todos = [];
+    await slot.behavior.emitRealtime("todos-changed", { count: 0 });
+    await slot.findByText(/Nothing to do/);
     slot.lifecycle.unmount();
   });
 });
@@ -222,13 +253,20 @@ async function linkExternalDependencies(targetDir: string): Promise<void> {
 
 /**
  * `npm pack` the workspace SDK — the exact artifact the scaffold's pin will
- * resolve to once it is published.
+ * resolve to once it is published. Turbo builds the SDK before this suite, so
+ * skip the package's prepack build instead of rebuilding it during test fanout.
  */
 async function packPluginSdk(packDir: string): Promise<string> {
   await mkdir(packDir, { recursive: true });
   await execFileAsync(
     "npm",
-    ["pack", "--silent", "--pack-destination", packDir],
+    [
+      "pack",
+      "--silent",
+      "--ignore-scripts",
+      "--pack-destination",
+      packDir,
+    ],
     {
       cwd: pluginSdkRoot,
     },
@@ -261,6 +299,11 @@ async function installPackedSdk(
       "--legacy-peer-deps",
       "--no-package-lock",
       "--no-save",
+      // Registry round trips the install does not need: the audit and the
+      // funding banner, and a metadata refresh for packages the cache holds.
+      "--no-audit",
+      "--no-fund",
+      "--prefer-offline",
       tarball,
     ],
     { cwd: targetDir },
@@ -320,10 +363,32 @@ describe("external plugin scaffold types", () => {
   let workDir: string;
   let packRoot: string;
   let tarball: string;
+  let installedNodeModules: string;
+
+  /**
+   * Point a scaffold's `node_modules` at the one real install made in
+   * `beforeAll`: the packed SDK, its registry dependencies, and the linked
+   * workspace copies. Each of the installs this file used to run cost
+   * ~13s cold, and every scaffold here resolves the same packages.
+   */
+  async function useInstalledNodeModules(targetDir: string): Promise<void> {
+    await symlink(installedNodeModules, join(targetDir, "node_modules"), "dir");
+  }
 
   beforeAll(async () => {
     packRoot = await mkdtemp(join(tmpdir(), "bb-external-pack-"));
     tarball = await packPluginSdk(join(packRoot, "pack"));
+    // Every scaffold declares the same dependencies, so one install serves
+    // them all.
+    const templateDir = join(packRoot, "template");
+    await scaffoldPlugin({
+      targetDir: templateDir,
+      packageName: "bb-plugin-external-template",
+      bbVersion: "0.9.0",
+    });
+    await installPackedSdk(templateDir, tarball);
+    await linkExternalDependencies(templateDir);
+    installedNodeModules = join(templateDir, "node_modules");
   }, 180_000);
 
   afterAll(async () => {
@@ -344,14 +409,12 @@ describe("external plugin scaffold types", () => {
       targetDir,
       packageName: "bb-plugin-external",
       bbVersion: "0.9.0",
-      app: true,
     });
     await writeFile(join(targetDir, "server.ts"), REPRESENTATIVE_SERVER);
     await writeFile(join(targetDir, "app.tsx"), REPRESENTATIVE_APP);
     // The scaffold's own pin, satisfied by the packed artifact.
     expect(await scaffoldSdkPin(targetDir)).toBe(PLUGIN_SDK_VERSION);
-    await installPackedSdk(targetDir, tarball);
-    await linkExternalDependencies(targetDir);
+    await useInstalledNodeModules(targetDir);
 
     const tsconfig = JSON.parse(
       await readFile(join(targetDir, "tsconfig.json"), "utf8"),
@@ -409,8 +472,7 @@ describe("external plugin scaffold types", () => {
       packageName: "bb-plugin-external-backend",
       bbVersion: "0.9.0",
     });
-    await installPackedSdk(backendDir, tarball);
-    await linkExternalDependencies(backendDir);
+    await useInstalledNodeModules(backendDir);
     await writeFile(join(backendDir, "server.test.ts"), BACKEND_TEST);
     await includeTestsInTypecheck(backendDir);
 
@@ -480,32 +542,28 @@ describe("external plugin scaffold types", () => {
       };
     };
     expect(backendTsconfig.compilerOptions.skipLibCheck).toBe(false);
-    // No mapping to fall back on: the testing declarations import the package
-    // root, which has to resolve through the install alone.
-    expect(backendTsconfig.compilerOptions.paths).toBeUndefined();
-    await runTypecheck(backendDir);
-    await runVitest(backendDir);
+    // Only the shadcn alias is mapped, never the SDK: the testing declarations
+    // import the package root, which has to resolve through the install alone.
+    expect(backendTsconfig.compilerOptions.paths).toEqual({ "@/*": ["./*"] });
 
     const frontendDir = join(workDir, "bb-plugin-external-frontend");
     await scaffoldPlugin({
       targetDir: frontendDir,
       packageName: "bb-plugin-external-frontend",
       bbVersion: "0.9.0",
-      app: true,
     });
-    const frontendSdk = join(
-      frontendDir,
-      "node_modules",
-      "@get-bb",
-      "plugin-sdk",
-    );
-    await mkdir(dirname(frontendSdk), { recursive: true });
-    await symlink(installedSdk, frontendSdk, "dir");
-    await linkExternalDependencies(frontendDir);
+    await useInstalledNodeModules(frontendDir);
     await writeFile(join(frontendDir, "app.test.tsx"), FRONTEND_TEST);
     await writeFile(join(frontendDir, "vitest.config.ts"), VITEST_CONFIG);
     await includeTestsInTypecheck(frontendDir);
-    await runTypecheck(frontendDir);
-    await runVitest(frontendDir);
+
+    // The two scaffolds are independent; their typechecks (~3.5s each) and
+    // test runs overlap.
+    await Promise.all(
+      [backendDir, frontendDir].map(async (dir) => {
+        await runTypecheck(dir);
+        await runVitest(dir);
+      }),
+    );
   }, 300_000);
 });

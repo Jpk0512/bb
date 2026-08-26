@@ -6,9 +6,9 @@
  * start with an alphanumeric. Becomes a DNS label in `<handle>.getbb.app`, so
  * it must stay within LDH label rules.
  */
-export const HANDLE_REGEX = /^[a-z0-9][a-z0-9-]{2,29}$/;
+const HANDLE_REGEX = /^[a-z0-9][a-z0-9-]{2,29}$/;
 
-export const HANDLE_MIN_LENGTH = 3;
+const HANDLE_MIN_LENGTH = 3;
 export const HANDLE_MAX_LENGTH = 30;
 
 /**
@@ -117,9 +117,12 @@ export const RESERVED_HANDLES: ReadonlySet<string> = new Set([
   "test",
 ]);
 
-/** Per-account resource ceilings enforced at the gate (open-signup abuse guard). */
-export const MAX_SERVERS_PER_ACCOUNT = 10;
-export const MAX_MACHINES_PER_ACCOUNT = 5;
+/**
+ * Per-account resource ceiling enforced at the gate (open-signup abuse guard).
+ * Servers and machines each count separately against this one limit: an
+ * account can own up to 20 servers and, independently, up to 20 machines.
+ */
+export const MAX_PER_ACCOUNT = 20;
 
 /** Connect-code lifetimes. */
 export const CONNECT_CODE_TTL_MS = 10 * 60 * 1000;
@@ -127,8 +130,13 @@ export const CONNECT_CODE_TTL_MS = 10 * 60 * 1000;
 /** A server is shown "offline" if no heartbeat within this window. */
 export const SERVER_OFFLINE_AFTER_MS = 90 * 1000;
 
-/** Token prefixes (mirrors bb's host-key convention; distinct namespaces). */
-export const CLOUD_PAT_PREFIX = "bbc_";
+/**
+ * Account-session lifetime and sliding-refresh cadence. Better Auth owns this
+ * policy; after eligible activity on `<label>.getbb.app`, the connect gate
+ * calls its session route only once this update-age boundary has arrived.
+ */
+export const CONNECT_SESSION_EXPIRES_IN_SECONDS = 7 * 24 * 60 * 60;
+export const CONNECT_SESSION_UPDATE_AGE_SECONDS = 24 * 60 * 60;
 
 export type HandleValidationError =
   | "too-short"
@@ -158,10 +166,6 @@ export function validateHandle(handle: string): HandleValidationError | null {
 export const validateLabel = validateHandle;
 export const validateSubdomain = validateHandle;
 
-/** Alias of {@link HandleValidationError}; the two namespaces share one grammar. */
-export type LabelValidationError = HandleValidationError;
-export type SubdomainValidationError = HandleValidationError;
-
 /** Decimal port 1–65535 with no leading zeros (v1 share target grammar). */
 const SHARE_PORT_TARGET = /^[1-9]\d{0,4}$/;
 
@@ -171,7 +175,7 @@ function isValidShareTarget(target: string): boolean {
   return port >= 1 && port <= 65535;
 }
 
-export interface VisitorHost {
+interface VisitorHost {
   handle: string;
   /** Null on a bare handle host; a decimal port string on a share host. */
   target: string | null;

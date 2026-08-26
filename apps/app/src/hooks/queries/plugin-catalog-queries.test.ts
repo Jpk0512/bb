@@ -101,7 +101,6 @@ describe("plugin installs", () => {
     expect(calls[0]?.url).toBe("/api/v1/plugins/install");
     expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
       source: "./plugins/local",
-      selection: { kind: "root" },
     });
   });
 
@@ -153,8 +152,11 @@ describe("plugin catalog queries", () => {
         description: "Personal task capture",
         icon: "CheckList",
         iconUrl: null,
+        iconTinted: false,
         category: "Project management",
         source: "npm:@bb-plugins/todoist",
+        // A server from before the field defaults to no link.
+        repositoryUrl: null,
         marketplace: "acme-plugins",
         marketplaceDisplayName: "Acme Plugins",
         publisherKey: "acme-plugins",
@@ -162,6 +164,8 @@ describe("plugin catalog queries", () => {
         official: false,
         author: { name: "Acme", url: "https://acme.dev" },
         installed: false,
+        // Likewise: a server from before the field reports no count.
+        installs: null,
         compatible: false,
         incompatibleReason: "requires bb >= 0.15",
       },

@@ -1,23 +1,24 @@
 import {
   claimQueuedThreadMessageGroup,
   claimNextQueuedThreadMessageGroup,
+  createQueuedThreadMessageInTransaction,
   deleteClaimedQueuedThreadMessageBatchInTransaction,
   getQueuedThreadMessage,
   getEnvironment,
   getThread,
   listIdleThreadsWithQueuedMessages,
-  listQueuedThreadMessages,
   releaseQueuedMessageClaim,
   releaseStaleQueuedMessageClaims,
+  type DbQueryConnection,
 } from "@bb/db";
-import {
-  type ClientTurnRequestId,
-  type PromptInput,
-  type Thread,
-  type ThreadQueuedMessage,
-  type ThreadTurnInitiator,
+import type {
+  PromptInput,
+  Thread,
+  ThreadQueuedMessage,
+  ThreadTurnInitiator,
 } from "@bb/domain";
 import type {
+  CreateQueuedMessageRequest,
   SendMessageRequest,
   SendQueuedMessageMode,
 } from "@bb/server-contract";
@@ -44,26 +45,36 @@ import {
 } from "./thread-commands.js";
 import { resolvePluginMentionContextInputs } from "../plugins/plugin-mentions.js";
 import {
-  appendPreparedClientTurnRequestedEventInTransaction,
-  createClientTurnRequestId,
-} from "./thread-events.js";
+  prependDeferredFirstTurnContext,
+  requireDeferredFirstTurnContextCurrent,
+  resolveDeferredFirstTurnContext,
+} from "./deferred-first-turn-context.js";
+import { appendClientTurnEventInTransaction } from "./thread-events.js";
 import {
   getLastProviderThreadId,
   isManualCompactionActive,
 } from "./thread-events.js";
 import { recoverThreadModelOverride } from "./thread-execution-override.js";
-import {
-  appendTurnRejectedEventInTransaction,
-  ensureThreadCanStartRequest,
-} from "./thread-lifecycle.js";
 import { requireReadyThreadEnvironment } from "./thread-turn-dispatch.js";
 import { resolvePermissionEscalation } from "./thread-runtime-config.js";
-import { formatAgentThreadInput, sendThreadMessage } from "./thread-send.js";
+import {
+  ensureThreadIsWritable,
+  formatAgentThreadInput,
+  groupedInputForRuntime,
+  resolveMessageSenderThreadId,
+  sendThreadMessage,
+} from "./thread-send.js";
 import { recordAcceptedPromptHistoryEntry } from "../prompt-history.js";
 import { requireThreadCommandEnvironment } from "./thread-command-environment.js";
 import { applyLoggedThreadLifecycleEventInTransaction } from "./lifecycle-outcome.js";
+import { buildThreadStatusChangeMetadata } from "./thread-runtime-display.js";
 import { applyLoggedEnvironmentLifecycleEvent } from "../environments/lifecycle-outcome.js";
-import { TurnPreflightRejectedError } from "./turn-preflight.js";
+import {
+  goneThreadEnvironmentDetails,
+  threadEnvironmentUnavailableDetails,
+  throwThreadEnvironmentUnavailable,
+} from "../lib/lifecycle-api-errors.js";
+import { validatePromptAttachmentReferences } from "../projects/attachments.js";
 
 interface SendQueuedMessageArgs {
   mode: SendQueuedMessageMode;
@@ -85,16 +96,8 @@ interface SendClaimedQueuedMessageArgs {
 interface SendClaimedQueuedMessageForThreadArgs {
   mode: SendQueuedMessageMode;
   queuedMessages: ClaimedQueuedMessage[];
-  thread: QueuedMessageThread;
-  /**
-   * True only for the sweep-driven drain. A user-initiated send reaches the same
-   * fast path with `mode: "auto"`, and its rejection must stay durable even when
-   * the drain has already recorded that rejection.
-   */
-  unattended: boolean;
+  thread: Thread;
 }
-
-interface QueuedMessageThread extends Thread {}
 
 interface QueuedMessageAutoSendArgs {
   threadId: string;
@@ -116,6 +119,137 @@ async function requireReadyQueuedMessageEnvironment(
   );
 }
 
+export interface CreateQueuedMessageForThreadArgs {
+  payload: CreateQueuedMessageRequest;
+  thread: Thread;
+}
+
+export function queuedMessagePayloadFromSendRequest(
+  payload: SendMessageRequest,
+): CreateQueuedMessageRequest {
+  return {
+    input: payload.input,
+    ...(payload.model !== undefined ? { model: payload.model } : {}),
+    ...(payload.serviceTier !== undefined
+      ? { serviceTier: payload.serviceTier }
+      : {}),
+    ...(payload.reasoningLevel !== undefined
+      ? { reasoningLevel: payload.reasoningLevel }
+      : {}),
+    ...(payload.permissionMode !== undefined
+      ? { permissionMode: payload.permissionMode }
+      : {}),
+    ...(payload.executionInputSources !== undefined
+      ? { executionInputSources: payload.executionInputSources }
+      : {}),
+    ...(payload.senderThreadId !== undefined
+      ? { senderThreadId: payload.senderThreadId }
+      : {}),
+  };
+}
+
+/**
+ * Admits a queued message against the current thread and environment rows.
+ * Returns the provider thread id so the caller can decide on auto-send without
+ * a second event-history read.
+ *
+ * A queued message can only drain into the thread's environment. A gone
+ * environment (`destroying`/`destroyed`) is never reprovisioned, so accepting
+ * the message would park it in the queue forever while the thread keeps
+ * reporting `idle` (#1789). Refuse with the same 409 the direct send path
+ * returns.
+ *
+ * A thread with no environment row is accepted while it has never run: the
+ * queue is how messages wait for provisioning. Once the thread has a provider
+ * thread id, a missing environment means the row was pruned after destroy, and
+ * the direct send path already refuses with `never_attached`.
+ */
+function admitQueuedMessage(
+  db: DbQueryConnection,
+  thread: Thread,
+): { providerThreadId: string | null } {
+  ensureThreadIsWritable(thread);
+  const providerThreadId = getLastProviderThreadId({ db }, thread.id);
+  if (thread.environmentId === null) {
+    if (providerThreadId !== null) {
+      throwThreadEnvironmentUnavailable(
+        threadEnvironmentUnavailableDetails("never_attached", null),
+      );
+    }
+    return { providerThreadId };
+  }
+  const environment = getEnvironment(db, thread.environmentId);
+  const goneDetails = environment
+    ? goneThreadEnvironmentDetails(environment)
+    : null;
+  if (goneDetails) {
+    throwThreadEnvironmentUnavailable(goneDetails);
+  }
+  return { providerThreadId };
+}
+
+export async function createQueuedMessageForThread(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  args: CreateQueuedMessageForThreadArgs,
+): Promise<ThreadQueuedMessage> {
+  const { payload, thread } = args;
+  ensureThreadIsWritable(thread);
+  await validatePromptAttachmentReferences({
+    dataDir: deps.config.dataDir,
+    input: payload.input,
+    projectId: thread.projectId,
+  });
+  const execution = await buildExecutionOptions(deps, payload, {
+    threadId: thread.id,
+  });
+  const senderThreadId = resolveMessageSenderThreadId(deps, {
+    senderThreadId: payload.senderThreadId,
+    targetThread: thread,
+  });
+  // The awaits above can interleave with an archive or environment destroy, so
+  // admit against the rows as they are at insert time, in the same immediate
+  // transaction as the insert.
+  const { currentThread, providerThreadId, queuedMessage } =
+    deps.db.transaction(
+      (tx) => {
+        const currentThread = getThread(tx, thread.id);
+        if (!currentThread) {
+          throw new ApiError(404, "thread_not_found", "Thread not found");
+        }
+        const { providerThreadId } = admitQueuedMessage(tx, currentThread);
+        const queuedMessage = createQueuedThreadMessageInTransaction(tx, {
+          threadId: thread.id,
+          content: payload.input,
+          senderThreadId,
+          model: execution.model,
+          reasoningLevel: execution.reasoningLevel,
+          permissionMode: execution.permissionMode,
+          serviceTier: execution.serviceTier,
+        });
+        return { currentThread, providerThreadId, queuedMessage };
+      },
+      { behavior: "immediate" },
+    );
+  deps.hub.notifyThread(thread.id, ["queue-changed"]);
+  if (senderThreadId === null && payload.input.length > 0) {
+    deps.telemetry.capture({
+      name: "user_message_sent",
+      properties: {
+        is_child_thread: thread.parentThreadId !== null,
+        message_source: "queued_message",
+        provider: thread.providerId,
+      },
+    });
+  }
+  if (currentThread.status === "idle" && providerThreadId !== null) {
+    requestQueuedMessageAutoSendForThread(deps, {
+      queuedMessageId: queuedMessage.id,
+      threadId: thread.id,
+    });
+  }
+  return toThreadQueuedMessage(queuedMessage);
+}
+
 interface QueuedMessageAutoSendRequestArgs {
   queuedMessageId: string;
   threadId: string;
@@ -123,7 +257,7 @@ interface QueuedMessageAutoSendRequestArgs {
 
 function isQueuedMessageAutoSendCandidate(
   thread: Thread | null,
-): thread is QueuedMessageThread {
+): thread is Thread {
   return (
     thread !== null &&
     thread.archivedAt === null &&
@@ -139,150 +273,7 @@ interface FormatQueuedMessageInputForSenderArgs {
 
 const STALE_QUEUED_MESSAGE_CLAIM_MS = 5 * 60 * 1000;
 const QUEUED_MESSAGE_CLAIM_LOST_CODE = "queued_message_claim_lost";
-// `toTurnPreflightApiError` wraps a plugin rejection before it leaves the
-// non-fast send path, so the drain sees this code instead of the typed error.
-const TURN_REJECTED_API_ERROR_CODE = "turn_rejected";
-const MAX_QUEUED_MESSAGE_PREFLIGHT_REJECTIONS = 3;
 const activeQueuedMessageClaimTokens = new Set<string>();
-
-interface QueuedMessageRejectionState {
-  attempts: number;
-  content: string;
-  reason: string;
-}
-
-/**
- * Rejection budget for the unattended drain, keyed by the lead queued message
- * of a claimed group. Nothing durable records attempts, so this deliberately
- * grants a fresh budget after a restart or after the message is edited: both
- * mean the condition the plugin rejected may no longer hold.
- */
-const queuedMessageRejections = new Map<string, QueuedMessageRejectionState>();
-
-function pluginRejectionReason(error: TurnPreflightRejectedError): string {
-  return `plugin:${error.pluginId}:${error.code}`;
-}
-
-function queuedMessageRejectionReason(error: unknown): string | null {
-  if (error instanceof TurnPreflightRejectedError) {
-    return pluginRejectionReason(error);
-  }
-  if (
-    error instanceof ApiError &&
-    error.body.code === TURN_REJECTED_API_ERROR_CODE
-  ) {
-    return `api:${TURN_REJECTED_API_ERROR_CODE}`;
-  }
-  return null;
-}
-
-function recordedQueuedMessageRejection(
-  queuedMessage: Pick<ClaimedQueuedMessage, "content" | "id">,
-  reason: string,
-): QueuedMessageRejectionState | null {
-  const state = queuedMessageRejections.get(queuedMessage.id);
-  if (
-    !state ||
-    state.reason !== reason ||
-    state.content !== queuedMessage.content
-  ) {
-    return null;
-  }
-  return state;
-}
-
-/**
- * Attempts already counted against this exact message content, whatever the
- * plugin rejected with. Counting is deliberately reason-independent: a plugin
- * that varies its rejection code between attempts would otherwise reset the
- * budget every tick and keep the sweep re-claiming forever.
- */
-function countedQueuedMessageRejectionAttempts(
-  queuedMessage: Pick<ClaimedQueuedMessage, "content" | "id">,
-): number {
-  const state = queuedMessageRejections.get(queuedMessage.id);
-  return state && state.content === queuedMessage.content ? state.attempts : 0;
-}
-
-function appendQueuedMessageRejectedEvent(
-  deps: Pick<AppDeps, "db" | "hub">,
-  args: {
-    message: string;
-    reason: string;
-    requestId: ClientTurnRequestId;
-    thread: Pick<Thread, "environmentId" | "id">;
-  },
-): void {
-  deps.db.transaction((tx) => {
-    appendTurnRejectedEventInTransaction(tx, {
-      threadId: args.thread.id,
-      environmentId: args.thread.environmentId,
-      requestId: args.requestId,
-      reason: args.reason,
-      message: args.message,
-    });
-  });
-  deps.hub.notifyThread(args.thread.id, ["events-appended"], {
-    eventTypes: ["client/turn/rejected"],
-  });
-}
-
-/**
- * Counts one rejected drain attempt and, on the attempt that exhausts the
- * budget, records why the drain stopped. The queue head stays queued so the
- * user can edit or send it; without the budget the 10-second sweep re-claims a
- * persistently rejected message forever.
- */
-function recordQueuedMessageRejection(
-  deps: Pick<AppDeps, "db" | "hub">,
-  args: {
-    queuedMessages: readonly ClaimedQueuedMessage[];
-    reason: string;
-    thread: Pick<Thread, "environmentId" | "id">;
-  },
-): void {
-  const leadQueuedMessage = args.queuedMessages[0]!;
-  const attempts = countedQueuedMessageRejectionAttempts(leadQueuedMessage) + 1;
-  queuedMessageRejections.set(leadQueuedMessage.id, {
-    attempts,
-    content: leadQueuedMessage.content,
-    reason: args.reason,
-  });
-  if (attempts !== MAX_QUEUED_MESSAGE_PREFLIGHT_REJECTIONS) {
-    return;
-  }
-  appendQueuedMessageRejectedEvent(deps, {
-    message: `Automatic sending stopped after ${attempts} rejected attempts (${args.reason}). The message is still queued: edit it or send it to retry.`,
-    reason: args.reason,
-    requestId: createClientTurnRequestId(),
-    thread: args.thread,
-  });
-}
-
-function isQueuedMessageAutoSendPaused(
-  deps: Pick<AppDeps, "db">,
-  threadId: string,
-): boolean {
-  if (queuedMessageRejections.size === 0) {
-    return false;
-  }
-  const nextQueuedMessage = listQueuedThreadMessages(deps.db, threadId)[0];
-  if (!nextQueuedMessage) {
-    return false;
-  }
-  return (
-    countedQueuedMessageRejectionAttempts(nextQueuedMessage) >=
-    MAX_QUEUED_MESSAGE_PREFLIGHT_REJECTIONS
-  );
-}
-
-function forgetDeletedQueuedMessageRejections(deps: Pick<AppDeps, "db">): void {
-  for (const queuedMessageId of queuedMessageRejections.keys()) {
-    if (getQueuedThreadMessage(deps.db, queuedMessageId) === null) {
-      queuedMessageRejections.delete(queuedMessageId);
-    }
-  }
-}
 
 function sendQueuedMessagePayload(
   queuedMessage: ThreadQueuedMessage,
@@ -310,22 +301,6 @@ function formatQueuedMessageInputForSender(
     input: args.input,
     senderThreadId: args.senderThreadId,
   });
-}
-
-function queuedMessagesToThreadQueuedMessages(
-  queuedMessages: readonly ClaimedQueuedMessage[],
-): ThreadQueuedMessage[] {
-  return queuedMessages.map(toThreadQueuedMessage);
-}
-
-function groupedInputForRuntime(
-  inputGroups: readonly PromptInput[][],
-): PromptInput[] {
-  return inputGroups.flatMap((input, index) =>
-    index === 0
-      ? input
-      : [{ type: "text" as const, text: "\n\n", mentions: [] }, ...input],
-  );
 }
 
 function releaseQueuedMessageClaims(
@@ -421,7 +396,6 @@ async function sendClaimedQueuedMessage(
     mode: args.mode,
     queuedMessages: args.queuedMessages,
     thread,
-    unattended: false,
   });
 }
 
@@ -443,11 +417,8 @@ async function sendClaimedQueuedMessageForIdleProviderThread(
   }
 
   const environment = await requireReadyQueuedMessageEnvironment(deps, thread);
-  const queuedMessages = queuedMessagesToThreadQueuedMessages(
-    args.queuedMessages,
-  );
+  const queuedMessages = args.queuedMessages.map(toThreadQueuedMessage);
   const queuedMessage = queuedMessages[0]!;
-  ensureThreadCanStartRequest(thread);
 
   const senderThreadId = args.queuedMessages[0]!.senderThreadId;
   let inputGroups = args.queuedMessages.map((claimedQueuedMessage) =>
@@ -473,6 +444,14 @@ async function sendClaimedQueuedMessageForIdleProviderThread(
       [...lastGroup, ...pluginMentionContext],
     ];
   }
+  const deferredFirstTurnContext = resolveDeferredFirstTurnContext(
+    deps.db,
+    thread.id,
+  );
+  ({ input, inputGroups } = prependDeferredFirstTurnContext(
+    { input, inputGroups },
+    deferredFirstTurnContext,
+  ));
   const payload = sendQueuedMessagePayload(
     { ...queuedMessage, content: input },
     args.mode,
@@ -483,80 +462,45 @@ async function sendClaimedQueuedMessageForIdleProviderThread(
   if (initiator === "user") {
     await recoverThreadModelOverride(deps, {
       model: payload.model,
-      modelSource:
-        payload.executionInputSources === undefined
-          ? "explicit"
-          : payload.executionInputSources.model,
+      modelSource: "explicit",
       thread,
     });
   }
-  const execution = await buildExecutionOptions(
-    deps,
-    payload,
-    { threadId: thread.id },
-    "client/turn/requested",
-  );
+  const execution = await buildExecutionOptions(deps, payload, {
+    threadId: thread.id,
+  });
   const permissionEscalation = resolvePermissionEscalation({
     initiator,
-    thread,
   });
   await ensureHostSessionReadyForWork(deps, {
     hostId: environment.hostId,
   });
-  const requestId: ClientTurnRequestId = createClientTurnRequestId();
-  let preparedCommand: Awaited<
-    ReturnType<typeof prepareTurnSubmitCommandPayload>
-  >;
-  try {
-    preparedCommand = await prepareTurnSubmitCommandPayload(deps, {
-      environment,
-      execution,
-      input,
-      ...(inputGroups.length > 1 ? { inputGroups } : {}),
-      permissionEscalation,
-      providerThreadId,
-      target: { mode: "start" },
-      thread,
-      turnDispatch: {
-        requestId,
-        initiator,
-        senderThreadId,
-        trigger: "queued-auto-send",
-        target: { kind: "new-turn" },
-        input,
-        ...(inputGroups.length > 1 ? { inputGroups } : {}),
-      },
-    });
-  } catch (error) {
-    if (!(error instanceof TurnPreflightRejectedError)) throw error;
-    const reason = pluginRejectionReason(error);
-    // For the drain, only the first observation of a rejection is durable: it
-    // retries the same claim on a fixed budget, and one event per attempt would
-    // turn a persistently rejecting plugin into an event-log firehose. A
-    // user-initiated send is always durable — nothing else records its outcome.
-    if (
-      !args.unattended ||
-      recordedQueuedMessageRejection(args.queuedMessages[0]!, reason) === null
-    ) {
-      appendQueuedMessageRejectedEvent(deps, {
-        message: error.message,
-        reason,
-        requestId,
-        thread,
-      });
-    }
-    throw error;
-  }
+  const preparedCommand = await prepareTurnSubmitCommandPayload(deps, {
+    environment,
+    execution,
+    input,
+    ...(inputGroups.length > 1 ? { inputGroups } : {}),
+    permissionEscalation,
+    providerThreadId,
+    target: { mode: "start" },
+    thread,
+  });
 
-  const command = deps.db.transaction(
+  const { activeThread, command } = deps.db.transaction(
     (tx) => {
+      if (deferredFirstTurnContext) {
+        requireDeferredFirstTurnContextCurrent(tx, {
+          requestSequence: deferredFirstTurnContext.requestSequence,
+          threadId: thread.id,
+        });
+      }
       const consumed = deleteClaimedQueuedThreadMessageBatchInTransaction(tx, {
         queuedMessages: args.queuedMessages,
       });
       if (!consumed) {
         throw createQueuedMessageClaimLostError();
       }
-      const request = appendPreparedClientTurnRequestedEventInTransaction(tx, {
+      const request = appendClientTurnEventInTransaction(tx, {
         environmentId: thread.environmentId,
         execution,
         initiator,
@@ -568,7 +512,6 @@ async function sendClaimedQueuedMessageForIdleProviderThread(
         target: { kind: "new-turn" },
         threadId: thread.id,
         type: "client/turn/requested",
-        requestId,
       });
       recordAcceptedPromptHistoryEntry(
         { db: tx },
@@ -598,20 +541,17 @@ async function sendClaimedQueuedMessageForIdleProviderThread(
         // guard skips the thread on the next sweep tick.
         throw createQueuedMessageClaimLostError();
       }
-      deps.hub.notifyThread(thread.id, ["status-changed"]);
-      return command;
+      return { activeThread: outcome.thread, command };
     },
     { behavior: "immediate" },
   );
-  if (!command) {
-    throw createQueuedMessageClaimLostError();
-  }
 
   deps.hub.notifyThread(
     thread.id,
     ["events-appended", "queue-changed", "status-changed"],
     {
       eventTypes: ["client/turn/requested"],
+      ...buildThreadStatusChangeMetadata(deps, activeThread),
     },
   );
   startLiveHostCommand(deps, {
@@ -637,9 +577,7 @@ async function sendClaimedQueuedMessageForThread(
     return sent;
   }
 
-  const queuedMessages = queuedMessagesToThreadQueuedMessages(
-    args.queuedMessages,
-  );
+  const queuedMessages = args.queuedMessages.map(toThreadQueuedMessage);
   const queuedMessage = queuedMessages[0]!;
   const inputGroups = queuedMessages.map(
     (queuedMessage) => queuedMessage.content,
@@ -703,11 +641,6 @@ export async function sendNextQueuedMessageIfPresent(
   if (!isQueuedMessageAutoSendCandidate(getThread(deps.db, args.threadId))) {
     return false;
   }
-  // Checked before claiming: claiming and releasing a message the drain has
-  // already given up on would keep invalidating the queue every sweep tick.
-  if (isQueuedMessageAutoSendPaused(deps, args.threadId)) {
-    return false;
-  }
 
   const nextQueuedMessages = claimNextQueuedThreadMessageGroup(
     deps.db,
@@ -733,7 +666,6 @@ export async function sendNextQueuedMessageIfPresent(
         mode: "auto",
         queuedMessages: nextQueuedMessages,
         thread,
-        unattended: true,
       }),
     );
   } catch (error) {
@@ -751,14 +683,6 @@ export async function sendNextQueuedMessageIfPresent(
         "Queued message auto-send deferred by host timeout",
       );
       throw error;
-    }
-    const rejectionReason = queuedMessageRejectionReason(error);
-    if (rejectionReason !== null) {
-      recordQueuedMessageRejection(deps, {
-        queuedMessages: nextQueuedMessages,
-        reason: rejectionReason,
-        thread,
-      });
     }
     deps.logger.warn(
       {
@@ -809,7 +733,6 @@ export function requestQueuedMessageAutoSendForThread(
 export async function runQueuedMessageAutoSendSweep(
   deps: LoggedPendingInteractionWorkSessionDeps,
 ): Promise<void> {
-  forgetDeletedQueuedMessageRejections(deps);
   releaseStaleQueuedMessageClaims(deps.db, deps.hub, {
     claimedBefore: Date.now() - STALE_QUEUED_MESSAGE_CLAIM_MS,
     protectedClaimTokens: [...activeQueuedMessageClaimTokens],

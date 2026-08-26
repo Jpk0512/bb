@@ -70,10 +70,10 @@ type ManagedWorktreeEnvironmentProvisionCommand = Extract<
   { type: "environment.provision"; workspaceProvisionType: "managed-worktree" }
 >;
 
-export type ManagedWorktreeEnvironmentProvisionLiveCommand =
+type ManagedWorktreeEnvironmentProvisionLiveCommand =
   QueuedCommand<ManagedWorktreeEnvironmentProvisionCommand>;
 
-export function isManagedWorktreeEnvironmentProvisionLiveCommand(
+function isManagedWorktreeEnvironmentProvisionLiveCommand(
   queued: QueuedCommand,
 ): queued is ManagedWorktreeEnvironmentProvisionLiveCommand {
   return (
@@ -129,6 +129,11 @@ const testRpcCursorByHost = new Map<string, number>();
 interface RegisterTestHostRpcCaptureArgs {
   hostId: string;
   sessionId: string;
+  /** Checkout the fake daemon reports for `host.list_branches`. */
+  listBranchesResult?: HostDaemonOnlineRpcResult<"host.list_branches">;
+  onListBranches?: (
+    command: Extract<HostDaemonRpcCommand, { type: "host.list_branches" }>,
+  ) => void;
 }
 
 interface TestHostRpcSocket {
@@ -286,7 +291,7 @@ function buildDefaultBranchListResult(
   };
 }
 
-export interface CreateTestDaemonEventEnvelopeArgs {
+interface CreateTestDaemonEventEnvelopeArgs {
   event: ThreadEvent;
   eventId?: string;
   threadId?: string;
@@ -384,13 +389,16 @@ export function registerTestHostRpcCapture(
         return;
       }
       if (command.type === "host.list_branches") {
+        args.onListBranches?.(command);
         deps.hub.recordHostOnlineRpcResponse({
           message: hostDaemonOnlineRpcResponseMessageSchema.parse({
             type: "host-rpc.response",
             requestId: message.requestId,
             commandType: command.type,
             ok: true,
-            result: buildDefaultBranchListResult(command.selectedBranch),
+            result:
+              args.listBranchesResult ??
+              buildDefaultBranchListResult(command.selectedBranch),
           }),
           sessionId: args.sessionId,
         });

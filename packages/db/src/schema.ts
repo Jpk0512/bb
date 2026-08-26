@@ -152,10 +152,27 @@ export const systemExperiments = sqliteTable("system_experiments", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+// App-wide preferences: one row per `AppSettings` key, values as JSON text.
+// Key/value so a new preference costs a `@bb/domain` entry and nothing else —
+// no column, no migration, no snapshot churn. `appSettingsSchema` validates
+// each value on read, per key, so one bad row cannot reset the rest.
+// Settings → Keyboard overrides ride along under the `keybindingOverrides`
+// key; they are app settings with their own domain schema.
+export const appSettingsValues = sqliteTable("app_settings_values", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+// Superseded by `app_settings_values`, which holds every live preference.
+// Retained, unread and never written, for exactly one reason: an install
+// upgrading from before the Keep Awake plugin still needs
+// `seedKeepAwakePluginConfiguration` to drain `caffeinate`. Drop the whole
+// table with that seed step. It is not a downgrade path: 0102 copies these
+// columns once and nothing refreshes them, so an older build reads settings
+// frozen at upgrade time and any change it makes is lost on the next upgrade.
 export const appSettings = sqliteTable("app_settings", {
   id: text("id").primaryKey(),
-  // Retained internally until the Keep Awake plugin migration has shipped
-  // long enough to remove the legacy preference safely.
   caffeinate: integer("caffeinate", { mode: "boolean" })
     .notNull()
     .default(false),
@@ -335,6 +352,13 @@ export const pluginMarketplaces = sqliteTable("plugin_marketplaces", {
   /** Commit the last successful "git" refresh read the manifest from. */
   sourceGitCommit: text("source_git_commit"),
   manifestJson: text("manifest_json").notNull(),
+  /**
+   * Last-known-good install-count sidecar (`stats.json`) of the curated
+   * marketplace, verbatim; null when it was never fetched or never parsed.
+   * It refreshes on its own cadence: the counts move while the manifest sits
+   * unchanged behind a 304, so it cannot live inside `manifest_json`.
+   */
+  statsJson: text("stats_json"),
   etag: text("etag"),
   lastModified: text("last_modified"),
   lastSuccessfulRefreshAt: integer("last_successful_refresh_at"),
@@ -759,6 +783,7 @@ export const events = sqliteTable(
     type: text("type").$type<ThreadEventType>().notNull(),
     itemId: text("item_id"),
     itemKind: text("item_kind").$type<ThreadEventItemType>(),
+    parentToolCallId: text("parent_tool_call_id"),
     data: text("data").notNull().default("{}"),
     createdAt: integer("created_at").notNull(),
     // Daemon-minted idempotence key from the session event envelope. Null for
@@ -777,12 +802,28 @@ export const events = sqliteTable(
       table.daemonEventId,
     ),
     // Timeline in-turn pagination checks whether a delegated child above a
-    // candidate cut belongs to a tool call below it. Keep that parent probe on
-    // the small tool-call subset rather than walking the thread/sequence index
-    // and fetching scattered event payload rows.
-    index("events_tool_call_parent_lookup_idx")
-      .on(table.threadId, table.itemId, table.sequence)
-      .where(sql`${table.itemKind} = 'toolCall'`),
+    // candidate cut belongs to a delegating item below it, and parent
+    // closure fetches the parent's own rows. A delegating item is a tool
+    // call or a grammar v3 `delegation` item; keep that probe on their small
+    // subset rather than walking the thread/sequence index and fetching
+    // scattered event payload rows.
+    index("events_delegating_item_lookup_idx")
+      // `item_kind` trails so the parent probe's EXISTS stays a covering
+      // lookup: the kind predicate is answered from the index entry.
+      .on(table.threadId, table.itemId, table.sequence, table.itemKind)
+      .where(sql`${table.itemKind} IN ('toolCall', 'delegation')`),
+    // The latest timeline page restores the plan head state (the todo banner)
+    // from the newest planSteps snapshot, keyed by kind — never by a tool
+    // name. Persisted codex plan notifications convert to the same item at
+    // read time, so their type sits beside it.
+    index("events_plan_steps_thread_sequence_idx")
+      .on(table.threadId, table.sequence)
+      .where(
+        sql`(${table.itemKind} = 'planSteps' AND ${table.type} = 'item/completed') OR ${table.type} = 'turn/plan/updated'`,
+      ),
+    index("events_parent_tool_call_thread_parent_sequence_idx")
+      .on(table.threadId, table.parentToolCallId, table.sequence)
+      .where(sql`${table.parentToolCallId} IS NOT NULL`),
     index("events_thread_type_item_kind_sequence_idx").on(
       table.threadId,
       table.type,
@@ -806,18 +847,25 @@ export const events = sqliteTable(
       table.itemId,
       table.sequence,
     ),
+    index("events_item_lifecycle_thread_item_sequence_idx")
+      .on(table.threadId, table.itemId, table.sequence)
+      .where(
+        sql`${table.type} IN ('item/started', 'item/completed', 'item/backgroundTask/completed')`,
+      ),
     index("events_environment_idx").on(table.environmentId),
     index("events_completed_item_truncation_idx")
       .on(table.itemKind, table.createdAt, table.id)
       .where(sql`${table.type} = 'item/completed'`),
-    // Latest-goal lookup (listLatestGoalEventRowsByThreadIds) runs over every
-    // listed thread on each sidebar bootstrap. Goal events are rare, so this
-    // partial index stays tiny; the query must spell the same type list as
-    // literals for SQLite to accept the partial index.
-    index("events_goal_thread_sequence_idx")
+    // Latest-thread-state lookup (listLatestThreadStateEventRowsByThreadIds)
+    // runs over every listed thread on each sidebar bootstrap: the newest
+    // plugin thread-state snapshot of one kind (codex goals today), plus the
+    // legacy goal rows that kind converts from at read time. Those rows are
+    // rare, so this partial index stays tiny; the query must spell the same
+    // type list as literals for SQLite to accept the partial index.
+    index("events_thread_state_thread_sequence_idx")
       .on(table.threadId, table.sequence)
       .where(
-        sql`${table.type} IN ('thread/goal/updated', 'thread/goal/cleared')`,
+        sql`${table.type} IN ('thread/goal/updated', 'thread/goal/cleared', 'thread/extensionState/updated')`,
       ),
     check(
       "events_scope_shape_check",
@@ -884,6 +932,32 @@ export const promptHistoryEntries = sqliteTable(
       table.scope,
       table.createdAt,
       table.requestSequence,
+      table.id,
+    ),
+  ],
+);
+
+// Messages addressed to a thread while it awaited user interaction (an
+// AskUserQuestion, a command approval, a plugin input request). A blocked thread
+// cannot take a prompt, and refusing the message dropped it with no trace on the
+// recipient side (#1650). The row holds the message until the thread's pending
+// interactions settle, then the server delivers it in the mode the sender asked
+// for. `payload` is the JSON-encoded deferred message, discriminated by `kind`.
+export const deferredThreadMessages = sqliteTable(
+  "deferred_thread_messages",
+  {
+    id: text("id").primaryKey(),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => threads.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    payload: text("payload").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("deferred_thread_messages_thread_created_idx").on(
+      table.threadId,
+      table.createdAt,
       table.id,
     ),
   ],

@@ -12,6 +12,11 @@
  * plugin management UI are already lazy and import it directly; they share
  * this module instance, so the reconcile state stays single-owner.
  */
+import {
+  markPluginFrontendBootStarted,
+  markPluginFrontendsSettled,
+} from "./plugin-frontend-boot-state";
+
 type PluginFrontendModule = typeof import("./plugin-frontend");
 
 /**
@@ -39,27 +44,6 @@ const loadPluginFrontend = createRetryingModuleLoader<PluginFrontendModule>(
 );
 
 let bootRequested = false;
-const reportedFailures = new Set<string>();
-
-/**
- * Records a plugin runtime failure instead of letting it escape.
- *
- * Never silent: a broken third-party bundle is only diagnosable from what it
- * threw, so the message is carried through verbatim. Deduplicated for the
- * page's life, because a `plugins-changed` storm against the same broken
- * bundle would otherwise repeat one line until it drowns everything else.
- */
-function reportPluginRuntimeFailure(
-  phase: "load" | "boot" | "reconcile",
-  error: unknown,
-): void {
-  const message = `plugin runtime ${phase} failed: ${
-    error instanceof Error ? error.message : String(error)
-  }`;
-  if (reportedFailures.has(message)) return;
-  reportedFailures.add(message);
-  console.warn(message);
-}
 
 /**
  * Loads the plugin runtime chunk, then boots the plugin frontends.
@@ -71,17 +55,20 @@ function reportPluginRuntimeFailure(
  */
 export async function bootPluginFrontends(): Promise<void> {
   bootRequested = true;
-  let pluginFrontend: PluginFrontendModule;
+  // An in-flight boot owns its own settle; the settle floor must not finish
+  // it while content scripts are still mounting.
+  markPluginFrontendBootStarted();
   try {
-    pluginFrontend = await loadPluginFrontend();
-  } catch (error) {
-    reportPluginRuntimeFailure("load", error);
-    return;
-  }
-  try {
+    const pluginFrontend = await loadPluginFrontend();
     await pluginFrontend.bootPluginFrontends();
   } catch (error) {
-    reportPluginRuntimeFailure("boot", error);
+    console.warn(
+      `plugin runtime load failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  } finally {
+    // Either way the registrations are as complete as this load will make
+    // them; routes waiting on a plugin may now report it missing.
+    markPluginFrontendsSettled();
   }
 }
 
@@ -93,29 +80,16 @@ export async function bootPluginFrontends(): Promise<void> {
 export function schedulePluginFrontendReconcile(): void {
   if (!bootRequested) return;
   void (async () => {
-    let pluginFrontend: PluginFrontendModule;
     try {
-      pluginFrontend = await loadPluginFrontend();
-    } catch (error) {
-      // Plugin UI stays absent until the next plugins-changed broadcast.
-      reportPluginRuntimeFailure("load", error);
-      return;
-    }
-    try {
+      const pluginFrontend = await loadPluginFrontend();
       // If the chunk fetch failed during boot then plugin-frontend never
       // booted, and its own reconcile guard would no-op forever. Booting here
       // recovers from that; it costs nothing once booted, because
       // bootPluginFrontends is idempotent per page load.
       await pluginFrontend.bootPluginFrontends();
-    } catch (error) {
-      // Deliberately falls through to the reconcile below: one plugin that
-      // fails during boot must not cost every other plugin its reconcile.
-      reportPluginRuntimeFailure("boot", error);
-    }
-    try {
       pluginFrontend.schedulePluginFrontendReconcile();
-    } catch (error) {
-      reportPluginRuntimeFailure("reconcile", error);
+    } catch {
+      // Plugin UI stays absent until the next plugins-changed broadcast.
     }
   })();
 }

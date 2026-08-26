@@ -16,6 +16,7 @@ import type {
 import type { HostDaemonCommand } from "@bb/host-daemon-contract";
 import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
 import { requireThreadEnvironment } from "../lib/entity-lookup.js";
+import { deferThreadMessage } from "./deferred-thread-messages.js";
 import {
   addRequestIdToTurnSubmitCommandPayload,
   buildExecutionOptions,
@@ -25,12 +26,12 @@ import {
 import {
   ensureThreadCanStartRequest,
   prepareReadyThreadTurnCommand,
-  prepareReadyThreadTurnDispatch,
 } from "./thread-lifecycle.js";
 import { applyLoggedThreadLifecycleEventInTransaction } from "./lifecycle-outcome.js";
+import { buildThreadStatusChangeMetadata } from "./thread-runtime-display.js";
 import {
   appendClientTurnEventInTransaction,
-  appendPreparedClientTurnRequestedEventInTransaction,
+  appendPreparedClientTurnRequestedEventWithNotificationInTransaction,
   createClientTurnRequestId,
   getActiveTurnId,
 } from "./thread-events.js";
@@ -47,28 +48,6 @@ import {
 } from "../hosts/live-command.js";
 
 const PARENT_SYSTEM_MESSAGE_SOURCE = "tell";
-
-/**
- * Why a parent-facing system message did or did not land.
- *
- * The distinction is load-bearing for durable announcements: `undeliverable`
- * means the intent can be discharged (the parent is archived or gone and never
- * coming back), while `deferred` means the parent simply cannot accept a turn
- * right now — an unanswered interaction, or a status race with a turn that
- * started underneath us — and the caller must retry rather than drop. Treating
- * `deferred` as failure is what used to strand orchestrator parents forever.
- */
-export type ParentSystemMessageDeliveryOutcome =
-  | { status: "delivered" }
-  | {
-      status: "undeliverable";
-      reason: "thread-missing" | "thread-archived" | "thread-deleted";
-    }
-  | { status: "deferred"; reason: "pending-interaction" | "status-changed" };
-
-const PARENT_SYSTEM_MESSAGE_DELIVERED: ParentSystemMessageDeliveryOutcome = {
-  status: "delivered",
-};
 
 // Family-B taxonomy stamping carried alongside the message input from each emit
 // site to the persisted `client/turn/requested` event. `senderThreadId` is null
@@ -136,13 +115,7 @@ interface QueueReadyParentSystemMessageArgs extends ParentSystemMessageTaxonomy 
 }
 
 interface QueueActiveParentSystemMessageInTransactionArgs extends QueueReadyParentSystemMessageArgs {
-  sessionId: string;
   preparedCommand: PreparedTurnSubmitCommandPayload;
-}
-
-interface QueueActiveParentSystemMessageResult {
-  command: Extract<HostDaemonCommand, { type: "turn.submit" }> | null;
-  queued: boolean;
 }
 
 function splitRenderedParentSystemSlot(
@@ -163,7 +136,7 @@ function splitRenderedParentSystemSlot(
   };
 }
 
-export function buildParentSystemInputFromSegments(
+function buildParentSystemInputFromSegments(
   args: BuildParentSystemInputFromSegmentsArgs,
 ): PromptInput[] {
   let text = "";
@@ -233,7 +206,7 @@ export function buildParentSystemThreadMention(
 function queueActiveParentSystemMessageInTransaction(
   tx: DbTransaction,
   args: QueueActiveParentSystemMessageInTransactionArgs,
-): QueueActiveParentSystemMessageResult {
+): Extract<HostDaemonCommand, { type: "turn.submit" }> | null {
   const currentThread = getThread(tx, args.thread.id);
   if (
     !currentThread ||
@@ -242,7 +215,7 @@ function queueActiveParentSystemMessageInTransaction(
     currentThread.archivedAt !== null ||
     currentThread.deletedAt !== null
   ) {
-    return { command: null, queued: false };
+    return null;
   }
 
   const expectedSteerTurnId = getActiveTurnId({ db: tx }, args.thread.id);
@@ -263,31 +236,27 @@ function queueActiveParentSystemMessageInTransaction(
       expectedTurnId: expectedSteerTurnId,
     },
   });
-  return {
-    command: addRequestIdToTurnSubmitCommandPayload({
-      requestId: request.requestId,
-      preparedCommand: {
-        ...args.preparedCommand,
-        target: {
-          mode: "auto",
-          expectedTurnId: expectedSteerTurnId,
-        },
+  return addRequestIdToTurnSubmitCommandPayload({
+    requestId: request.requestId,
+    preparedCommand: {
+      ...args.preparedCommand,
+      target: {
+        mode: "auto",
+        expectedTurnId: expectedSteerTurnId,
       },
-    }),
-    queued: true,
-  };
+    },
+  });
 }
 
 async function queueActiveParentSystemMessage(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: QueueReadyParentSystemMessageArgs,
-): Promise<ParentSystemMessageDeliveryOutcome> {
+): Promise<boolean> {
   const expectedSteerTurnId = getActiveTurnId(deps, args.thread.id);
   const permissionEscalation = resolvePermissionEscalation({
-    thread: args.thread,
     initiator: "system",
   });
-  const session = await ensureHostSessionReadyForWork(deps, {
+  await ensureHostSessionReadyForWork(deps, {
     hostId: args.environment.hostId,
   });
   const preparedCommand = await prepareTurnSubmitCommandPayload(deps, {
@@ -306,30 +275,25 @@ async function queueActiveParentSystemMessage(
       status: args.environment.status,
       workspaceProvisionType: args.environment.workspaceProvisionType,
     },
-    // Internal parent-agent delivery must not be rejectable by plugins.
-    turnDispatch: null,
   });
 
-  const queued = deps.db.transaction(
+  const command = deps.db.transaction(
     (tx) =>
       queueActiveParentSystemMessageInTransaction(tx, {
         ...args,
         preparedCommand,
-        sessionId: session.id,
       }),
     { behavior: "immediate" },
   );
-  if (!queued.queued || !queued.command) {
-    // The thread moved (or its environment changed) between the pre-check and
-    // this transaction. Retryable, not a failure.
-    return { status: "deferred", reason: "status-changed" };
+  if (command === null) {
+    return false;
   }
 
   deps.hub.notifyThread(args.thread.id, ["events-appended"], {
     eventTypes: ["client/turn/requested"],
   });
   startLiveHostCommand(deps, {
-    command: queued.command,
+    command,
     hostId: args.environment.hostId,
     timeoutMs: LIVE_DAEMON_COMMAND_TIMEOUT_MS,
     onError: ({ error }) => {
@@ -339,19 +303,18 @@ async function queueActiveParentSystemMessage(
       );
     },
   });
-  return PARENT_SYSTEM_MESSAGE_DELIVERED;
+  return true;
 }
 
 async function queueReadyParentSystemMessage(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: QueueReadyParentSystemMessageArgs,
-): Promise<ParentSystemMessageDeliveryOutcome> {
+): Promise<boolean> {
   if (args.thread.status === "active") {
     return queueActiveParentSystemMessage(deps, args);
   }
 
   const permissionEscalation = resolvePermissionEscalation({
-    thread: args.thread,
     initiator: "system",
   });
   const requestId = createClientTurnRequestId();
@@ -375,14 +338,12 @@ async function queueReadyParentSystemMessage(
     projectId: args.thread.projectId,
     providerId: args.thread.providerId,
     syncGeneratedTitle: false,
-    // Internal parent-agent delivery must not be rejectable by plugins.
-    turnDispatch: null,
   });
-  let transitioned = false;
-  deps.db.transaction(
+  // The post-transition row when dispatching the message activated the thread.
+  const activeThread: Thread | null = deps.db.transaction(
     (tx) => {
       ensureThreadCanStartRequest(args.thread);
-      appendPreparedClientTurnRequestedEventInTransaction(tx, {
+      appendPreparedClientTurnRequestedEventWithNotificationInTransaction(tx, {
         threadId: args.thread.id,
         environmentId: args.environment.id,
         type: "client/turn/requested",
@@ -397,19 +358,16 @@ async function queueReadyParentSystemMessage(
         target: { kind: "new-turn" },
         requestId,
       });
-      const dispatchKind = prepareReadyThreadTurnDispatch({
-        command,
-        thread: args.thread,
-      });
-      if (dispatchKind === "turn.submit") {
-        requireThreadLifecycleEventApplied(
-          applyLoggedThreadLifecycleEventInTransaction(
-            { db: tx, logger: deps.logger },
-            { event: { type: "run.started" }, threadId: args.thread.id },
-          ),
-        );
-        transitioned = true;
+      const dispatchKind = command.mode;
+      if (dispatchKind !== "turn.submit") {
+        return null;
       }
+      return requireThreadLifecycleEventApplied(
+        applyLoggedThreadLifecycleEventInTransaction(
+          { db: tx, logger: deps.logger },
+          { event: { type: "run.started" }, threadId: args.thread.id },
+        ),
+      );
     },
     { behavior: "immediate" },
   );
@@ -427,32 +385,42 @@ async function queueReadyParentSystemMessage(
       );
     },
   });
-  if (transitioned) {
-    deps.hub.notifyThread(args.thread.id, ["status-changed"], {
-      projectId: args.thread.projectId,
-    });
+  if (activeThread) {
+    deps.hub.notifyThread(
+      args.thread.id,
+      ["status-changed"],
+      buildThreadStatusChangeMetadata(deps, activeThread),
+    );
   }
-  return PARENT_SYSTEM_MESSAGE_DELIVERED;
+  return true;
 }
 
 export async function queueParentSystemMessage(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: QueueParentSystemMessageArgs,
-): Promise<ParentSystemMessageDeliveryOutcome> {
+): Promise<boolean> {
   const parentThread = getThread(deps.db, args.parentThreadId);
-  if (!parentThread) {
-    return { status: "undeliverable", reason: "thread-missing" };
-  }
-  if (parentThread.deletedAt !== null) {
-    return { status: "undeliverable", reason: "thread-deleted" };
-  }
-  if (parentThread.archivedAt !== null) {
-    return { status: "undeliverable", reason: "thread-archived" };
+  if (
+    !parentThread ||
+    parentThread.archivedAt !== null ||
+    parentThread.deletedAt !== null
+  ) {
+    return false;
   }
   if (deps.pendingInteractions.hasPendingThreadInteraction(parentThread.id)) {
-    // The parent is blocked on the user. Delivering now would be rejected, so
-    // the announcement waits for the interaction to resolve instead.
-    return { status: "deferred", reason: "pending-interaction" };
+    // A prompt cannot interrupt an open question or approval, and dropping the
+    // notice left the parent believing its child had gone silent (#1650). It
+    // waits and flushes when the parent's interactions settle.
+    deferThreadMessage(deps, {
+      threadId: parentThread.id,
+      payload: {
+        kind: "parent-system",
+        input: args.input,
+        systemMessageKind: args.systemMessageKind,
+        systemMessageSubject: args.systemMessageSubject,
+      },
+    });
+    return true;
   }
 
   const { environment } = requireThreadEnvironment(
@@ -465,7 +433,6 @@ export async function queueParentSystemMessage(
     {
       threadId: parentThread.id,
     },
-    "client/turn/requested",
   );
   if (
     await dispatchTurnDuringReprovision({
@@ -480,7 +447,7 @@ export async function queueParentSystemMessage(
       thread: parentThread,
     })
   ) {
-    return PARENT_SYSTEM_MESSAGE_DELIVERED;
+    return true;
   }
 
   const readyEnvironment = requireReadyThreadEnvironment(

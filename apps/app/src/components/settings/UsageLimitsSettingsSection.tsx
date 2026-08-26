@@ -1,7 +1,8 @@
 import { useId, useState } from "react";
-import type { Host } from "@bb/domain";
+import type { Host, ProviderInfo } from "@bb/domain";
 import type {
   ProviderUsage,
+  ProviderUsageResponse,
   ProviderUsageWindow,
 } from "@bb/host-daemon-contract";
 import { Button } from "@bb/shared-ui/button";
@@ -21,56 +22,48 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@bb/shared-ui/tooltip";
 import {
   useSystemConfig,
-  useSystemUsageLimits,
+  useSystemProviderUsageLimits,
+  useSystemProviders,
+  type ProviderUsageQueryState,
 } from "@/hooks/queries/system-queries";
 import { selectPrimaryHost, useHosts } from "@/hooks/queries/host-queries";
-import { useProviderLoginTerminal } from "@/hooks/useProviderLoginTerminal";
-import { appToast } from "@/components/ui/app-toast";
-import {
-  getProviderIconColorClass,
-  getProviderIconInfo,
-} from "@/lib/provider-icon";
+import { getProviderIconInfo } from "@/lib/provider-icon";
+import { ProviderIconMark } from "./ProviderIconMark";
 import { cn } from "@bb/shared-ui/lib/utils";
 
 interface ProviderConfig {
-  key: "codex" | "claudeCode" | "cursor";
   name: string;
-  providerId: "codex" | "claude-code" | "acp-cursor";
+  providerId: string;
   signInHint: string;
   expiredHint: string;
-  loginCommand: string;
-  loginTitle: string;
+  /** The declared `strings`, kept for the icon tint. */
+  strings: ProviderInfo["strings"];
+  /** The roster entry: the declared mark (logo, glyph, family). Absent for a
+   * provider the usage response names but the roster no longer lists. */
+  provider: ProviderInfo | undefined;
 }
 
-const PROVIDERS: ProviderConfig[] = [
-  {
-    key: "codex",
-    name: "Codex",
-    providerId: "codex",
-    signInHint: "Your Codex session is not signed in.",
-    expiredHint: "Your Codex session expired.",
-    loginCommand: "codex login",
-    loginTitle: "Codex login",
-  },
-  {
-    key: "claudeCode",
-    name: "Claude Code",
-    providerId: "claude-code",
-    signInHint: "Your Claude session is not signed in.",
-    expiredHint: "Your Claude session expired.",
-    loginCommand: "claude auth login",
-    loginTitle: "Claude login",
-  },
-  {
-    key: "cursor",
-    name: "Cursor",
-    providerId: "acp-cursor",
-    signInHint: "Your Cursor session is not signed in.",
-    expiredHint: "Your Cursor session expired.",
-    loginCommand: "cursor-agent login",
-    loginTitle: "Cursor login",
-  },
-];
+/**
+ * Usage copy comes from the provider's declared `strings`; a provider that
+ * declares none (a dynamic ACP agent) gets generic copy built from its name.
+ */
+function providerConfig(
+  providerId: string,
+  info: ProviderInfo | undefined,
+): ProviderConfig {
+  const name = info?.displayName ?? providerId;
+  return {
+    providerId,
+    name,
+    strings: info?.strings,
+    provider: info,
+    signInHint:
+      info?.strings?.signInHint ?? `Sign in to ${name}, then reload usage.`,
+    expiredHint:
+      info?.strings?.expiredHint ??
+      `Your ${name} session expired. Sign in again, then reload usage.`,
+  };
+}
 
 function barColorClass(usedPercent: number): string {
   if (usedPercent >= 95) {
@@ -165,25 +158,21 @@ interface ProviderUsageBlockProps {
   usage: ProviderUsage | undefined;
   isLoading: boolean;
   isError: boolean;
-  onReauthenticate?: (config: ProviderConfig) => void;
-  reauthenticatePending?: boolean;
 }
 
 export interface UsageLimitsSettingsSectionContentProps {
-  usage: {
-    codex?: ProviderUsage;
-    claudeCode?: ProviderUsage;
-    cursor?: ProviderUsage;
-  };
+  usage: ProviderUsageResponse;
   isLoading: boolean;
   isError: boolean;
+  isProviderListLoading?: boolean;
+  isProviderListError?: boolean;
   isFetching: boolean;
   onRefresh: () => void;
+  providerStates?: Readonly<Record<string, ProviderUsageQueryState>>;
+  providers?: readonly ProviderInfo[];
   hosts?: readonly Host[];
   selectedHostId?: string | null;
   onSelectHost?: (hostId: string) => void;
-  onReauthenticate?: (config: ProviderConfig) => void;
-  reauthenticatePending?: boolean;
 }
 
 function UsageMachinePicker({
@@ -243,12 +232,13 @@ function ProviderUsageBlock({
   usage,
   isLoading,
   isError,
-  onReauthenticate,
-  reauthenticatePending,
 }: ProviderUsageBlockProps) {
   const planLabel = usage?.status === "ok" ? usage.planLabel : null;
   const accountEmail = usage?.status === "ok" ? usage.accountEmail : null;
-  const iconInfo = getProviderIconInfo(config.providerId);
+  const iconInfo = getProviderIconInfo(
+    config.providerId,
+    config.provider ?? null,
+  );
   const ProviderIcon = iconInfo?.icon;
   const headingId = useId();
   const showsUsageWindows =
@@ -263,11 +253,10 @@ function ProviderUsageBlock({
         <div className="flex min-w-0 flex-1 items-start gap-2.5">
           {ProviderIcon ? (
             <span aria-hidden="true" className="mt-0.5 shrink-0">
-              <ProviderIcon
-                className={cn(
-                  "size-4",
-                  getProviderIconColorClass(config.providerId),
-                )}
+              <ProviderIconMark
+                provider={{ id: config.providerId, strings: config.strings }}
+                icon={ProviderIcon}
+                className="size-4"
               />
             </span>
           ) : null}
@@ -290,8 +279,6 @@ function ProviderUsageBlock({
                   usage={usage}
                   isLoading={isLoading}
                   isError={isError}
-                  onReauthenticate={onReauthenticate}
-                  reauthenticatePending={reauthenticatePending}
                 />
               </div>
             ) : null}
@@ -306,8 +293,6 @@ function ProviderUsageBlock({
             usage={usage}
             isLoading={isLoading}
             isError={isError}
-            onReauthenticate={onReauthenticate}
-            reauthenticatePending={reauthenticatePending}
           />
         </div>
       ) : null}
@@ -320,8 +305,6 @@ function ProviderUsageBody({
   usage,
   isLoading,
   isError,
-  onReauthenticate,
-  reauthenticatePending,
 }: ProviderUsageBlockProps) {
   if (isError) {
     return (
@@ -334,7 +317,7 @@ function ProviderUsageBody({
   if (!usage) {
     return (
       <p className="text-xs text-muted-foreground">
-        {isLoading ? "Loading usage…" : "Usage unavailable."}
+        {isLoading ? "Loading usage…" : "Usage not provided."}
       </p>
     );
   }
@@ -355,31 +338,18 @@ function ProviderUsageBody({
         </div>
       );
     case "not_installed":
-      return null;
+      return (
+        <p className="text-xs text-muted-foreground">
+          Not installed on this machine.
+        </p>
+      );
     case "unauthenticated":
+      return (
+        <p className="text-xs text-muted-foreground">{config.signInHint}</p>
+      );
     case "expired":
       return (
-        <div className="space-y-2">
-          <p className="text-xs text-muted-foreground">
-            {usage.status === "expired"
-              ? config.expiredHint
-              : config.signInHint}
-          </p>
-          {onReauthenticate ? (
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => onReauthenticate(config)}
-              disabled={reauthenticatePending}
-            >
-              Reauthenticate
-            </Button>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Run `{config.loginCommand}`, then reload usage.
-            </p>
-          )}
-        </div>
+        <p className="text-xs text-muted-foreground">{config.expiredHint}</p>
       );
     case "error":
       return <p className="text-xs text-muted-foreground">{usage.message}</p>;
@@ -392,18 +362,38 @@ export function UsageLimitsSettingsSectionContent({
   usage,
   isLoading,
   isError,
+  isProviderListLoading = false,
+  isProviderListError = false,
   isFetching,
   onRefresh,
+  providerStates = {},
+  providers = [],
   hosts = [],
   selectedHostId = null,
   onSelectHost,
-  onReauthenticate,
-  reauthenticatePending,
 }: UsageLimitsSettingsSectionContentProps) {
   const showMachinePicker = hosts.length > 1 && onSelectHost !== undefined;
-  const visibleProviders = PROVIDERS.filter(
-    (config) => usage[config.key]?.status !== "not_installed",
+  const providerById = new Map(
+    providers.map((provider) => [provider.id, provider] as const),
   );
+  const reportedProviderIds = Object.keys(usage);
+  const orderedProviderIds = [
+    ...providers
+      .filter((provider) => provider.maintenance.usage)
+      .map((provider) => provider.id),
+    ...reportedProviderIds.filter(
+      (providerId) => !providerById.has(providerId),
+    ),
+  ];
+  const providerConfigs = orderedProviderIds.map((providerId) =>
+    providerConfig(providerId, providerById.get(providerId)),
+  );
+  const emptyMessage =
+    isLoading || isProviderListLoading
+      ? "Loading providers and usage…"
+      : isError || isProviderListError
+        ? "Couldn't load providers or usage right now."
+        : "No providers available.";
   return (
     <SettingsSection
       title="Usage limits"
@@ -441,17 +431,21 @@ export function UsageLimitsSettingsSectionContent({
       }
     >
       <SettingsRowList>
-        {visibleProviders.map((config) => (
-          <ProviderUsageBlock
-            key={config.key}
-            config={config}
-            usage={usage[config.key]}
-            isLoading={isLoading}
-            isError={isError}
-            onReauthenticate={onReauthenticate}
-            reauthenticatePending={reauthenticatePending}
-          />
-        ))}
+        {providerConfigs.length === 0 ? (
+          <p className="text-xs text-muted-foreground">{emptyMessage}</p>
+        ) : (
+          providerConfigs.map((config) => (
+            <ProviderUsageBlock
+              key={config.providerId}
+              config={config}
+              usage={usage[config.providerId]}
+              isLoading={
+                providerStates[config.providerId]?.isLoading ?? isLoading
+              }
+              isError={providerStates[config.providerId]?.isError ?? isError}
+            />
+          ))
+        )}
       </SettingsRowList>
     </SettingsSection>
   );
@@ -470,40 +464,41 @@ export function UsageLimitsSettingsSection() {
     hosts.find((host) => host.id === selectedHostId) ?? primaryHost;
   const usageHostId =
     selectedHost?.id ?? systemConfigQuery.data?.primaryHostId ?? undefined;
-  const usageQuery = useSystemUsageLimits({
-    hostId: usageHostId,
-    enabled: systemConfigQuery.data !== undefined,
+  const providersQuery = useSystemProviders(
+    usageHostId === undefined
+      ? {
+          capability: "usage",
+          enabled: systemConfigQuery.data !== undefined,
+        }
+      : {
+          capability: "usage",
+          enabled: systemConfigQuery.data !== undefined,
+          hostId: usageHostId,
+        },
+  );
+  const providers = providersQuery.data ?? [];
+  const usageQuery = useSystemProviderUsageLimits({
+    ...(usageHostId === undefined ? {} : { hostId: usageHostId }),
+    enabled: systemConfigQuery.data !== undefined && providersQuery.isSuccess,
+    providerIds: providers.map((provider) => provider.id),
   });
-  const loginTerminal = useProviderLoginTerminal();
 
   return (
     <UsageLimitsSettingsSectionContent
-      usage={usageQuery.data ?? {}}
+      usage={usageQuery.usage}
       isLoading={usageQuery.isLoading}
       isError={usageQuery.isError}
+      isProviderListLoading={providersQuery.isLoading}
+      isProviderListError={providersQuery.isError}
       isFetching={usageQuery.isFetching}
       onRefresh={() => {
         void usageQuery.refetch();
       }}
+      providerStates={usageQuery.providerStates}
+      providers={providers}
       hosts={hosts}
       selectedHostId={selectedHost?.id ?? null}
       onSelectHost={setSelectedHostId}
-      reauthenticatePending={loginTerminal.isPending}
-      onReauthenticate={
-        usageHostId
-          ? (config) => {
-              void loginTerminal
-                .openLogin({
-                  hostId: usageHostId,
-                  command: config.loginCommand,
-                  title: config.loginTitle,
-                })
-                .catch(() => {
-                  appToast.error(`Could not open ${config.loginTitle}`);
-                });
-            }
-          : undefined
-      }
     />
   );
 }

@@ -1,15 +1,8 @@
-import {
-  environments,
-  events,
-  getAppSettings,
-  getExperiments,
-  threads,
-} from "@bb/db";
+import { environments, events, threads } from "@bb/db";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import {
-  DEFAULT_CLAUDE_CODE_MOCK_CLI_TRAFFIC_ENDPOINT,
-  type ClaudeCodeMockCliTrafficConfig,
   PromptInput,
+  PromptMode,
   ProjectExecutionDefaults,
   PermissionEscalation,
   ResolvedThreadExecutionOptions,
@@ -17,7 +10,6 @@ import {
   Thread,
   ClientTurnRequestId,
   EnvironmentStatus,
-  WorkspaceProvisionType,
   promptInputHasCommandMention,
 } from "@bb/domain";
 import {
@@ -39,7 +31,6 @@ import {
   type ResolvedThreadRuntimeCommandConfig,
   type ThreadRuntimeCommandEnvironment,
 } from "./thread-runtime-config.js";
-import { resolveWorkflowsEnabledPolicy } from "./thread-default-policy.js";
 import {
   buildExistingThreadExecutionInput,
   resolveExistingThreadExecutionPlan,
@@ -47,32 +38,20 @@ import {
 } from "./thread-execution-plan.js";
 import { clampPermissionModeToHost } from "../hosts/permission-ceiling.js";
 import type { ProviderRegistryService } from "../providers/provider-registry.js";
+import { resolveProviderPlanCommand } from "../providers/provider-plan-command.js";
 import { workspaceContextFromPath } from "../environments/workspace-command-target.js";
-import { resolveAcpLaunchSpecForProviderId } from "../system/acp-launch-spec.js";
 import {
   requireBridgeLaunchForProviderId,
   resolveBridgeLaunchForProviderId,
 } from "../system/provider-bridge-launch.js";
-import {
-  runTurnPreflight,
-  type TurnDispatchIntent,
-} from "./turn-preflight.js";
 
-export type ExecutionOptionsRequest = ExistingThreadExecutionInputRequest;
+type ExecutionOptionsRequest = ExistingThreadExecutionInputRequest;
 
 export interface ThreadStopCommandArgs {
   environmentId: string;
   hostId: string;
   intent: ThreadStopIntent;
   threadId: string;
-}
-
-interface ThreadStartCommandEnvironment {
-  hostId: string;
-  id: string;
-  path: string | null;
-  status: EnvironmentStatus;
-  workspaceProvisionType: WorkspaceProvisionType;
 }
 
 interface ThreadHostCommandEnvironment {
@@ -87,7 +66,7 @@ interface ThreadUnarchiveCommandEnvironment {
 }
 
 export interface ThreadStartCommandArgs {
-  environment: ThreadStartCommandEnvironment;
+  environment: ThreadRuntimeCommandEnvironment;
   execution: ResolvedThreadExecutionOptions;
   // Non-null ⇒ clone the parent's provider session at its branch point (native
   // fork) instead of starting fresh. null ⇒ a normal start.
@@ -100,12 +79,9 @@ export interface ThreadStartCommandArgs {
   requestId: ClientTurnRequestId;
   syncGeneratedTitle: boolean;
   thread: Thread;
-  /** Required so every provider-bound call site explicitly opts in or out. */
-  turnDispatch: TurnDispatchIntent | null;
 }
 
 interface PreparedTurnSubmitCommandBuildArgs {
-  claudeCodeMockCliTraffic: ClaudeCodeMockCliTrafficConfig;
   deps: Pick<
     AppDeps,
     "config" | "db" | "providerRegistry" | "pluginHostArtifacts"
@@ -131,8 +107,6 @@ interface PrepareTurnSubmitCommandPayloadArgs {
   providerThreadId?: string;
   target: TurnSubmitTarget;
   thread: Thread;
-  /** Required so non-turn command reuse cannot accidentally run preflight. */
-  turnDispatch: TurnDispatchIntent | null;
 }
 
 interface FinalizeTurnSubmitCommandPayloadArgs {
@@ -146,16 +120,14 @@ export type PreparedTurnSubmitCommandPayload = Omit<
 >;
 
 interface RuntimeExecutionOptionsArgs {
-  claudeCodeMockCliTraffic: ClaudeCodeMockCliTrafficConfig;
   deps: Pick<AppDeps, "db" | "providerRegistry">;
   execution: ResolvedThreadExecutionOptions;
   hostId: string;
   input: PromptInput[];
   permissionEscalation: PermissionEscalation;
+  projectId: string;
   providerId: string;
-  memoryEnabled: boolean;
-  providerSubagentsEnabled: boolean;
-  workflowsEnabled: boolean;
+  threadId: string;
 }
 
 interface BuildExecutionOptionsArgs {
@@ -164,11 +136,6 @@ interface BuildExecutionOptionsArgs {
   projectDefaults?: ProjectExecutionDefaults | null;
   threadId: string;
 }
-
-type BuildExecutionOptionsSource =
-  | "client/thread/start"
-  | "client/turn/requested"
-  | "client/turn/start";
 
 interface DispatchThreadRenameCommandArgs {
   environment: ThreadHostCommandEnvironment;
@@ -191,7 +158,13 @@ function providerSupportsThreadRename(
   registry: ProviderRegistryService,
   providerId: string,
 ): boolean {
-  return registry.supportsThreadRename(providerId);
+  const registration = registry.get(providerId);
+  if (!registration) {
+    // Unregistered ids (dynamic/custom ACP agents) keep receiving renames,
+    // exactly as they did before the registry.
+    return true;
+  }
+  return registration.info.capabilities.supportsThreadRename;
 }
 
 function providerSupportsThreadArchiveForwarding(
@@ -205,48 +178,23 @@ function providerSupportsThreadArchiveForwarding(
   return registration.info.capabilities.supportsThreadArchive;
 }
 
-function resolveClaudeCodeMockCliTrafficConfig(
-  deps: Pick<AppDeps, "db">,
-): ClaudeCodeMockCliTrafficConfig {
-  return {
-    enabled: getExperiments(deps.db).claudeCodeMockCliTraffic,
-    endpoint: DEFAULT_CLAUDE_CODE_MOCK_CLI_TRAFFIC_ENDPOINT,
-  };
-}
-
-function resolveProviderMemoryEnabled(
-  deps: Pick<AppDeps, "db">,
-  providerId: string,
-): boolean {
-  const settings = getAppSettings(deps.db);
-  if (providerId === "codex") return settings.codexMemoryEnabled;
-  if (providerId === "claude-code") return settings.claudeCodeMemoryEnabled;
-  return false;
-}
-
-function resolveProviderSubagentsEnabled(
-  deps: Pick<AppDeps, "db">,
-  providerId: string,
-): boolean {
-  const settings = getAppSettings(deps.db);
-  if (providerId === "codex") return !settings.codexSubagentsDisabled;
-  if (providerId === "claude-code") {
-    return !settings.claudeCodeSubagentsDisabled;
-  }
-  return true;
-}
-
-function resolveProviderWorkflowsEnabled(
-  deps: Pick<AppDeps, "db" | "providerRegistry">,
-  providerId: string,
-): boolean {
-  if (!resolveWorkflowsEnabledPolicy(deps.providerRegistry, providerId)) {
-    return false;
-  }
-  if (providerId === "claude-code") {
-    return !getAppSettings(deps.db).claudeCodeWorkflowsDisabled;
-  }
-  return true;
+/**
+ * The BB prompt mode this prompt entered, if any. Plan mode is entered through
+ * the provider's declared `plan` composer action, so a provider that declares
+ * none never sees `promptMode` — the `/plan` text stays an ordinary mention.
+ */
+function resolvePromptMode(
+  registry: ProviderRegistryService,
+  args: { input: PromptInput[]; providerId: string },
+): PromptMode | undefined {
+  const planCommand = resolveProviderPlanCommand(registry, args.providerId);
+  if (planCommand === null) return undefined;
+  return promptInputHasCommandMention(args.input, {
+    trigger: planCommand.trigger,
+    name: planCommand.name,
+  })
+    ? "plan"
+    : undefined;
 }
 
 /**
@@ -262,22 +210,28 @@ function toRuntimeExecutionOptions(
     permissionMode: args.execution.permissionMode,
     providerId: args.providerId,
   });
-  const claudeCodePermissionMode: "plan" | undefined =
-    args.providerId === "claude-code" &&
-    promptInputHasCommandMention(args.input, { trigger: "/", name: "plan" })
-      ? "plan"
-      : undefined;
+  const promptMode = resolvePromptMode(args.deps.providerRegistry, {
+    input: args.input,
+    providerId: args.providerId,
+  });
+  // The owning plugin derives its provider-scoped options per command; an
+  // unregistered id (a provider whose plugin is disabled mid-thread) derives
+  // none. A hook that throws fails the command with the plugin named rather
+  // than running the turn with default knobs.
+  const providerOptions =
+    args.deps.providerRegistry.get(args.providerId)?.deriveProviderOptions({
+      threadId: args.threadId,
+      projectId: args.projectId,
+      model: args.execution.model,
+      permissionMode,
+      ...(promptMode !== undefined ? { promptMode } : {}),
+    }) ?? {};
   const base = {
     model: args.execution.model,
     serviceTier: args.execution.serviceTier,
     reasoningLevel: args.execution.reasoningLevel,
-    ...(claudeCodePermissionMode !== undefined
-      ? { claudeCodePermissionMode }
-      : {}),
-    claudeCodeMockCliTraffic: args.claudeCodeMockCliTraffic,
-    workflowsEnabled: args.workflowsEnabled,
-    memoryEnabled: args.memoryEnabled,
-    providerSubagentsEnabled: args.providerSubagentsEnabled,
+    ...(promptMode !== undefined ? { promptMode } : {}),
+    providerOptions,
   };
   if (permissionMode === "full") {
     return {
@@ -310,14 +264,13 @@ export async function buildExecutionOptions(
   deps: Pick<AppDeps, "db" | "hub" | "providerRegistry">,
   request: ExecutionOptionsRequest,
   args: BuildExecutionOptionsArgs,
-  source: BuildExecutionOptionsSource,
 ): Promise<ResolvedThreadExecutionOptions> {
   const plan = await resolveExistingThreadExecutionPlan(deps, {
     ...(args.projectDefaults !== undefined
       ? { projectDefaults: args.projectDefaults }
       : {}),
     ...(args.hostId !== undefined ? { hostId: args.hostId } : {}),
-    executionSource: source,
+    executionSource: "client/turn/requested",
     input: buildExistingThreadExecutionInput(request),
     threadId: args.threadId,
   });
@@ -332,41 +285,12 @@ export async function buildThreadStartCommand(
   // plugins load after the listener starts serving. Wait, or a turn submitted
   // during that window has no bridgeLaunch to carry and is refused.
   await deps.providerRegistry.whenRegistrationsSettled();
-  const preflight =
-    args.turnDispatch === null
-      ? {
-          input: args.input,
-          inputGroups: args.inputGroups,
-          bindingOverride: null,
-        }
-      : await runTurnPreflight(deps, {
-          threadId: args.thread.id,
-          projectId: args.projectId,
-          environmentId: args.environment.id,
-          providerId: args.providerId,
-          model: args.execution.model,
-          intent: args.turnDispatch,
-        });
-  const providerId =
-    preflight.bindingOverride?.providerId ?? args.providerId;
-  const execution =
-    preflight.bindingOverride?.model === undefined
-      ? args.execution
-      : { ...args.execution, model: preflight.bindingOverride.model };
-  const runtimeThread =
-    providerId === args.thread.providerId
-      ? args.thread
-      : { ...args.thread, providerId };
   const runtimeContext = await resolveThreadRuntimeCommandConfig(deps, {
-    thread: runtimeThread,
+    thread: args.thread,
     environment: args.environment,
-    model: execution.model,
+    model: args.execution.model,
   });
-  const acpLaunchSpec = resolveAcpLaunchSpecForProviderId(
-    deps,
-    providerId,
-  );
-  const bridgeLaunch = requireBridgeLaunchForProviderId(deps, providerId);
+  const bridgeLaunch = requireBridgeLaunchForProviderId(deps, args.providerId);
   return {
     type: "thread.start",
     environmentId: args.environment.id,
@@ -376,28 +300,19 @@ export async function buildThreadStartCommand(
       workspaceProvisionType: runtimeContext.workspaceProvisionType,
     }),
     projectId: args.projectId,
-    providerId,
-    ...(acpLaunchSpec !== undefined ? { acpLaunchSpec } : {}),
+    providerId: args.providerId,
     bridgeLaunch,
     requestId: args.requestId,
-    input: preflight.input,
-    ...(preflight.inputGroups !== undefined
-      ? { inputGroups: preflight.inputGroups }
+    input: args.input,
+    ...(args.inputGroups !== undefined
+      ? { inputGroups: args.inputGroups }
       : {}),
     options: toRuntimeExecutionOptions({
       ...args,
-      execution,
       deps,
       hostId: args.environment.hostId,
-      claudeCodeMockCliTraffic: resolveClaudeCodeMockCliTrafficConfig(deps),
-      providerId,
-      memoryEnabled: resolveProviderMemoryEnabled(deps, providerId),
-      providerSubagentsEnabled: resolveProviderSubagentsEnabled(
-        deps,
-        providerId,
-      ),
-      workflowsEnabled: resolveProviderWorkflowsEnabled(deps, providerId),
-      input: preflight.input,
+      input: args.input,
+      threadId: args.thread.id,
     }),
     instructions: runtimeContext.instructions,
     dynamicTools: runtimeContext.dynamicTools,
@@ -411,10 +326,6 @@ export async function buildThreadStartCommand(
 function buildPreparedTurnSubmitCommandPayload(
   args: PreparedTurnSubmitCommandBuildArgs,
 ): PreparedTurnSubmitCommandPayload {
-  const acpLaunchSpec = resolveAcpLaunchSpecForProviderId(
-    args.deps,
-    args.runtimeContext.providerId,
-  );
   const bridgeLaunch = requireBridgeLaunchForProviderId(
     args.deps,
     args.runtimeContext.providerId,
@@ -423,7 +334,6 @@ function buildPreparedTurnSubmitCommandPayload(
     type: "turn.submit",
     environmentId: args.environmentId,
     threadId: args.threadId,
-    ...(acpLaunchSpec !== undefined ? { acpLaunchSpec } : {}),
     bridgeLaunch,
     input: args.input,
     ...(args.inputGroups !== undefined
@@ -431,21 +341,9 @@ function buildPreparedTurnSubmitCommandPayload(
       : {}),
     options: toRuntimeExecutionOptions({
       ...args,
-      claudeCodeMockCliTraffic: args.claudeCodeMockCliTraffic,
       input: args.input,
+      projectId: args.runtimeContext.projectId,
       providerId: args.runtimeContext.providerId,
-      memoryEnabled: resolveProviderMemoryEnabled(
-        args.deps,
-        args.runtimeContext.providerId,
-      ),
-      providerSubagentsEnabled: resolveProviderSubagentsEnabled(
-        args.deps,
-        args.runtimeContext.providerId,
-      ),
-      workflowsEnabled: resolveProviderWorkflowsEnabled(
-        args.deps,
-        args.runtimeContext.providerId,
-      ),
     }),
     target: args.target,
     resumeContext: {
@@ -455,7 +353,6 @@ function buildPreparedTurnSubmitCommandPayload(
       }),
       projectId: args.runtimeContext.projectId,
       providerId: args.runtimeContext.providerId,
-      ...(acpLaunchSpec !== undefined ? { acpLaunchSpec } : {}),
       bridgeLaunch,
       providerThreadId: args.providerThreadId,
       instructions: args.runtimeContext.instructions,
@@ -484,62 +381,20 @@ export async function prepareTurnSubmitCommandPayload(
     args.providerThreadId ?? getLastProviderThreadId(deps, args.thread.id),
     args.thread.id,
   );
-  const preflight =
-    args.turnDispatch === null
-      ? {
-          input: args.input,
-          inputGroups: args.inputGroups,
-          bindingOverride: null,
-        }
-      : await runTurnPreflight(deps, {
-          threadId: args.thread.id,
-          projectId: args.thread.projectId,
-          environmentId: args.environment.id,
-          providerId: args.thread.providerId,
-          model: args.execution.model,
-          intent: args.turnDispatch,
-        });
-  const requestedProviderId = preflight.bindingOverride?.providerId;
-  const providerOverrideIsUnsafe =
-    requestedProviderId !== undefined &&
-    requestedProviderId !== args.thread.providerId;
-  if (providerOverrideIsUnsafe) {
-    deps.logger.warn(
-      {
-        requestedProviderId,
-        threadId: args.thread.id,
-        threadProviderId: args.thread.providerId,
-      },
-      "Ignoring plugin turn preflight provider override for a warm provider session",
-    );
-  }
-  const providerId =
-    providerOverrideIsUnsafe || requestedProviderId === undefined
-      ? args.thread.providerId
-      : requestedProviderId;
-  const execution =
-    preflight.bindingOverride?.model === undefined
-      ? args.execution
-      : { ...args.execution, model: preflight.bindingOverride.model };
-  const runtimeThread =
-    providerId === args.thread.providerId
-      ? args.thread
-      : { ...args.thread, providerId };
   const runtimeContext = await resolveThreadRuntimeCommandConfig(deps, {
-    thread: runtimeThread,
+    thread: args.thread,
     environment: args.environment,
-    model: execution.model,
+    model: args.execution.model,
   });
   return buildPreparedTurnSubmitCommandPayload({
-    claudeCodeMockCliTraffic: resolveClaudeCodeMockCliTrafficConfig(deps),
     deps,
     environmentId: args.environment.id,
     hostId: args.environment.hostId,
-    execution,
+    execution: args.execution,
     permissionEscalation: args.permissionEscalation,
-    input: preflight.input,
-    ...(preflight.inputGroups !== undefined
-      ? { inputGroups: preflight.inputGroups }
+    input: args.input,
+    ...(args.inputGroups !== undefined
+      ? { inputGroups: args.inputGroups }
       : {}),
     providerThreadId,
     runtimeContext,

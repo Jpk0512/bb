@@ -1,3 +1,4 @@
+import { getThread, type DbTransaction } from "@bb/db";
 import {
   getLatestStoredEventRowByType,
   getThread,
@@ -8,7 +9,6 @@ import {
   systemThreadProvisioningEventDataSchema,
   type Environment,
   type PromptInput,
-  type ProvisioningTranscriptEntry,
   type ResolvedThreadExecutionOptions,
   type SystemMessageKind,
   type SystemMessageSubject,
@@ -27,7 +27,6 @@ import {
 import { requestThreadStart } from "./thread-lifecycle.js";
 import { resolvePermissionEscalation } from "./thread-runtime-config.js";
 import {
-  attachedEnvironmentIdForContext,
   createMetadataPendingContext,
   createReprovisioningContext,
   type ThreadForkDescriptor,
@@ -38,15 +37,14 @@ import {
 import {
   ensureThreadProvisionEnvironmentReady,
   ensureWorkspaceReadyEvent,
-  ensureWorkspaceReadyEventInTransaction,
   failThreadProvisioning,
   loadActiveThreadProvisionContext,
-  saveThreadProvisionContext,
   type ThreadProvisioningDeps,
 } from "./thread-provisioning-environment.js";
 import {
   forgetActiveThreadProvisionContext,
   getActiveThreadProvisionContext,
+  rememberActiveThreadProvisionContext,
 } from "./thread-provisioning-active-context.js";
 import { applyLoggedThreadLifecycleEvent } from "./lifecycle-outcome.js";
 import { recordAcceptedPromptHistoryEntry } from "../prompt-history.js";
@@ -94,27 +92,14 @@ interface CurrentProvisioningFailureThreadArgs {
   threadId: string;
 }
 
-interface RecordThreadProvisionWorkspaceReadyArgs {
-  entries: ProvisioningTranscriptEntry[];
-  environmentId: string;
-  threadId: string;
-}
-
-interface ThreadProvisionWorkspaceReadyTransactionDeps {
-  db: DbTransaction;
-  hub: DbNotifier;
-}
-
 interface EnvironmentPayloadThreadArgs {
   context: ThreadProvisionProvisionableContext;
   environment: Environment;
   thread: Thread;
 }
 
-type CurrentProvisioningFailureThreadDeps = Pick<AppDeps, "db">;
-
 function getCurrentProvisioningFailureThread(
-  deps: CurrentProvisioningFailureThreadDeps,
+  deps: Pick<AppDeps, "db">,
   args: CurrentProvisioningFailureThreadArgs,
 ): Thread | null {
   const currentThread = getThread(deps.db, args.threadId);
@@ -309,7 +294,7 @@ export function requestThreadProvision(
     senderThreadId,
     seedWithoutRun: args.startedOnBehalfOf !== null,
   });
-  saveThreadProvisionContext({
+  rememberActiveThreadProvisionContext({
     threadId: args.thread.id,
     context,
   });
@@ -379,7 +364,7 @@ export function requestThreadReprovision(
     initiator: args.initiator,
     senderThreadId: args.senderThreadId,
   });
-  saveThreadProvisionContext({
+  rememberActiveThreadProvisionContext({
     threadId: args.thread.id,
     context,
   });
@@ -476,8 +461,7 @@ async function advanceThreadProvisioningOnce(
     const detail = error instanceof Error ? error.message : String(error);
     failThreadProvisioning(deps, {
       thread: failureThread,
-      environmentId:
-        attachedEnvironmentIdForContext(context) ?? failureThread.environmentId,
+      environmentId: context.state.environmentId ?? failureThread.environmentId,
       detail,
     });
   }

@@ -41,7 +41,7 @@ type EnvironmentProvisionCommand = Extract<
 type EnvironmentProvisionCommandInitiator =
   EnvironmentProvisionCommand["initiator"];
 
-export interface ManagedBranchNameArgs {
+interface ManagedBranchNameArgs {
   branchSlug?: string | null;
   threadId: string;
 }
@@ -92,7 +92,7 @@ export type UnmanagedCheckoutCommand =
   | { kind: "existing"; name: string }
   | { kind: "new"; name: string; baseBranch: string };
 
-export type EnvironmentProvisionCommandArgs =
+type EnvironmentProvisionCommandArgs =
   | {
       workspaceProvisionType: "unmanaged";
       environmentId: string;
@@ -206,7 +206,7 @@ export function createThreadRecord(
           }
         : {}),
       visibility: args.request.visibility,
-      status: args.status ?? "starting",
+      status: "starting",
     });
     emitPluginThreadCreated(thread);
     if (thread.parentThreadId !== null && thread.childKind !== null) {
