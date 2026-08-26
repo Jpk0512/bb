@@ -54,6 +54,7 @@ function seedMessages(
       scope: threadScope(),
       itemId: null,
       itemKind: null,
+      parentToolCallId: null,
       data: JSON.stringify({
         direction: "outbound",
         source: "spawn",

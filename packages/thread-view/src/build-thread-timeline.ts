@@ -113,6 +113,7 @@ interface ThreadTimelineFromEventsBaseOptions {
 }
 
 interface ThreadTimelineFromEventsOptions extends ThreadTimelineFromEventsBaseOptions {
+  includeDebugRawEvents?: boolean;
   includeNestedRows: boolean;
   turnMessageDetail: ThreadTimelineTurnMessageDetail;
 }
@@ -889,6 +890,8 @@ function convertMessage(
         },
       ];
     }
+    case "debug/raw-event":
+      return [];
     default:
       return assertNever(message);
   }

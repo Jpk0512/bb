@@ -17,6 +17,7 @@ export {
   buildFixedPanelTabId,
   createThreadInfoFixedPanelTab,
   createGitDiffFixedPanelTab,
+  createFilesFixedPanelTab,
   createPluginPageFixedPanelTab,
   createPluginPanelFixedPanelTab,
   createWorkspaceFilePreviewFixedPanelTab,

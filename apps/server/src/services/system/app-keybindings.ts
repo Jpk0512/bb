@@ -144,7 +144,7 @@ export const DEFAULT_APP_KEYBINDINGS: AppDefaultKeybindings = [
     ...mainWithoutModal,
     desktopOnly: true,
   }),
-  binding("command.palette", "k", { mod: true }, mainWithoutModal),
+  binding("palette.open", "k", { mod: true }, mainWithoutModal),
   unassignedBinding("thread.rename", mainWithoutModal),
   unassignedBinding("thread.archive", mainWithoutModal),
   binding("settings.open", ",", { mod: true }, mainWithoutModal),

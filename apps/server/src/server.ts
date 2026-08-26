@@ -432,23 +432,6 @@ async function findPrecompressedStaticFile(args: {
   return null;
 }
 
-function buildAllowedCorsOrigins(deps: AppDeps): Set<string> {
-  const originArgs: BuildLocalAppOriginsArgs = {
-    serverPort: deps.config.serverPort,
-  };
-  if (deps.config.appUrl !== undefined) {
-    originArgs.appUrl = deps.config.appUrl;
-  }
-  if (deps.config.devAppPort !== undefined) {
-    originArgs.devAppPort = deps.config.devAppPort;
-  }
-  if (deps.config.additionalAppOrigins !== undefined) {
-    originArgs.additionalOrigins = deps.config.additionalAppOrigins;
-  }
-
-  return new Set<string>(buildLocalAppOrigins(originArgs));
-}
-
 function closeWebSocketServer(args: CloseWebSocketServerArgs): Promise<void> {
   for (const client of args.server.clients) {
     client.close(WEB_SOCKET_SHUTDOWN_CODE, args.reason);

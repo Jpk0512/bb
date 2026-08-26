@@ -150,6 +150,7 @@ function extensionItemEvent(
   kind: ExtensionKind = GOAL_KIND,
 ): HostDaemonEventEnvelope {
   return {
+    eventId: `devt_ext_1`,
     threadId,
     event: {
       type: "item/started",
@@ -177,6 +178,7 @@ function extensionStateEvent(
   kind: ExtensionKind = GOAL_KIND,
 ): HostDaemonEventEnvelope {
   return {
+    eventId: `devt_ext_2`,
     threadId,
     event: {
       type: "thread/extensionState/updated",
@@ -191,6 +193,7 @@ function extensionStateEvent(
 
 function turnStarted(threadId: string): HostDaemonEventEnvelope {
   return {
+    eventId: `devt_ext_3`,
     threadId,
     event: {
       type: "turn/started",
@@ -209,6 +212,7 @@ describe("extension payload ingest validation", () => {
         turnStarted(thread.id),
         extensionItemEvent(thread.id, { objective: "Ship it" }),
         {
+          eventId: `devt_ext_inline_4`,
           threadId: thread.id,
           event: {
             type: "thread/extensionState/updated",
@@ -247,6 +251,7 @@ describe("extension payload ingest validation", () => {
         turnStarted(thread.id),
         extensionItemEvent(thread.id, { objective: 42 }),
         {
+          eventId: `devt_ext_inline_5`,
           threadId: thread.id,
           event: {
             type: "thread/extensionState/updated",

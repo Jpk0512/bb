@@ -142,12 +142,12 @@ export function readSequenceCursor(
   return { kind, sequenceStart: cursor.anchorSeq };
 }
 
-interface LatestThreadTimelinePageRequest {
+export interface LatestThreadTimelinePageRequest {
   kind: "latest";
   segmentLimit: number;
 }
 
-interface OlderThreadTimelinePageRequest {
+export interface OlderThreadTimelinePageRequest {
   beforeCursor: TimelinePaginationCursor;
   kind: "older";
   segmentLimit: number;

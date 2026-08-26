@@ -95,7 +95,6 @@ function renderSidebarItems(
           <SidebarProvider>
             <PluginNavSidebarItems
               toolsRoutePath={options.toolsRoutePath}
-              inboxRoutePath={options.inboxRoutePath}
             />
           </SidebarProvider>
         </MemoryRouter>

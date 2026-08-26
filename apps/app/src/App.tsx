@@ -403,7 +403,7 @@ export function App() {
               {/* First-run onboarding. Outside <Routes> so it is not tied to a
                   page. It self-gates on the experiment and completion timestamp. */}
               <OnboardingHost />
-              <CommandPalette />
+              <CommandPalette threadId={null} projectId={null} />
             </AppFileExternalNavigationHost>
           </AppNavigationUrlHost>
         </RouteNavigationProvider>

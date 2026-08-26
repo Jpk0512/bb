@@ -20,11 +20,17 @@ import {
 } from "@bb/domain";
 import {
   type PluginCliExecutionResult,
+  type BindingLifecycleSignal,
+  type ProviderEventObservation,
   type PluginRpcError,
   type PluginRpcValidationIssue,
   type StandardSchemaV1,
   type StandardSchemaV1Issue,
   type StandardSchemaV1Result,
+  type TurnPreflightContext,
+  type TurnPreflightDecision,
+  type TurnSettledSignal,
+  type PluginInteractionResult,
 } from "@get-bb/plugin-sdk";
 import {
   assertNoRecursiveJsonSchemaReferences,
@@ -42,6 +48,7 @@ import {
   buildPluginHost,
   createPluginDevLoop,
 } from "@bb/plugin-build";
+import type { PluginRealtimeChannelContribution } from "../../ws/plugin-realtime.js";
 import { getPluginBuildToolchain } from "./build-toolchain.js";
 import {
   marketplacePublisherLabels,
@@ -140,6 +147,11 @@ export type {
   PluginThreadEventEmitter,
   PluginWireLookup,
 } from "./plugin-service-internal.js";
+
+export interface PluginTurnPreflightResult {
+  decisions: Array<{ pluginId: string; decision: TurnPreflightDecision }>;
+  timedOut: boolean;
+}
 
 export interface PluginSkillRootContribution {
   pluginId: string;
@@ -413,6 +425,21 @@ export interface PluginService {
     context: PluginAgentConfigurationContext;
     skillIdsByPlugin: ReadonlyMap<string, readonly string[]>;
   }): Promise<PluginResolvedAgentConfiguration>;
+  runTurnPreflight(args: {
+    context: TurnPreflightContext;
+    deadlineAt: number;
+  }): Promise<PluginTurnPreflightResult>;
+  requestTurnPreflightApproval(args: {
+    pluginId: string;
+    threadId: string;
+    rendererId: string;
+    title: string;
+    payload: JsonValue;
+    timeoutMs: number;
+  }): Promise<PluginInteractionResult>;
+  dispatchProviderEvents(observations: ProviderEventObservation[]): void;
+  dispatchTurnSettled(signal: TurnSettledSignal): void;
+  dispatchBindingLifecycle(signal: BindingLifecycleSignal): void;
   /**
    * Dynamic instruction providers from bb.agents.contributeInstructions,
    * ordered by plugin id. Resolved live at thread.start/turn.submit;
@@ -442,6 +469,7 @@ export interface PluginService {
    * GET /plugins/contributions. No plugin code runs.
    */
   listMentionProviderContributions(): PluginMentionProviderContribution[];
+  listRealtimeChannelContributions(): PluginRealtimeChannelContribution[];
   /**
    * Run every loaded plugin's mention providers against one composer query
    * (design §4.9). Providers run concurrently, each wrapped in the
@@ -1008,6 +1036,8 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
   // up; the dot prefix cannot collide with setting keys (they must match
   // /^[a-zA-Z0-9_-]+$/).
   const HTTP_TOKEN_FILE = ".http-token";
+
+  const settledTurnKeys = new Set<string>();
 
   const {
     REGISTRATION_MUTATION_KEY,
@@ -1687,6 +1717,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     async stop() {
       for (const watcher of builtinSourceWatchers.splice(0)) watcher.close();
       await disposeAll();
+      settledTurnKeys.clear();
       await syncCliSkill();
       notifyPluginsChanged();
     },
@@ -2272,6 +2303,84 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
       return { tools, selectedSkillIdsByPlugin, dynamicInstructions };
     },
 
+    async runTurnPreflight({ context, deadlineAt }) {
+      const decisions: PluginTurnPreflightResult["decisions"] = [];
+      for (const [pluginId, plugin] of [...loaded.entries()].sort(([a], [b]) =>
+        a.localeCompare(b),
+      )) {
+        for (const handler of [...plugin.handle.runtimeHooks.turnPreflightHandlers]) {
+          const remainingMs = deadlineAt - Date.now();
+          if (remainingMs <= 0) return { decisions, timedOut: true };
+          const invocation = invokeWrapped(pluginId, "turn preflight handler", () => handler(context));
+          let timer: NodeJS.Timeout | undefined;
+          const outcome = await Promise.race([
+            invocation.then((result) => ({ kind: "settled" as const, result })),
+            new Promise<{ kind: "timeout" }>((resolve) => {
+              timer = setTimeout(() => resolve({ kind: "timeout" }), remainingMs);
+              timer.unref?.();
+            }),
+          ]);
+          if (timer !== undefined) clearTimeout(timer);
+          if (outcome.kind === "timeout") return { decisions, timedOut: true };
+          if (!outcome.result.ok) continue;
+          const decision = outcome.result.value;
+          if (decision === null || typeof decision !== "object" || !("kind" in decision)) continue;
+          decisions.push({ pluginId, decision });
+          if (decision.kind === "reject" || decision.kind === "require-approval") {
+            return { decisions, timedOut: false };
+          }
+        }
+      }
+      return { decisions, timedOut: false };
+    },
+
+    requestTurnPreflightApproval(args) {
+      const plugin = loaded.get(args.pluginId);
+      if (!plugin) {
+        return Promise.resolve({ outcome: "cancelled", reason: "plugin-disposed" });
+      }
+      return plugin.handle.api.ui.requestInput({
+        threadId: args.threadId,
+        rendererId: args.rendererId,
+        title: args.title,
+        payload: args.payload,
+        timeoutMs: args.timeoutMs,
+      });
+    },
+
+    dispatchProviderEvents(observations) {
+      if (observations.length === 0) return;
+      for (const [pluginId, plugin] of [...loaded.entries()]) {
+        for (const record of [...plugin.handle.runtimeHooks.providerEventHandlers]) {
+          for (const observation of observations) {
+            if (record.eventTypes !== null && !record.eventTypes.has(observation.event.type)) continue;
+            void invokeWrapped(pluginId, "provider event handler", () => record.handler(observation));
+          }
+        }
+      }
+    },
+
+    dispatchTurnSettled(signal) {
+      if (signal.turnId !== null) {
+        const key = `${signal.threadId} ${signal.turnId}`;
+        if (settledTurnKeys.has(key)) return;
+        settledTurnKeys.add(key);
+      }
+      for (const [pluginId, plugin] of [...loaded.entries()]) {
+        for (const handler of [...plugin.handle.runtimeHooks.turnSettledHandlers]) {
+          void invokeWrapped(pluginId, "turn settled handler", () => handler(signal));
+        }
+      }
+    },
+
+    dispatchBindingLifecycle(signal) {
+      for (const [pluginId, plugin] of [...loaded.entries()]) {
+        for (const handler of [...plugin.handle.runtimeHooks.bindingLifecycleHandlers]) {
+          void invokeWrapped(pluginId, "binding lifecycle handler", () => handler(signal));
+        }
+      }
+    },
+
     listInstructionContributions() {
       const out: PluginInstructionContribution[] = [];
       for (const [id, plugin] of [...loaded.entries()].sort(([a], [b]) =>
@@ -2321,6 +2430,10 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
           },
         ],
       };
+    },
+
+    listRealtimeChannelContributions() {
+      return deps.pluginRealtime?.listChannelContributions() ?? [];
     },
 
     listMentionProviderContributions() {

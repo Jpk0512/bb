@@ -715,6 +715,9 @@ export function ThreadDetailPromptArea({
     initialPermissionMode: defaultExecutionOptions?.permissionMode,
     initialEnvironmentSelectionValue: thread.environmentId ?? undefined,
   });
+  const selectedProviderDisplayName =
+    providerOptions.find((option) => option.value === selectedProviderId)
+      ?.label ?? selectedProviderId;
   const fallbackIdentity = modelFallback
     ? `${thread.id}:${modelFallback.sourceSeq}`
     : null;

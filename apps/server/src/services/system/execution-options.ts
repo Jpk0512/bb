@@ -8,11 +8,13 @@ import type {
 import { type CustomProviderModel } from "@bb/config/bb-app-managed-config";
 import {
   providerModelCatalogDependsOnWorkspace,
+  isModelDisabled,
   reasoningEffortsForLevels,
   type AvailableModel,
+  type DisabledModels,
   type ProviderInfo,
 } from "@bb/domain";
-import { getAppSettings } from "@bb/db";
+import { getAppSettings, getDisabledModels } from "@bb/db";
 import { type HostDaemonRetryableOnlineRpcCommand } from "@bb/host-daemon-contract";
 import type { ProviderModelListMemoValue } from "../../lifecycle-dedupers.js";
 import type { LoggedWorkSessionDeps } from "../../types.js";
@@ -299,7 +301,7 @@ export async function resolveSystemProviderModels(
     hostId: args.hostId,
     provider,
   });
-  const { models, selectedOnlyModels } = appendCustomModels(
+  const withCustomModels = appendCustomModels(
     deps.providerRegistry,
     {
       customModels: deps.config.customModels,
@@ -308,6 +310,12 @@ export async function resolveSystemProviderModels(
       selectedOnlyModels: result.selectedOnlyModels,
     },
   );
+  const { models, selectedOnlyModels } = applyDisabledModels({
+    disabledModels: getDisabledModels(deps.db),
+    models: withCustomModels.models,
+    providerId: provider.id,
+    selectedOnlyModels: withCustomModels.selectedOnlyModels,
+  });
   return {
     models,
     selectedOnlyModels,
@@ -408,6 +416,46 @@ export function appendCustomModels(
   };
 }
 
+interface ApplyDisabledModelsArgs {
+  disabledModels: DisabledModels;
+  models: AvailableModel[];
+  providerId: string;
+  selectedOnlyModels: AvailableModel[];
+}
+
+/**
+ * Apply the user's model curation to one provider's catalog.
+ *
+ * Disabled models are **demoted into `selectedOnlyModels`, never removed**.
+ */
+export function applyDisabledModels({
+  disabledModels,
+  models,
+  providerId,
+  selectedOnlyModels,
+}: ApplyDisabledModelsArgs): AppendCustomModelsResult {
+  if (disabledModels.length === 0) {
+    return { models, selectedOnlyModels };
+  }
+
+  const kept: AvailableModel[] = [];
+  const demoted: AvailableModel[] = [];
+  for (const model of models) {
+    if (isModelDisabled(disabledModels, { providerId, model: model.model })) {
+      demoted.push(model);
+      continue;
+    }
+    kept.push(model);
+  }
+  if (demoted.length === 0) {
+    return { models, selectedOnlyModels };
+  }
+  return {
+    models: kept,
+    selectedOnlyModels: [...selectedOnlyModels, ...demoted],
+  };
+}
+
 export async function resolveSystemExecutionOptions(
   deps: LoggedWorkSessionDeps,
   query: SystemExecutionOptionsRequest,
@@ -479,7 +527,7 @@ export async function resolveSystemExecutionOptions(
   }
 
   if (hostId === null) {
-    const { models, selectedOnlyModels } = appendCustomModels(
+    const hostlessCustomModels = appendCustomModels(
       deps.providerRegistry,
       {
         customModels: listVisibleCustomModels(deps),
@@ -488,6 +536,12 @@ export async function resolveSystemExecutionOptions(
         selectedOnlyModels: [],
       },
     );
+    const { models, selectedOnlyModels } = applyDisabledModels({
+      disabledModels: getDisabledModels(deps.db),
+      models: hostlessCustomModels.models,
+      providerId: modelsProvider.id,
+      selectedOnlyModels: hostlessCustomModels.selectedOnlyModels,
+    });
     return {
       providers,
       permissionCeiling,
@@ -512,7 +566,7 @@ export async function resolveSystemExecutionOptions(
           provider: modelsProvider,
         });
 
-  const { models, selectedOnlyModels } = appendCustomModels(
+  const withCustomModels = appendCustomModels(
     deps.providerRegistry,
     {
       customModels: listVisibleCustomModels(deps),
@@ -521,6 +575,12 @@ export async function resolveSystemExecutionOptions(
       selectedOnlyModels: modelResult.selectedOnlyModels,
     },
   );
+  const { models, selectedOnlyModels } = applyDisabledModels({
+    disabledModels: getDisabledModels(deps.db),
+    models: withCustomModels.models,
+    providerId: modelsProvider.id,
+    selectedOnlyModels: withCustomModels.selectedOnlyModels,
+  });
 
   return {
     providers,

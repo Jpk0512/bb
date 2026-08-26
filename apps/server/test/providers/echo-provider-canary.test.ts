@@ -313,7 +313,7 @@ describe("echo-provider canary: plugin install → server command → runtime �
           body: JSON.stringify({
             sessionId: session.id,
             eventGroups: groupHostDaemonEvents([
-              { threadId: event.threadId, event },
+              { eventId: `devt_echo_${event.type}`, threadId: event.threadId, event },
             ]),
           }),
         });
@@ -585,6 +585,7 @@ describe("echo-provider canary: plugin install → server command → runtime �
         sessionId: session.id,
         eventGroups: groupHostDaemonEvents([
           {
+            eventId: "devt_echo_undeclared",
             threadId: thread.id,
             event: {
               type: "item/completed",

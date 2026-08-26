@@ -38,6 +38,24 @@ export type {
 } from "./prompt-history.js";
 
 export {
+  countUnreadNotifications,
+  countUnreadNotificationsByThread,
+  createNotification,
+  dismissNotification,
+  getNotification,
+  getNotificationWithTarget,
+  listNotifications,
+  markNotificationRead,
+} from "./notifications.js";
+export type {
+  CreateNotificationInput,
+  CreateNotificationResult,
+  ListNotificationsArgs,
+  NotificationListRow,
+  NotificationRow,
+} from "./notifications.js";
+
+export {
   getProjectExecutionDefaults,
   listProjectExecutionDefaultsByProjectIds,
   upsertProjectExecutionDefaults,
@@ -55,10 +73,13 @@ export {
   createThread,
   countLiveThreadsInEnvironment,
   countNonDeletedAssignedChildThreads,
+  findThreadSupersededBy,
   getThread,
   getThreadExecutionOverride,
   hasActiveThreadAttention,
   setThreadExecutionOverride,
+  setThreadProvider,
+  setThreadSupersededBy,
   hasLiveThreadAtHostPath,
   hasPendingThreadShutdownInEnvironment,
   hasRevivableArchivedThreadInEnvironment,
@@ -76,6 +97,7 @@ export {
   listThreadsWithPendingInteractionStateForProjects,
   pinThread,
   reorderPinnedThread,
+  revealThread,
   updateThread,
   deleteThread,
   archiveThread,
@@ -105,10 +127,34 @@ export type {
 export {
   getAppKeybindingOverrides,
   getAppSettings,
+  getDisabledModels,
   setAppKeybindingOverrides,
   setAppSettings,
+  setDisabledModels,
 } from "./app-settings.js";
+export {
+  claimDueParentNotifications,
+  countPendingParentNotifications,
+  deferPendingParentNotifications,
+  deletePendingParentNotifications,
+  insertPendingParentNotification,
+  listParentThreadIdsWithDueNotifications,
+  markParentNotificationsInboxEmitted,
+} from "./pending-parent-notifications.js";
+export type { PendingParentNotificationRow } from "./pending-parent-notifications.js";
+export {
+  getPreviousRootTurnUsage,
+  getThreadTurnRecord,
+  listThreadTurnRecords,
+  upsertThreadTurnRecord,
+} from "./thread-turns.js";
+export type {
+  GetPreviousRootTurnUsageArgs,
+  ListThreadTurnRecordsArgs,
+} from "./thread-turns.js";
 export { getStoredThreadTabs, replaceStoredThreadTabs } from "./thread-tabs.js";
+export { listThreadPluginAgentConfigRows } from "./thread-plugin-agent-configs.js";
+export type { ThreadPluginAgentConfigRow } from "./thread-plugin-agent-configs.js";
 export { getExperiments, setExperiments } from "./experiments.js";
 export {
   deleteInstalledPlugin,
@@ -241,9 +287,12 @@ export {
   hasRootStoredTurnStarted,
   hasStoredTurnStarted,
   getLastStoredProviderThreadId,
+  getProviderGenerationBoundarySequence,
+  PROVIDER_CHANGE_OPERATION,
   getLastStoredTurnRequestEvent,
   getStoredTurnRequestEventForTurn,
   getLatestThreadOutputEventRow,
+  getLatestStoredEventRowByType,
   getLatestStoredConversationOutlineSequence,
   getLatestThreadSystemErrorEventRow,
   getLatestThreadSequence,
@@ -265,6 +314,10 @@ export {
   listStoredClientTurnRequestRowsByKeys,
   listStoredEventRowsByParentToolCallIds,
   listStoredEventRows,
+  listStoredEventRowsForTurn,
+  listTurnConversationItemRows,
+  listLatestGoalEventRowsByThreadIds,
+  listStoredToolCallRowsByItemIds,
   isTimelineCursorSequencePresent,
   listItemEventSpansByItems,
   listStoredBufferedTextDeltaRowsByItems,

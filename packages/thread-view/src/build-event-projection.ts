@@ -177,6 +177,8 @@ function isEventProjectionCallMessage(
     case "web-search":
       return true;
     case "assistant-text":
+    case "child-session-lifecycle":
+    case "debug/raw-event":
     case "error":
     case "operation":
     case "permission-grant-lifecycle":
@@ -184,6 +186,10 @@ function isEventProjectionCallMessage(
     case "user-question-lifecycle":
     case "workflow":
       return false;
+    default: {
+      const _exhaustive: never = message;
+      return _exhaustive;
+    }
   }
 }
 

@@ -24,8 +24,10 @@ export function isPastTimelineRow(
     case "conversation:user":
     case "conversation:assistant":
       return false;
-    default:
-      return "status" in item.row && item.row.status === "completed";
+    default: {
+      const row = item.row as { status?: string };
+      return row.status === "completed";
+    }
   }
 }
 

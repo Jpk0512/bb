@@ -72,6 +72,16 @@ function spanKindForItem(item: ThreadEventItem): ThreadTurnSpanKind {
       return "compaction";
     case "backgroundTask":
       return "background-task";
+    case "fileRead":
+      return "message";
+    case "search":
+      return "web-search";
+    case "planSteps":
+      return "message";
+    case "delegation":
+      return "delegation";
+    case "extension":
+      return "message";
   }
 }
 
@@ -101,6 +111,16 @@ function spanNameForItem(item: ThreadEventItem): string {
       return "Context compaction";
     case "backgroundTask":
       return item.description;
+    case "fileRead":
+      return item.path;
+    case "search":
+      return item.query;
+    case "planSteps":
+      return "Plan steps";
+    case "delegation":
+      return item.label;
+    case "extension":
+      return item.presentation.title ?? item.kind;
   }
 }
 

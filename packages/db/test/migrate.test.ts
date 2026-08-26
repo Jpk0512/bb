@@ -305,6 +305,9 @@ function dropRewindAddedTables(db: DbConnection): void {
   db.$client.prepare("DROP TABLE IF EXISTS app_theme").run();
   db.$client.prepare("DROP TABLE IF EXISTS app_settings").run();
   dropAppSettingsValuesTable(db);
+  dropPhase6CharterSchema(db);
+  dropOrchestratorModelPolicySchema(db);
+  dropDaemonEventIdSchema(db);
   db.$client.prepare("DROP TABLE IF EXISTS plugin_state_snapshots").run();
   db.$client.prepare("DROP TABLE IF EXISTS plugin_artifacts").run();
   db.$client.prepare("DROP TABLE IF EXISTS plugin_catalog").run();
@@ -1713,6 +1716,7 @@ describe("migrate", () => {
         providerOrder: [],
         defaultProviderId: null,
         streamerMode: false,
+        onboardingCompletedAt: "2026-08-01T00:00:00.000Z",
       });
       expect(
         db.$client
@@ -1892,7 +1896,9 @@ describe("migrate", () => {
     dropEnvironmentRetireRequestedAtColumn(db);
     dropPhase6CharterSchema(db);
     dropOrchestratorModelPolicySchema(db);
-  dropDaemonEventIdSchema(db);
+    dropDaemonEventIdSchema(db);
+    dropAppSettingsValuesTable(db);
+    dropEventParentToolCallIdColumn(db);
     dropPluginArtifactGitCheckoutRootColumn(db);
     dropMarketplaceCatalogSchema(db);
     // Delete by the journal timestamp, not a hash substring: migration hashes
@@ -4234,8 +4240,8 @@ describe("migrate", () => {
         "item_kind",
         "data",
         "created_at",
-        "daemon_event_id",
         "parent_tool_call_id",
+        "daemon_event_id",
       ]);
       const eventIndexNames = readIndexNames({
         db,
@@ -4246,7 +4252,6 @@ describe("migrate", () => {
         "events_completed_item_truncation_idx",
         "events_delegating_item_lookup_idx",
         "events_environment_idx",
-        "events_goal_thread_sequence_idx",
         "events_item_lifecycle_thread_item_sequence_idx",
         "events_parent_tool_call_thread_parent_sequence_idx",
         "events_plan_steps_thread_sequence_idx",
@@ -5297,6 +5302,9 @@ describe("migrate", () => {
 
       dropEventParentToolCallIdColumn(db);
       dropMarketplaceStatsColumn(db);
+      dropPhase6CharterSchema(db);
+      dropOrchestratorModelPolicySchema(db);
+      dropDaemonEventIdSchema(db);
       db.$client
         .prepare<DeleteMigrationParameters>(
           "DELETE FROM __drizzle_migrations WHERE created_at >= ?",

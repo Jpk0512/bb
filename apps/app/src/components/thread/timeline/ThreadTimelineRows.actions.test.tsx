@@ -313,6 +313,7 @@ describe("ThreadTimelineRows actions", () => {
     const latestMessage = container.querySelector(
       '[data-timeline-row-id="latest_agent_message"]',
     );
+    expect(latestMessage).not.toBeNull();
 
     // An older message folds every action, copy included, behind its single
     // overflow trigger; only the newest one keeps a permanent icon row.

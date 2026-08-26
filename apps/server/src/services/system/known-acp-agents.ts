@@ -1,8 +1,8 @@
+import type { AcpLaunchSpec } from "@bb/provider-bridge-acp/launch-spec";
 import { buildAcpProviderInfo } from "../providers/acp-provider-tier.js";
 import type { ProviderInfo } from "@bb/domain";
-import type { HostDaemonAcpLaunchSpec } from "@bb/host-daemon-contract";
 
-export interface KnownAcpAgent extends HostDaemonAcpLaunchSpec {
+export interface KnownAcpAgent extends AcpLaunchSpec {
   id: string;
   executableName: string;
   /**

@@ -9,6 +9,7 @@ import type {
   EventProjectionCommandMessage,
   EventProjectionDelegationMessage,
   EventProjectionMessage,
+  EventProjectionToolCallMessage,
   EventProjectionToolParsedIntent,
 } from "../src/event-projection-types.js";
 import {
@@ -136,6 +137,18 @@ function commandMessages(
   state: ToolActivityProjectionState,
 ): EventProjectionCommandMessage[] {
   return state.messages.filter(isCommandMessage);
+}
+
+function isToolCallMessage(
+  message: EventProjectionMessage,
+): message is EventProjectionToolCallMessage {
+  return message.kind === "tool-call";
+}
+
+function toolCallMessages(
+  state: ToolActivityProjectionState,
+): EventProjectionToolCallMessage[] {
+  return state.messages.filter(isToolCallMessage);
 }
 
 function delegationMessages(

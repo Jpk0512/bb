@@ -34,8 +34,10 @@ import {
   type PluginNavPanelRegistration,
   type PluginNewThreadPanelActionRegistration,
   type PluginPendingInteractionRegistration,
+  type PluginNotificationBodyRegistration,
   type PluginProviderIconRegistration,
   type PluginTimelineRendererRegistration,
+  type PluginTranscriptPreludeRegistration,
   type PluginRealtimeConnectionState,
   type PluginRealtimeSignalMeta,
   type PluginRealtimeSubscriptionState,
@@ -943,6 +945,7 @@ export interface CapturedPluginApp {
   newThreadPanelActions: PluginNewThreadPanelActionRegistration[];
   composerCustomizations: ComposerCustomization[];
   pendingInteractions: PluginPendingInteractionRegistration[];
+  notificationBodies: PluginNotificationBodyRegistration[];
   sidebarFooterActions: PluginSidebarFooterActionRegistration[];
   threadLists: PluginThreadListRegistration[];
   threadHeaderActions: PluginThreadHeaderActionRegistration[];
@@ -953,6 +956,7 @@ export interface CapturedPluginApp {
   messageActions: PluginMessageActionRegistration[];
   providerIcons: PluginProviderIconRegistration[];
   timelineRenderers: PluginTimelineRendererRegistration[];
+  transcriptPreludes: PluginTranscriptPreludeRegistration[];
   contentScripts: PluginContentScriptRegistration[];
 }
 

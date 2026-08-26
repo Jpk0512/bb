@@ -161,6 +161,7 @@ describe("thread turn records", () => {
         scope: turnScope("turn-1"),
         itemId: "agent-1",
         itemKind: "agentMessage",
+        parentToolCallId: null,
         data: JSON.stringify({
           item: { id: "agent-1", type: "agentMessage", text: "full answer" },
         }),
@@ -172,6 +173,7 @@ describe("thread turn records", () => {
         scope: turnScope("turn-1"),
         itemId: "tool-1",
         itemKind: "toolCall",
+        parentToolCallId: null,
         data: JSON.stringify({ item: { id: "tool-1", type: "toolCall" } }),
       },
       {
@@ -181,6 +183,7 @@ describe("thread turn records", () => {
         scope: turnScope("turn-2"),
         itemId: "agent-2",
         itemKind: "agentMessage",
+        parentToolCallId: null,
         data: JSON.stringify({
           item: { id: "agent-2", type: "agentMessage", text: "other turn" },
         }),

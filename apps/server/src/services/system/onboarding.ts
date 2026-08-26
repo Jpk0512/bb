@@ -1,7 +1,7 @@
 import type {
   DiscoverReposResult,
-  ProviderCliKey,
   ProviderUsage,
+  ProviderUsageResponse,
 } from "@bb/host-daemon-contract";
 import type {
   OnboardingAgent,
@@ -18,6 +18,7 @@ import {
   requirePrimaryHostId,
 } from "../hosts/primary-host.js";
 import { resolveSystemLookupHostId } from "./host-lookup.js";
+import { getProviderUsageLimits } from "./usage-limits.js";
 import {
   KNOWN_ACP_AGENTS,
   listKnownAcpAgentExecutableQueries,
@@ -39,7 +40,6 @@ import {
  */
 
 interface PlanCapableAgentConfig {
-  cliKey: ProviderCliKey;
   loginCommand: string;
 }
 
@@ -48,27 +48,9 @@ interface PlanCapableAgentConfig {
  * drives the model picker's provider tabs.
  */
 const PLAN_CAPABLE_BY_PROVIDER_ID = new Map<string, PlanCapableAgentConfig>([
-  [
-    "codex",
-    {
-      cliKey: "codex",
-      loginCommand: "codex login",
-    },
-  ],
-  [
-    "claude-code",
-    {
-      cliKey: "claudeCode",
-      loginCommand: "claude auth login",
-    },
-  ],
-  [
-    "acp-cursor",
-    {
-      cliKey: "cursor",
-      loginCommand: "cursor-agent login",
-    },
-  ],
+  ["codex", { loginCommand: "codex login" }],
+  ["claude-code", { loginCommand: "claude auth login" }],
+  ["acp-cursor", { loginCommand: "cursor-agent login" }],
 ]);
 
 function listPlanCapableAgents(deps: Pick<AppDeps, "providerRegistry">) {
@@ -128,13 +110,10 @@ export async function getOnboardingAgentOverview(
 
   const rpc = { hostId, timeoutMs: COMMAND_TIMEOUT_MS } as const;
 
-  // One slow or failing probe must not blank the whole screen: each source
-  // degrades to "nothing known" independently.
-  const [usage, cliStatus, acpStatus] = await Promise.all([
-    callHostRetryableOnlineRpc(deps, {
-      ...rpc,
-      command: { type: "provider.usage" },
-    }).catch(() => null),
+  const [usageByProviderId, cliStatus, acpStatus] = await Promise.all([
+    getProviderUsageLimits(deps, { hostId }).catch(
+      (): ProviderUsageResponse => ({}),
+    ),
     callHostRetryableOnlineRpc(deps, {
       ...rpc,
       command: { type: "provider_cli.status" },
@@ -151,8 +130,8 @@ export async function getOnboardingAgentOverview(
   const agents: OnboardingAgent[] = [];
 
   for (const entry of listPlanCapableAgents(deps)) {
-    const providerUsage = usage?.[entry.cliKey];
-    const installed = cliStatus?.[entry.cliKey]?.installed ?? false;
+    const providerUsage = usageByProviderId[entry.providerId];
+    const installed = cliStatus?.[entry.providerId]?.installed ?? false;
     const status = resolveStatus(providerUsage, installed);
     agents.push({
       providerId: entry.providerId,

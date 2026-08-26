@@ -44,6 +44,8 @@ type SqliteParameter = string | number | bigint | Buffer | null;
 type LoggedSqlPredicate = (fields: SlowDbQueryLogFields) => boolean;
 type CloseSessionAtParameters = ["closed", number, number, string];
 
+let nextDaemonEventId = 0;
+
 interface CloseSessionAtArgs {
   closedAt: number;
   db: DbConnection;
@@ -293,6 +295,7 @@ describe("slow query index plans", () => {
             itemId,
             itemKind: "agentMessage",
             parentToolCallId: null,
+            daemonEventId: `daemon-event-${++nextDaemonEventId}`,
             providerThreadId: "provider-plan",
             data: JSON.stringify({
               providerThreadId: "provider-plan",

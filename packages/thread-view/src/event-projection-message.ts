@@ -15,6 +15,7 @@ import type {
   Thread,
   ThreadEventItemPresentation,
   ThreadEventPlanStep,
+  ThreadEventRow,
   ThreadEventScope,
   ThreadEventSearchMode,
   ThreadTurnInitiator,
@@ -497,6 +498,13 @@ export interface EventProjectionErrorMessage extends EventProjectionMessageBase 
   willRetry?: boolean;
 }
 
+export interface EventProjectionDebugRawEventMessage extends EventProjectionMessageBase {
+  kind: "debug/raw-event";
+  rawType: string;
+  rawEvent: ThreadEventRow;
+  reason: "ignored-noise" | "duplicate-event" | "unhandled";
+}
+
 export type EventProjectionMessage =
   | EventProjectionUserMessage
   | EventProjectionAssistantTextMessage
@@ -516,9 +524,11 @@ export type EventProjectionMessage =
   | EventProjectionChildSessionLifecycleMessage
   | EventProjectionDelegationMessage
   | EventProjectionWorkflowMessage
-  | EventProjectionErrorMessage;
+  | EventProjectionErrorMessage
+  | EventProjectionDebugRawEventMessage;
 
 export interface BuildEventProjectionMessagesOptions {
+  includeDebugRawEvents?: boolean;
   includeProviderUnhandledOperations?: boolean;
   threadStatus?: Thread["status"];
   /**

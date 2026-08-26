@@ -21,6 +21,9 @@ import type {
   ProviderUsage,
   ProviderUsageResponse,
 } from "@bb/host-daemon-contract";
+import type { DisabledModels } from "@bb/domain";
+import type { DiscoverReposResult } from "@bb/host-daemon-contract";
+import type { OnboardingAgentOverview } from "@bb/server-contract";
 import { BbHttpError, sdk } from "@/lib/sdk";
 import {
   modelCatalogCacheKey,
@@ -43,6 +46,9 @@ import {
   systemProvidersQueryKey,
   systemProviderStatesQueryKey,
   systemUsageLimitsQueryKey,
+  systemDisabledModelsQueryKey,
+  onboardingAgentsQueryKey,
+  onboardingReposQueryKey,
   systemVersionQueryKey,
 } from "./query-keys";
 import { requireEnabledQueryArg, type QueryOptions } from "./query-helpers";
@@ -421,6 +427,49 @@ export function useCliSkillsStatus(options?: QueryOptions) {
     queryFn: ({ signal }) => sdk.system.cliSkillsStatus({ signal }),
     enabled: options?.enabled ?? true,
     staleTime: 30_000,
+  });
+}
+
+
+export function useDisabledModels(options?: QueryOptions) {
+  return useQuery<DisabledModels>({
+    queryKey: systemDisabledModelsQueryKey(),
+    queryFn: ({ signal }) => sdk.providers.disabledModels({ signal }),
+    enabled: options?.enabled ?? true,
+    staleTime: 30_000,
+  });
+}
+
+interface UseOnboardingAgentsOptions extends QueryOptions {
+  environmentId?: string;
+  hostId?: string;
+  poll?: boolean;
+}
+
+export function useOnboardingAgents(options: UseOnboardingAgentsOptions = {}) {
+  const environmentId = options.environmentId ?? null;
+  const hostId = options.hostId ?? null;
+  return useQuery<OnboardingAgentOverview>({
+    queryKey: onboardingAgentsQueryKey({ environmentId, hostId }),
+    queryFn: ({ signal }) =>
+      sdk.system.onboardingAgents({
+        environmentId: options.environmentId,
+        hostId: options.hostId,
+        signal,
+      }),
+    enabled: options.enabled ?? true,
+    ...(options.poll === false
+      ? { staleTime: 60_000 }
+      : { refetchInterval: 15_000 }),
+  });
+}
+
+export function useOnboardingRepos(options: QueryOptions = {}) {
+  return useQuery<DiscoverReposResult>({
+    queryKey: onboardingReposQueryKey(),
+    queryFn: ({ signal }) => sdk.system.onboardingRepos({ signal }),
+    enabled: options.enabled ?? true,
+    staleTime: 60_000,
   });
 }
 

@@ -57,6 +57,7 @@ export const TIMELINE_ROW_KINDS: readonly TimelineRowKind[] = [
   "work:question",
   "work:delegation",
   "work:workflow",
+  "work:child-session",
   "system",
   "turn",
   "step-summary",
@@ -87,6 +88,7 @@ interface TimelineRowByKind {
   "work:question": TimelineViewWorkRowOfKind<"question">;
   "work:delegation": TimelineViewWorkRowOfKind<"delegation">;
   "work:workflow": TimelineViewWorkRowOfKind<"workflow">;
+  "work:child-session": TimelineViewWorkRowOfKind<"child-session">;
   system: TimelineSystemRow;
   turn: TimelineViewTurnRow;
   "step-summary": Extract<ThreadTimelineViewRow, { kind: "step-summary" }>;

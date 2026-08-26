@@ -11,6 +11,7 @@ import type {
   PluginNavPanelRegistration,
   PluginNewThreadPanelActionRegistration,
   PluginPendingInteractionRegistration,
+  PluginNotificationBodyRegistration,
   PluginProviderIconRegistration,
   PluginSettingsSectionRegistration,
   PluginSidebarFooterActionRegistration,
@@ -19,6 +20,7 @@ import type {
   PluginThreadListRegistration,
   PluginThreadPanelActionRegistration,
   PluginTimelineRendererRegistration,
+  PluginTranscriptPreludeRegistration,
 } from "@get-bb/plugin-sdk";
 import {
   collectComposerCustomization,
@@ -90,6 +92,7 @@ export interface CollectedPluginAppRegistrations {
   newThreadPanelActions: PluginNewThreadPanelActionRegistration[];
   composerCustomizations: ComposerCustomization[];
   pendingInteractions: PluginPendingInteractionRegistration[];
+  notificationBodies: PluginNotificationBodyRegistration[];
   sidebarFooterActions: PluginSidebarFooterActionRegistration[];
   threadLists: PluginThreadListRegistration[];
   threadHeaderActions: PluginThreadHeaderActionRegistration[];
@@ -101,6 +104,7 @@ export interface CollectedPluginAppRegistrations {
   commandPaletteActions: PluginCommandPaletteActionRegistration[];
   providerIcons: PluginProviderIconRegistration[];
   timelineRenderers: PluginTimelineRendererRegistration[];
+  transcriptPreludes: PluginTranscriptPreludeRegistration[];
   contentScripts: PluginContentScriptRegistration[];
 }
 
@@ -123,6 +127,7 @@ export function collectPluginAppRegistrations(
     newThreadPanelActions: [],
     composerCustomizations: [],
     pendingInteractions: [],
+    notificationBodies: [],
     sidebarFooterActions: [],
     threadLists: [],
     threadHeaderActions: [],
@@ -134,6 +139,7 @@ export function collectPluginAppRegistrations(
     commandPaletteActions: [],
     providerIcons: [],
     timelineRenderers: [],
+    transcriptPreludes: [],
     contentScripts: [],
   };
   const seenIds = {
@@ -144,6 +150,7 @@ export function collectPluginAppRegistrations(
     newThreadPanelAction: new Set<string>(),
     composerCustomization: new Set<string>(),
     pendingInteraction: new Set<string>(),
+    notificationBody: new Set<string>(),
     sidebarFooterAction: new Set<string>(),
     threadList: new Set<string>(),
     threadHeaderAction: new Set<string>(),
@@ -155,6 +162,7 @@ export function collectPluginAppRegistrations(
     commandPaletteAction: new Set<string>(),
     providerIcon: new Set<string>(),
     timelineRenderer: new Set<string>(),
+    transcriptPrelude: new Set<string>(),
     contentScript: new Set<string>(),
   };
 
@@ -371,6 +379,15 @@ export function collectPluginAppRegistrations(
           component: requireComponent(kind, registration.component),
         });
       },
+      experimental_notificationBody(registration) {
+        const kind = "slots.experimental_notificationBody";
+        const id = requireSlotId(kind, registration?.id);
+        requireUniqueId(kind, seenIds.notificationBody, id);
+        collected.notificationBodies.push({
+          id,
+          component: requireComponent(kind, registration.component),
+        });
+      },
       sidebarFooterAction(registration) {
         const kind = "slots.sidebarFooterAction";
         const id = requireSlotId(kind, registration?.id);
@@ -532,6 +549,15 @@ export function collectPluginAppRegistrations(
         requireUniqueId(kind, seenIds.timelineRenderer, itemKind);
         collected.timelineRenderers.push({
           kind: itemKind,
+          component: requireComponent(kind, registration.component),
+        });
+      },
+      transcriptPrelude(registration) {
+        const kind = "slots.transcriptPrelude";
+        const id = requireSlotId(kind, registration?.id);
+        requireUniqueId(kind, seenIds.transcriptPrelude, id);
+        collected.transcriptPreludes.push({
+          id,
           component: requireComponent(kind, registration.component),
         });
       },

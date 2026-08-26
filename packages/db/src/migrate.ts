@@ -1499,6 +1499,68 @@ function validateAppliedMigrationHistory(
   );
 }
 
+/**
+ * After an upstream merge, fork `09xx` journal `when` values are restamped
+ * newer than incoming `01xx` migrations. Databases that already applied those
+ * fork files under the old timestamps would otherwise re-run CREATE TABLE.
+ * If the objects already exist, record the restamped ledger rows and skip SQL.
+ */
+function forkRestampedMigrationAlreadyPresent(
+  db: DbConnection,
+  tag: string,
+): boolean {
+  if (tag === "0900_fork_phase_6_charter") {
+    return tableExists(db, "notifications");
+  }
+  if (tag === "0901_fork_orchestrator_model_policy") {
+    return tableExists(db, "pending_parent_notifications");
+  }
+  if (tag === "0902_odd_glorian") {
+    return db.$client
+      .prepare<[], { name: string }>("PRAGMA table_info(events)")
+      .all()
+      .some((column) => column.name === "daemon_event_id");
+  }
+  return false;
+}
+
+function repairRestampedForkMigrations(
+  db: DbConnection,
+  migrationsFolder: string,
+): void {
+  if (!tableExists(db, "__drizzle_migrations")) {
+    return;
+  }
+  const expected = readExpectedAppliedMigrations(migrationsFolder);
+  const restampedFork = expected.filter((migration) =>
+    migration.tag.startsWith("090"),
+  );
+  if (restampedFork.length === 0) {
+    return;
+  }
+  const applied = readAppliedMigrationCreatedAts(db);
+  const needsLedgerRepair = restampedFork.some(
+    (migration) =>
+      !applied.has(migration.createdAt) &&
+      forkRestampedMigrationAlreadyPresent(db, migration.tag),
+  );
+  if (!needsLedgerRepair) {
+    return;
+  }
+  for (const migration of expected) {
+    if (applied.has(migration.createdAt)) {
+      continue;
+    }
+    if (forkRestampedMigrationAlreadyPresent(db, migration.tag)) {
+      markMigrationApplied(db, migration);
+      applied.add(migration.createdAt);
+      continue;
+    }
+    applyMigrationStatements(db, migration);
+    applied.add(migration.createdAt);
+  }
+}
+
 export function migrate(db: DbConnection, options: MigrateOptions = {}): void {
   const migrationsFolder = resolveMigrationsFolder();
   const sqlite = db.$client;
@@ -1515,6 +1577,7 @@ export function migrate(db: DbConnection, options: MigrateOptions = {}): void {
       migrationsFolder,
     );
     skipEventLargeValuesRoundTripForInlineEvents(db, migrationsFolder);
+    repairRestampedForkMigrations(db, migrationsFolder);
     repairBranchLocalQueuedGroupingBeforeInitialThreadSections(
       db,
       migrationsFolder,

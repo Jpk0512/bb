@@ -59,7 +59,15 @@ export type CommandResultFailureReportForType<
   TType extends HostDaemonSettledCommandType,
 > = Extract<CommandResultReportForType<TType>, { ok: false }>;
 
+interface CommandResultPostCommitActionContext {
+  environmentId?: string | null;
+  hostId?: string;
+  threadId?: string;
+}
+
 export interface CommandResultPostCommitAction {
+  context?: CommandResultPostCommitActionContext;
+  name?: string;
   run(deps: CommandResultSideEffectsDeps): Promise<void> | void;
 }
 

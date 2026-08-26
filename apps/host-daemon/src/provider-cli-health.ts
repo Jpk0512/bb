@@ -9,13 +9,14 @@ import {
   type ProviderCliInstallAction,
   type ProviderCliInstallActionKind,
   type ProviderCliInstallEvent,
-  type ProviderCliInstallSource,
   type ProviderCliKey,
   type ProviderCliStatus,
   type ProviderCliStatusResponse,
 } from "@bb/host-daemon-contract";
 import type { HostDaemonLogger } from "./logger.js";
 import { ensureNodePtySpawnHelperExecutable } from "./terminals/terminal-manager.js";
+
+type ProviderCliInstallSource = "notInstalled" | "npmGlobal" | "external";
 
 const COMMAND_CHECK_TIMEOUT_MS = 5_000;
 const CLAUDE_DOCTOR_TIMEOUT_MS = 10_000;
@@ -338,7 +339,12 @@ const PROVIDER_CLI_DEFINITIONS = {
 function getProviderCliDefinition(
   provider: ProviderCliKey,
 ): ProviderCliDefinition {
-  return PROVIDER_CLI_DEFINITIONS[provider];
+  if (!Object.hasOwn(PROVIDER_CLI_DEFINITIONS, provider)) {
+    throw new Error(`Unknown provider CLI key: ${provider}`);
+  }
+  return PROVIDER_CLI_DEFINITIONS[
+    provider as keyof typeof PROVIDER_CLI_DEFINITIONS
+  ];
 }
 
 function npmExecutableName(nodePlatform: NodeJS.Platform): string {
@@ -663,7 +669,6 @@ function buildInstallAction({
     return {
       kind: "install",
       label: "Install",
-      commandKind: command.commandKind,
       command: command.displayCommand,
     };
   }
@@ -685,7 +690,6 @@ function buildInstallAction({
     return {
       kind: "update",
       label: "Update",
-      commandKind: command.commandKind,
       command: command.displayCommand,
     };
   }
@@ -694,7 +698,6 @@ function buildInstallAction({
     return {
       kind: "update",
       label: "Update",
-      commandKind: command.commandKind,
       command: command.displayCommand,
     };
   }

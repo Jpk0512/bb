@@ -75,6 +75,7 @@ import type {
   PluginProviderDeclaration,
   PluginProviders,
   PluginRealtime,
+  PluginRuntime,
   PluginRpc,
   PluginServerApi,
   PluginSettingDescriptors,
@@ -1111,6 +1112,9 @@ function createFakePluginHostInternal(
   // --- realtime ---
   const realtimeSignals: FakeRealtimeSignal[] = [];
   const realtime: PluginRealtime = {
+    declare() {
+      assertLive();
+    },
     publish(channel, payload) {
       assertLive();
       if (typeof channel !== "string" || channel.length === 0) {
@@ -1799,6 +1803,21 @@ function createFakePluginHostInternal(
     },
   };
 
+  const runtime: PluginRuntime = {
+    onTurnPreflight() {
+      assertLive();
+    },
+    onProviderEvent() {
+      assertLive();
+    },
+    onTurnSettled() {
+      assertLive();
+    },
+    onBindingLifecycle() {
+      assertLive();
+    },
+  };
+
   const bb: BbPluginApi = {
     pluginId,
     log,
@@ -1817,6 +1836,7 @@ function createFakePluginHostInternal(
     server,
     hosts,
     experimental_aiServices,
+    runtime,
     get sdk() {
       assertLive();
       return sdk;

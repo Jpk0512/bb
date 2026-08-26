@@ -23,7 +23,10 @@ import {
   disabledModelsSchema,
   experimentsSchema,
 } from "@bb/domain";
-import type { ProviderUsageResponse } from "@bb/host-daemon-contract";
+import type {
+  DiscoverReposResult,
+  ProviderUsageResponse,
+} from "@bb/host-daemon-contract";
 import {
   binaryResponse,
   defineRoute,
@@ -159,6 +162,9 @@ import type {
   SystemProviderInfo,
   SystemProvidersQuery,
   SystemProviderStatesResponse,
+  OnboardingAgentOverview,
+  OnboardingTelemetryEvent,
+  SystemOnboardingReposQuery,
   SystemUsageLimitsQuery,
   SystemVersionQuery,
   SystemVersionResponse,
@@ -290,6 +296,8 @@ import {
   sendQueuedMessageRequestSchema,
   systemExecutionOptionsQuerySchema,
   systemProvidersQuerySchema,
+  onboardingTelemetryEventSchema,
+  systemOnboardingReposQuerySchema,
   systemUsageLimitsQuerySchema,
   systemVersionQuerySchema,
   threadEventWaitQuerySchema,
@@ -1527,6 +1535,30 @@ export const publicApiRoutes = {
         systemProvidersQuerySchema,
       ),
       response: jsonResponse<SystemProviderStatesResponse>(),
+    }),
+    onboardingEvent: defineRoute({
+      path: "/system/onboarding/event",
+      method: "post",
+      request: jsonRequest<EmptyInput, OnboardingTelemetryEvent>(
+        onboardingTelemetryEventSchema,
+      ),
+      response: jsonResponse<{ ok: true }>(),
+    }),
+    onboardingAgents: defineRoute({
+      path: "/system/onboarding/agents",
+      method: "get",
+      request: optionalQueryRequest<EmptyInput, SystemProvidersQuery>(
+        systemProvidersQuerySchema,
+      ),
+      response: jsonResponse<OnboardingAgentOverview>(),
+    }),
+    onboardingRepos: defineRoute({
+      path: "/system/onboarding/repos",
+      method: "get",
+      request: optionalQueryRequest<EmptyInput, SystemOnboardingReposQuery>(
+        systemOnboardingReposQuerySchema,
+      ),
+      response: jsonResponse<DiscoverReposResult>(),
     }),
     usageLimits: defineRoute({
       path: "/system/usage-limits",

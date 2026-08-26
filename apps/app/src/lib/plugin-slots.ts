@@ -3,6 +3,7 @@ import type {
   ComposerCustomization,
   PluginDiffRendererRegistration,
   PluginPendingInteractionRegistration,
+  PluginNotificationBodyRegistration,
   PluginFileOpenerRegistration,
   PluginHomepageSectionRegistration,
   PluginCommandPaletteActionRegistration,
@@ -18,6 +19,7 @@ import type {
   PluginThreadListRegistration,
   PluginThreadPanelActionRegistration,
   PluginTimelineRendererRegistration,
+  PluginTranscriptPreludeRegistration,
 } from "@get-bb/plugin-sdk";
 
 /**
@@ -37,6 +39,7 @@ export interface PluginRegistrationSet {
   newThreadPanelActions?: readonly PluginNewThreadPanelActionRegistration[];
   composerCustomizations?: readonly ComposerCustomization[];
   pendingInteractions?: readonly PluginPendingInteractionRegistration[];
+  notificationBodies?: readonly PluginNotificationBodyRegistration[];
   sidebarFooterActions: readonly PluginSidebarFooterActionRegistration[];
   /**
    * Optional so a frontend bundle built against an older SDK — which never
@@ -61,6 +64,7 @@ export interface PluginRegistrationSet {
   providerIcons?: readonly PluginProviderIconRegistration[];
   /** Optional for the same reason as `threadLists`: bundles built earlier. */
   timelineRenderers?: readonly PluginTimelineRendererRegistration[];
+  transcriptPreludes?: readonly PluginTranscriptPreludeRegistration[];
 }
 
 interface PluginSlotBase {
@@ -88,6 +92,8 @@ export interface PluginComposerCustomizationSlot
   extends ComposerCustomization, PluginSlotBase {}
 export interface PluginPendingInteractionSlot
   extends PluginPendingInteractionRegistration, PluginSlotBase {}
+export interface PluginNotificationBodySlot
+  extends PluginNotificationBodyRegistration, PluginSlotBase {}
 export interface PluginSidebarFooterActionSlot
   extends PluginSidebarFooterActionRegistration, PluginSlotBase {}
 export interface PluginThreadListSlot
@@ -110,6 +116,8 @@ interface PluginProviderIconSlot
   extends PluginProviderIconRegistration, PluginSlotBase {}
 export interface PluginTimelineRendererSlot
   extends PluginTimelineRendererRegistration, PluginSlotBase {}
+export interface PluginTranscriptPreludeSlot
+  extends PluginTranscriptPreludeRegistration, PluginSlotBase {}
 
 /** Flattened view across plugins, ordered by plugin id (deterministic). */
 export interface PluginSlotSnapshot {
@@ -120,6 +128,7 @@ export interface PluginSlotSnapshot {
   newThreadPanelActions: readonly PluginNewThreadPanelActionSlot[];
   composerCustomizations: readonly PluginComposerCustomizationSlot[];
   pendingInteractions: readonly PluginPendingInteractionSlot[];
+  notificationBodies: readonly PluginNotificationBodySlot[];
   sidebarFooterActions: readonly PluginSidebarFooterActionSlot[];
   threadLists: readonly PluginThreadListSlot[];
   threadHeaderActions: readonly PluginThreadHeaderActionSlot[];
@@ -131,6 +140,7 @@ export interface PluginSlotSnapshot {
   commandPaletteActions: readonly PluginCommandPaletteActionSlot[];
   providerIcons: readonly PluginProviderIconSlot[];
   timelineRenderers: readonly PluginTimelineRendererSlot[];
+  transcriptPreludes: readonly PluginTranscriptPreludeSlot[];
 }
 
 export const EMPTY_PLUGIN_SLOT_SNAPSHOT: PluginSlotSnapshot = {
@@ -141,6 +151,7 @@ export const EMPTY_PLUGIN_SLOT_SNAPSHOT: PluginSlotSnapshot = {
   newThreadPanelActions: [],
   composerCustomizations: [],
   pendingInteractions: [],
+  notificationBodies: [],
   sidebarFooterActions: [],
   threadLists: [],
   threadHeaderActions: [],
@@ -152,6 +163,7 @@ export const EMPTY_PLUGIN_SLOT_SNAPSHOT: PluginSlotSnapshot = {
   commandPaletteActions: [],
   providerIcons: [],
   timelineRenderers: [],
+  transcriptPreludes: [],
 };
 
 const registrationsByPluginId = new Map<string, PluginRegistrationSet>();
@@ -169,6 +181,7 @@ const SLOT_KINDS: readonly SlotKind[] = [
   "newThreadPanelActions",
   "composerCustomizations",
   "pendingInteractions",
+  "notificationBodies",
   "sidebarFooterActions",
   "threadLists",
   "threadHeaderActions",
@@ -180,6 +193,7 @@ const SLOT_KINDS: readonly SlotKind[] = [
   "commandPaletteActions",
   "providerIcons",
   "timelineRenderers",
+  "transcriptPreludes",
 ];
 
 /**
@@ -218,6 +232,7 @@ function flattenRegistrations(
     newThreadPanelActions: stamp(set.newThreadPanelActions),
     composerCustomizations: stamp(set.composerCustomizations),
     pendingInteractions: stamp(set.pendingInteractions),
+    notificationBodies: stamp(set.notificationBodies),
     sidebarFooterActions: stamp(set.sidebarFooterActions),
     threadLists: stamp(set.threadLists),
     threadHeaderActions: stamp(set.threadHeaderActions),
@@ -229,6 +244,7 @@ function flattenRegistrations(
     commandPaletteActions: stamp(set.commandPaletteActions),
     providerIcons: stamp(set.providerIcons),
     timelineRenderers: stamp(set.timelineRenderers),
+    transcriptPreludes: stamp(set.transcriptPreludes),
   };
 }
 

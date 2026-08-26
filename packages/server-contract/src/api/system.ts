@@ -132,6 +132,65 @@ export type SystemVoiceTranscriptionResponse = z.infer<
   typeof systemVoiceTranscriptionResponseSchema
 >;
 
+/**
+ * One agent row in onboarding. `planLabel` and `accountEmail` are populated
+ * only for the three providers `provider.usage` covers; ACP agents report
+ * presence and nothing more, and get no badge rather than a fabricated one.
+ */
+export const onboardingAgentSchema = z.object({
+  providerId: z.string().min(1),
+  displayName: z.string().min(1),
+  status: z.enum(["connected", "unauthenticated", "expired", "not_installed"]),
+  planLabel: z.string().min(1).nullable(),
+  accountEmail: z.string().nullable(),
+  canInstall: z.boolean(),
+  loginCommand: z.string().min(1).nullable(),
+});
+export type OnboardingAgent = z.infer<typeof onboardingAgentSchema>;
+
+export const onboardingAgentOverviewSchema = z.object({
+  agents: z.array(onboardingAgentSchema),
+});
+export type OnboardingAgentOverview = z.infer<
+  typeof onboardingAgentOverviewSchema
+>;
+
+export const systemOnboardingReposQuerySchema = z.object({
+  hostId: z.string().min(1).optional(),
+});
+export type SystemOnboardingReposQuery = z.infer<
+  typeof systemOnboardingReposQuerySchema
+>;
+
+export const onboardingTelemetryEventSchema = z.discriminatedUnion("name", [
+  z.object({
+    name: z.literal("onboarding_started"),
+    agentState: z.enum(["connected", "signed_out", "none"]),
+    detectedAgentCount: z.number().int().min(0),
+  }),
+  z.object({
+    name: z.literal("onboarding_step_completed"),
+    step: z.enum(["agents", "projects"]),
+  }),
+  z.object({
+    name: z.literal("onboarding_step_skipped"),
+    step: z.enum(["agents", "projects"]),
+  }),
+  z.object({
+    name: z.literal("onboarding_completed"),
+    agentState: z.enum(["connected", "signed_out", "none"]),
+    projectsAdded: z.number().int().min(0),
+    durationMs: z.number().int().min(0),
+  }),
+  z.object({
+    name: z.literal("onboarding_dismissed"),
+    step: z.enum(["agents", "projects"]),
+  }),
+]);
+export type OnboardingTelemetryEvent = z.infer<
+  typeof onboardingTelemetryEventSchema
+>;
+
 /** One provider's live host-local readiness, in registry display order. */
 export const systemProviderStateSchema = providerHealthSchema.extend({
   providerId: z.string().min(1),

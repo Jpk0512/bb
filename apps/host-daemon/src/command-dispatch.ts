@@ -50,6 +50,11 @@ import {
 } from "./command-handlers/path-mutations.js";
 import { resolveInteractiveRequest } from "./command-handlers/interactive.js";
 import { pickHostFolder } from "./command-handlers/native-folder-picker.js";
+import { discoverRepos } from "./command-handlers/discover-repos.js";
+import {
+  getKnownAcpAgentsStatus,
+  getProviderCliStatus,
+} from "./provider-cli-health.js";
 import {
   ProviderInstallationInProgressError,
   streamProviderInstallation,
@@ -636,6 +641,22 @@ const onlineRpcHandlers: OnlineRpcHandlerMap = {
       bridgeLaunch,
     });
   },
+  "known_acp_agents.status": async (command, options) =>
+    getKnownAcpAgentsStatus({
+      agents: command.agents,
+      env: providerCliEnvFromShellEnv(options.runtimeManager.getShellEnv()),
+    }),
+  "provider_cli.status": async (_command, options) =>
+    getProviderCliStatus({
+      env: providerCliEnvFromShellEnv(options.runtimeManager.getShellEnv()),
+    }),
+  "workspace.discover_repos": async (command, options) =>
+    discoverRepos({
+      maxDepth: command.maxDepth,
+      sinceDays: command.sinceDays,
+      limit: command.limit,
+      env: options.runtimeManager.getShellEnv(),
+    }),
   "provider.health": async (command, options) => {
     const bridgeLaunch = await resolveRuntimeBridgeLaunch(
       command.bridgeLaunch,

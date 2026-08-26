@@ -16,6 +16,9 @@ import type {
   PluginComposerApi,
   PluginComposerMention,
   PluginRealtimeConnectionState,
+  PluginRealtimePublisherState,
+  PluginRealtimeSignalMeta,
+  PluginRealtimeSubscriptionState,
   PluginRpcContract,
   PluginRpcClient,
   PluginProvidersState,
@@ -56,6 +59,7 @@ import {
   getThreadRoutePath,
   AUTOMATION_EDIT_ROUTE_PATH,
 } from "@/lib/route-paths";
+import { usePluginContributions } from "@/hooks/queries/plugin-contribution-queries";
 import { useRouteState } from "@/hooks/useRouteState";
 import { useServerConnectionState } from "@/hooks/useServerConnectionState";
 import { wsManager } from "@/lib/ws";
@@ -243,22 +247,65 @@ export function useRpc<
 
 export function useRealtime(
   channel: string,
-  handler: (payload: unknown) => void,
-): void {
-  const pluginId = usePluginId();
-  // Keep the latest handler without resubscribing per render.
+  handler: (payload: unknown, meta: PluginRealtimeSignalMeta) => void,
+  options?: {
+    pluginId?: string;
+    ids?: readonly string[] | null;
+  },
+): PluginRealtimeSubscriptionState {
+  const selfPluginId = usePluginId();
+  const publisherId = options?.pluginId ?? selfPluginId;
+  const ids = options?.ids ?? null;
+  const serializedIds =
+    ids === null ? null : [...new Set(ids)].sort().join("\u0000");
+
   const handlerRef = useRef(handler);
   useEffect(() => {
     handlerRef.current = handler;
   });
-  useEffect(
-    () =>
-      wsManager.onPluginSignal((signal) => {
-        if (signal.pluginId !== pluginId || signal.channel !== channel) return;
-        handlerRef.current(signal.payload);
-      }),
-    [pluginId, channel],
-  );
+
+  useEffect(() => {
+    const scopes =
+      serializedIds === null
+        ? [null]
+        : serializedIds.length === 0
+          ? []
+          : serializedIds.split("\u0000");
+    const targets = scopes.map((scope) => ({
+      kind: "plugin-channel" as const,
+      pluginId: publisherId,
+      channel,
+      scope,
+      as: selfPluginId,
+    }));
+    for (const target of targets) wsManager.subscribe(target);
+    const wanted = new Set(scopes);
+    const unsubscribeSignals = wsManager.onPluginSignal((signal) => {
+      if (signal.pluginId !== publisherId || signal.channel !== channel) return;
+      if (serializedIds !== null && !wanted.has(signal.scope)) return;
+      handlerRef.current(signal.payload, {
+        scope: signal.scope,
+        pluginId: signal.pluginId,
+      });
+    });
+    return () => {
+      unsubscribeSignals();
+      for (const target of targets) wsManager.unsubscribe(target);
+    };
+  }, [publisherId, selfPluginId, channel, serializedIds]);
+
+  const contributions = usePluginContributions();
+  const publisher = useMemo<PluginRealtimePublisherState>(() => {
+    if (publisherId === selfPluginId) return "self";
+    if (contributions.data === undefined) return "live";
+    return contributions.data.realtimeChannels.some(
+      (entry) => entry.pluginId === publisherId && entry.channel === channel,
+    )
+      ? "live"
+      : "unavailable";
+  }, [contributions.data, publisherId, selfPluginId, channel]);
+
+  return useMemo(() => ({ publisher }), [publisher]);
 }
 
 /** Exposes the lifecycle of the same socket that backs `useRealtime`. */

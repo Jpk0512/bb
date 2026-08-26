@@ -153,7 +153,6 @@ export function ChildSessionRowBody({ row }: ChildSessionRowBodyProps) {
       <ThreadTimelinePanelContent
         threadId={row.childThreadId}
         surfaceKey={`child-session:${row.id}`}
-        showLoadOlderRows={false}
       />
     </TimelineDetailScroll>
   );

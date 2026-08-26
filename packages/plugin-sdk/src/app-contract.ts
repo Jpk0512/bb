@@ -99,6 +99,24 @@ export interface PluginPendingInteractionProps {
   cancel(): Promise<void>;
 }
 
+/** The durable notification payload rendered by an inbox body slot. */
+export interface PluginNotificationBodyView {
+  id: string;
+  threadId: string;
+  projectId: string;
+  category: "review-ready" | "worker-finished" | "approval-needed" | "info";
+  title: string;
+  body: string | null;
+  payload: JsonValue;
+  createdAt: number;
+  readAt: number | null;
+}
+
+/** Props passed to a plugin body embedded in a native inbox row. */
+export interface PluginNotificationBodyProps {
+  notification: PluginNotificationBodyView;
+}
+
 /**
  * Props for a `sidebarFooterAction` — host-rendered (no plugin component).
  * Deliberately empty; the registration's `run` carries the behavior.
@@ -594,6 +612,33 @@ export interface PluginPendingInteractionRegistration {
    */
   id: string;
   component: ComponentType<PluginPendingInteractionProps>;
+}
+
+/**
+ * Adds structured, plugin-owned detail to a native notification inbox row.
+ * The id must match the notification's `rendererId`.
+ * Experimental: see docs/api_to_audit.md.
+ */
+export interface PluginNotificationBodyRegistration {
+  id: string;
+  component: ComponentType<PluginNotificationBodyProps>;
+}
+
+/**
+ * Props passed to a `transcriptPrelude` component, rendered above the native
+ * thread timeline.
+ */
+export interface PluginTranscriptPreludeProps {
+  threadId: string;
+}
+
+/**
+ * Render plugin rows above the native chat transcript. The host mounts every
+ * registered prelude above the first native message; return null when idle.
+ */
+export interface PluginTranscriptPreludeRegistration {
+  id: string;
+  component: ComponentType<PluginTranscriptPreludeProps>;
 }
 
 /** Context handed to a `sidebarFooterAction`'s `run`. */
@@ -1230,6 +1275,9 @@ export interface PluginAppSlots {
     registration: PluginNewThreadPanelActionRegistration,
   ): void;
   pendingInteraction(registration: PluginPendingInteractionRegistration): void;
+  experimental_notificationBody(
+    registration: PluginNotificationBodyRegistration,
+  ): void;
   sidebarFooterAction(
     registration: PluginSidebarFooterActionRegistration,
   ): void;
@@ -1287,6 +1335,11 @@ export interface PluginAppSlots {
   experimental_timelineRenderer(
     registration: PluginTimelineRendererRegistration,
   ): void;
+  /**
+   * Render rows above the native thread transcript (see
+   * {@link PluginTranscriptPreludeRegistration}).
+   */
+  transcriptPrelude(registration: PluginTranscriptPreludeRegistration): void;
 }
 
 export interface PluginAppComposer {
@@ -1400,6 +1453,19 @@ export type PluginRealtimeConnectionState =
   | "connecting"
   | "connected"
   | "reconnecting";
+
+/** Per-signal routing metadata handed to a `useRealtime` handler. */
+export interface PluginRealtimeSignalMeta {
+  scope: string | null;
+  pluginId: string;
+}
+
+export type PluginRealtimePublisherState = "live" | "unavailable" | "self";
+
+/** What `useRealtime` reports about the subscription it just established. */
+export interface PluginRealtimeSubscriptionState {
+  publisher: PluginRealtimePublisherState;
+}
 
 /** Where `useComposer()` writes. */
 export type PluginComposerScope =
@@ -1998,7 +2064,14 @@ export interface PluginSdkApp {
   useRpc<
     Contract extends PluginRpcContract = PluginRpcContract,
   >(): PluginRpcClient<Contract>;
-  useRealtime(channel: string, handler: (payload: unknown) => void): void;
+  useRealtime(
+    channel: string,
+    handler: (payload: unknown, meta: PluginRealtimeSignalMeta) => void,
+    options?: {
+      pluginId?: string;
+      ids?: readonly string[] | null;
+    },
+  ): PluginRealtimeSubscriptionState;
   /**
    * Observe the same shared connection that delivers `useRealtime` signals.
    * Use a subsequent transition to `connected` to reconcile server state that

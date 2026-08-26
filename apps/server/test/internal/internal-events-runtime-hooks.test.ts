@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createConnection, migrate } from "@bb/db";
 import { groupHostDaemonEvents } from "@bb/host-daemon-contract";
+import { createAiServiceRegistry } from "../../src/services/ai/ai-service-registry.js";
 import { setPluginAgentContributions } from "../../src/services/plugins/plugin-agent-contributions.js";
 import {
   createPluginService,
@@ -36,6 +37,7 @@ describe("internal runtime-hook delivery", () => {
     workDir = await mkdtemp(join(tmpdir(), "bb-internal-runtime-hooks-"));
     service = createPluginService({
       telemetry: createNoopTelemetryService(),
+      aiServices: createAiServiceRegistry(),
       db,
       hub: {
         getDaemonSessionIdForHost: () => null,

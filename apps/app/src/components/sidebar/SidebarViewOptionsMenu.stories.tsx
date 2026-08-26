@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { createStore, Provider as JotaiProvider, useAtomValue } from "jotai";
 import { StoryCard, StoryRow } from "../../../.ladle/story-card";
 import { SidebarDisplayOptionsMenu } from "./ProjectList";
@@ -30,9 +30,6 @@ function StateReadout() {
 // keeps each mount self-contained and seeded with the same defaults the app
 // ships, instead of inheriting whatever the last Ladle session left behind.
 function InteractiveMenu() {
-  const [workingSetMode, setWorkingSetMode] = useState<"working" | "all">(
-    "working",
-  );
   const store = useMemo(() => {
     const next = createStore();
     next.set(sidebarOrganizationModeAtom, "project");
@@ -48,10 +45,7 @@ function InteractiveMenu() {
             Projects
           </span>
           <div className="flex items-center gap-1">
-            <SidebarDisplayOptionsMenu
-              workingSetMode={workingSetMode}
-              onWorkingSetModeChange={setWorkingSetMode}
-            />
+            <SidebarDisplayOptionsMenu />
           </div>
         </div>
         <StateReadout />

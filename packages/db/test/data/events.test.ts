@@ -529,6 +529,7 @@ describe("events", () => {
             itemId,
             itemKind: "commandExecution",
             parentToolCallId: null,
+            daemonEventId: `daemon-event-${++nextDaemonEventId}`,
             providerThreadId: "provider-thread-denied-approval",
             data: JSON.stringify({
               providerThreadId: "provider-thread-denied-approval",
@@ -550,6 +551,7 @@ describe("events", () => {
             itemId,
             itemKind: "commandExecution",
             parentToolCallId: null,
+            daemonEventId: `daemon-event-${++nextDaemonEventId}`,
             providerThreadId: "provider-thread-after-restart",
             data: JSON.stringify({
               providerThreadId: "provider-thread-after-restart",
@@ -570,6 +572,7 @@ describe("events", () => {
             itemId,
             itemKind: "commandExecution",
             parentToolCallId: null,
+            daemonEventId: `daemon-event-${++nextDaemonEventId}`,
             providerThreadId: "provider-thread-after-restart",
             data: JSON.stringify({
               providerThreadId: "provider-thread-after-restart",
@@ -599,6 +602,7 @@ describe("events", () => {
         { threadId: thread.id, sequence: 6 },
       ],
       insertedInputIndexes: [1, 2, 3],
+      replayedEvents: [],
       skippedTurnUnstartedInputIndexes: [],
     });
     expect(listEvents(db, { threadId: thread.id })).toMatchObject([
@@ -686,6 +690,7 @@ describe("events", () => {
             itemId,
             itemKind: "backgroundTask",
             parentToolCallId: null,
+            daemonEventId: `daemon-event-${++nextDaemonEventId}`,
             providerThreadId,
             data: JSON.stringify({
               providerThreadId,
@@ -700,6 +705,7 @@ describe("events", () => {
             itemId,
             itemKind: "backgroundTask",
             parentToolCallId: null,
+            daemonEventId: `daemon-event-${++nextDaemonEventId}`,
             providerThreadId,
             data: JSON.stringify({ providerThreadId, item: backgroundItem }),
           },
@@ -711,6 +717,7 @@ describe("events", () => {
             itemId,
             itemKind: "backgroundTask",
             parentToolCallId: null,
+            daemonEventId: `daemon-event-${++nextDaemonEventId}`,
             providerThreadId,
             data: JSON.stringify({
               providerThreadId,
@@ -727,6 +734,7 @@ describe("events", () => {
         { threadId: thread.id, sequence: 5 },
       ],
       insertedInputIndexes: [1, 2],
+      replayedEvents: [],
       skippedTurnUnstartedInputIndexes: [],
     });
   });
@@ -770,13 +778,17 @@ describe("events", () => {
 
     expect(first.insertedInputIndexes).toEqual([0, 1]);
     expect(replay).toEqual({
-      acceptedEvents: [{ threadId: thread.id, sequence: 3 }],
-      insertedInputIndexes: [1],
+      acceptedEvents: [],
+      insertedInputIndexes: [],
+      replayedEvents: [
+        { inputIndex: 0, sequence: 1, threadId: thread.id },
+        { inputIndex: 1, sequence: 2, threadId: thread.id },
+      ],
       skippedTurnUnstartedInputIndexes: [],
     });
     expect(
       listEvents(db, { threadId: thread.id }).map((event) => event.type),
-    ).toEqual(["turn/started", "turn/completed", "turn/completed"]);
+    ).toEqual(["turn/started", "turn/completed"]);
   });
 
   it("skips a turn/started repeated inside one daemon batch", () => {

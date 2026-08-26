@@ -167,6 +167,12 @@ interface InitialConnectInvalidationArgs extends QueryClientArg {
  * realtime query whose data predates the subscription watermark; queries that
  * resolve after it observe post-subscribe server state and stay untouched.
  */
+export function refetchErroredRealtimeQueriesOnInitialConnect({
+  queryClient,
+}: QueryClientArg): void {
+  void recoverErroredRealtimeQueries({ queryClient });
+}
+
 export function invalidateRealtimeQueriesFetchedBeforeInitialConnect({
   connectedAt,
   queryClient,

@@ -9,6 +9,7 @@ import {
   promptTextMentionSchema,
   systemMessageKindSchema,
   systemMessageSubjectSchema,
+  systemChildSessionStatusSchema,
   threadEventItemPresentationSchema,
   threadEventPlanStepSchema,
   threadEventSearchModeSchema,
@@ -315,6 +316,9 @@ export const timelineToolWorkRowSchema = timelineWorkRowBaseSchema.extend({
   callId: z.string(),
   toolName: z.string(),
   toolArgs: z.record(z.string(), jsonValueSchema).nullable(),
+  statusLabels: z
+    .object({ pending: z.string(), completed: z.string() })
+    .optional(),
   output: z.string(),
   outputPreview: timelineOutputPreviewSchema.optional(),
   completedAt: z.number().nullable(),
@@ -524,6 +528,24 @@ export type TimelineQuestionWorkRow = z.infer<
   typeof timelineQuestionWorkRowSchema
 >;
 
+/** A native, parent-timeline anchor for an independently streamed child. */
+export const timelineChildSessionWorkRowSchema =
+  timelineWorkRowBaseSchema.extend({
+    workKind: z.literal("child-session"),
+    childThreadId: z.string(),
+    childKind: z.string(),
+    title: z.string(),
+    providerId: z.string(),
+    model: z.string().nullable(),
+    childStatus: systemChildSessionStatusSchema,
+    statusReason: z.string().nullable(),
+    outputExcerpt: z.string().nullable(),
+    completedAt: z.number().nullable(),
+  });
+export type TimelineChildSessionWorkRow = z.infer<
+  typeof timelineChildSessionWorkRowSchema
+>;
+
 /**
  * Work the agent delegated to a child agent. `childRef` is the provider-
  * native id of the child (grammar v3 `delegation`); null for rows projected
@@ -602,6 +624,7 @@ export type TimelineWorkRow =
   | TimelineExtensionWorkRow
   | TimelineApprovalWorkRow
   | TimelineQuestionWorkRow
+  | TimelineChildSessionWorkRow
   | TimelineDelegationWorkRow
   | TimelineWorkflowWorkRow;
 
@@ -618,6 +641,7 @@ export const timelineWorkRowSchema: z.ZodType<TimelineWorkRow> = z.union([
   timelineExtensionWorkRowSchema,
   timelineApprovalWorkRowSchema,
   timelineQuestionWorkRowSchema,
+  timelineChildSessionWorkRowSchema,
   timelineDelegationWorkRowSchema,
   timelineWorkflowWorkRowSchema,
 ]);

@@ -14,6 +14,7 @@ export const experimentKeys = [
   "changelogPreview",
   "editMessages",
   "mobileApp",
+  "newOnboarding",
   "providerSessionReaping",
   "timelineWindowing",
 ] as const;
@@ -31,6 +32,7 @@ export const defaultExperiments: Experiments = {
   changelogPreview: false,
   editMessages: true,
   mobileApp: false,
+  newOnboarding: false,
   providerSessionReaping: false,
   timelineWindowing: false,
 };

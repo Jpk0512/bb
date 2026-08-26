@@ -36,6 +36,11 @@ export const appSettingsSchema = z
      * (pickers, CLI, SDK) so a screen share does not reveal a private model id.
      */
     streamerMode: z.boolean(),
+    /**
+     * ISO timestamp of when first-run onboarding last finished or was
+     * dismissed; null means it has never run.
+     */
+    onboardingCompletedAt: z.string().nullable(),
   })
   .strict();
 export type AppSettings = z.infer<typeof appSettingsSchema>;
@@ -75,4 +80,5 @@ export const defaultAppSettings: AppSettings = {
   providerOrder: [],
   defaultProviderId: null,
   streamerMode: false,
+  onboardingCompletedAt: null,
 };

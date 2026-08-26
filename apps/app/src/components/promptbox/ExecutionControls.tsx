@@ -115,7 +115,9 @@ export const ExecutionControls = memo(function ExecutionControls({
           modelIsLoading={model.isLoading}
           modelLoadFailed={model.loadFailed}
           modelLoadError={model.loadError}
-          onModelChange={model.onChange}
+          onModelChange={(value) =>
+            model.onChange(value, selectedProviderId)
+          }
           formatModelLabel={formatModelLabel}
           reasoningValue={reasoning.value}
           reasoningOptions={reasoning.options}

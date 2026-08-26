@@ -373,6 +373,8 @@ describe("WebSocketManager rejected subscriptions", () => {
     ]);
     expect(console.error).toHaveBeenCalled();
     expect(manager.isRealtimeLive()).toBe(true);
+    expect(manager.isRealtimeLive(PROJECT_TARGET)).toBe(true);
+    expect(manager.isRealtimeLive(THREAD_TARGET)).toBe(false);
   });
 
   it("re-establishes subscriptions one at a time when a rejecting close names no single suspect", () => {

@@ -116,6 +116,7 @@ function storedRows(harness: TestAppHarness, threadId: string) {
 
 function turnStarted(threadId: string): HostDaemonEventEnvelope {
   return {
+    eventId: `devt_pres_1`,
     threadId,
     event: {
       type: "turn/started",
@@ -133,6 +134,7 @@ function toolItem(
   type: "item/started" | "item/completed" = "item/completed",
 ): HostDaemonEventEnvelope {
   return {
+    eventId: `devt_pres_2`,
     threadId,
     event: {
       type,
@@ -269,6 +271,7 @@ function delegationSnapshot(
   glyph: string,
 ): HostDaemonEventEnvelope {
   return {
+    eventId: `devt_pres_3`,
     threadId,
     event: {
       type,
@@ -297,6 +300,7 @@ function backgroundTaskSnapshot(
 ): HostDaemonEventEnvelope {
   const completed = type === "item/backgroundTask/completed";
   return {
+    eventId: `devt_pres_4`,
     threadId,
     event: {
       type,
@@ -458,6 +462,7 @@ function bbToolItem(
   glyph: string,
 ): HostDaemonEventEnvelope {
   return {
+    eventId: `devt_pres_5`,
     threadId,
     event: {
       type: "item/completed",

@@ -449,7 +449,7 @@ export async function runEnvironmentProvisioningSweep(
 
 // Thread provisioning context is process-local. This sweep is orphan cleanup,
 // not resumable recovery, and live same-process provisioning is skipped.
-async function runThreadProvisioningOrphanCleanupSweep(
+export async function runThreadProvisioningOrphanCleanupSweep(
   deps: LoggedPendingInteractionWorkSessionDeps,
 ): Promise<void> {
   const provisioningThreads = deps.db

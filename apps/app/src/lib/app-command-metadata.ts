@@ -44,7 +44,7 @@ export const APP_COMMAND_GROUPS: readonly AppCommandGroup[] = [
     label: "Commands",
     commands: [
       command(
-        "command.palette",
+        "palette.open",
         "Open command palette",
         "Search commands and threads.",
       ),

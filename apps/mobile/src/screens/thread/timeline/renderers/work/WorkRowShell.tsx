@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
 import { View } from "react-native";
-import { activityIntentTitleGlyph } from "@bb/thread-view";
+import {
+  activityIntentTitleGlyph,
+  type TimelineViewWorkRow,
+} from "@bb/thread-view";
 import { useTheme } from "@/theme";
 import { Icon } from "@/ui";
 import { useTimelineRowHost } from "../../host/TimelineRowHostProvider";
@@ -68,7 +71,7 @@ export function WorkRowShell({
   // The installed-plugin list the timeline host keeps live; a row's
   // "<pluginId>/<name>" glyph resolves against it (or falls back).
   const { installedPlugins } = useTimelineRowHost();
-  const row = item.row;
+  const row = item.row as TimelineViewWorkRow;
   const dim = isPastWorkRow(row);
   const compactTitles = compactActivityIntentTitles(row, item.parentKind);
   const rowTestID = `timeline-row-${item.kind}`;

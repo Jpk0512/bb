@@ -1245,3 +1245,94 @@ export function pluginCatalogInstallPlanQueryKey(args: {
 export function pluginMarketplacesQueryKey() {
   return [PLUGIN_MARKETPLACES_QUERY_KEY] as const;
 }
+
+// --- fork query keys retained during 0.40.0 merge ---
+
+export const THREAD_TURNS_QUERY_KEY = "threadTurns";
+
+export const ONBOARDING_AGENTS_QUERY_KEY = "onboardingAgents";
+
+export const ONBOARDING_REPOS_QUERY_KEY = "onboardingRepos";
+
+export const SYSTEM_DISABLED_MODELS_QUERY_KEY = "systemDisabledModels";
+
+export interface ThreadTurnsQueryIdentity {
+  includeSpans: boolean;
+  threadId: string;
+  turnId: string;
+}
+
+export type ThreadTurnsQueryKey = readonly [
+  typeof THREAD_TURNS_QUERY_KEY,
+  string,
+  string,
+  boolean,
+];
+
+export type ThreadTurnsQueryKeyPrefix = readonly [
+  typeof THREAD_TURNS_QUERY_KEY,
+  string,
+];
+
+export type AllThreadTurnsQueryKeyPrefix = readonly [
+  typeof THREAD_TURNS_QUERY_KEY,
+];
+
+export type OnboardingAgentsQueryKey = readonly [
+  typeof ONBOARDING_AGENTS_QUERY_KEY,
+  string | null,
+  string | null,
+];
+
+export type OnboardingReposQueryKey = readonly [
+  typeof ONBOARDING_REPOS_QUERY_KEY,
+];
+
+export type SystemDisabledModelsQueryKey = readonly [
+  typeof SYSTEM_DISABLED_MODELS_QUERY_KEY,
+];
+
+export function threadTurnsQueryKey({
+  includeSpans,
+  threadId,
+  turnId,
+}: ThreadTurnsQueryIdentity): ThreadTurnsQueryKey {
+  return [THREAD_TURNS_QUERY_KEY, threadId, turnId, includeSpans];
+}
+
+export function threadTurnsQueryKeyPrefix(
+  threadId: string,
+): ThreadTurnsQueryKeyPrefix {
+  return [THREAD_TURNS_QUERY_KEY, threadId];
+}
+
+export function allThreadTurnsQueryKeyPrefix(): AllThreadTurnsQueryKeyPrefix {
+  return [THREAD_TURNS_QUERY_KEY];
+}
+
+/**
+ * The discriminating second component of a diff query key: the merge-base
+ * branch for `branch_committed`/`all`, the SHA for `commit`, and `null` for
+ * `uncommitted` (and for an absent target). Shared by every environment-diff
+ * query family so they key off the same target identity.
+ */
+
+export function onboardingAgentsQueryKey(
+  args: Pick<SystemExecutionOptionsQueryKeyArgs, "environmentId" | "hostId">,
+): OnboardingAgentsQueryKey {
+  return [ONBOARDING_AGENTS_QUERY_KEY, args.environmentId, args.hostId];
+}
+
+export function onboardingReposQueryKey(): OnboardingReposQueryKey {
+  return [ONBOARDING_REPOS_QUERY_KEY];
+}
+
+export function systemDisabledModelsQueryKey(): SystemDisabledModelsQueryKey {
+  return [SYSTEM_DISABLED_MODELS_QUERY_KEY];
+}
+
+export function allNotificationListQueryKeyPrefix(): readonly [
+  typeof NOTIFICATION_LIST_QUERY_KEY,
+] {
+  return [NOTIFICATION_LIST_QUERY_KEY];
+}

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createConnection, migrate, type DbConnection } from "@bb/db";
 import type { BbSdk } from "@bb/sdk";
+import { createAiServiceRegistry } from "../../../src/services/ai/ai-service-registry.js";
 import { createPluginApi } from "../../../src/services/plugins/plugin-api.js";
 import { createNoopTelemetryService } from "../../../src/services/system/telemetry.js";
 import {
@@ -23,6 +24,7 @@ describe("plugin runtime hooks", () => {
     workDir = await mkdtemp(join(tmpdir(), "bb-runtime-hooks-"));
     service = createPluginService({
       telemetry: createNoopTelemetryService(),
+      aiServices: createAiServiceRegistry(),
       db,
       hub: {
         getDaemonSessionIdForHost: () => null,
@@ -255,9 +257,19 @@ describe("plugin runtime hooks", () => {
       reportNeedsConfiguration: () => {},
       isAgentToolNameTaken: () => undefined,
       reportAgentToolProblem: () => {},
+      declaredIconNames: new Set(),
       requestInteraction: async () => ({
         outcome: "cancelled",
         reason: "plugin-disposed",
+      }),
+      callPluginHost: async () => {
+        throw new Error("not used by this test");
+      },
+      registerAiService: () => ({ dispose: () => {} }),
+      isAiServiceIdTaken: () => false,
+      assertAiServiceRegistrable: () => ({
+        artifact: null,
+        problem: "not used by this test",
       }),
       ensureSharedPortTunnel: async () => {
         throw new Error("not used by this test");

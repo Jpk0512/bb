@@ -22,6 +22,7 @@
     "@bb/logger": "workspace:*",
     "@bb/plugin-build": "workspace:*",
     "@bb/process-utils": "workspace:*",
+    "@bb/provider-bridge-acp": "workspace:*",
     "@bb/sdk": "workspace:*",
     "@bb/secret-storage": "workspace:*",
     "@bb/server-contract": "workspace:*",

@@ -185,6 +185,8 @@ export function describePanelTab(tab: FixedPanelTab): PanelTabDescriptor {
       return { label: "Info", icon: "Info", statusLabel: null, supported };
     case "git-diff":
       return { label: "Diff", icon: "FileDiff", statusLabel: null, supported };
+    case "files":
+      return { label: "Files", icon: "Folder", statusLabel: null, supported };
     case "workspace-file-preview":
       return {
         label: fileNameFromPath(tab.path),

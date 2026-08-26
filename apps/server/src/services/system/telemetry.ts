@@ -40,6 +40,33 @@ const telemetryAppSurfaceStorage = new AsyncLocalStorage<RequestAppSurface>();
 export type TelemetryEvent =
   | { name: "app_started" }
   | {
+      name: "onboarding_started";
+      properties: {
+        agent_state: "connected" | "signed_out" | "none";
+        detected_agent_count: number;
+      };
+    }
+  | {
+      name: "onboarding_step_completed";
+      properties: { step: "agents" | "projects" };
+    }
+  | {
+      name: "onboarding_step_skipped";
+      properties: { step: "agents" | "projects" };
+    }
+  | {
+      name: "onboarding_completed";
+      properties: {
+        agent_state: "connected" | "signed_out" | "none";
+        projects_added: number;
+        duration_ms: number;
+      };
+    }
+  | {
+      name: "onboarding_dismissed";
+      properties: { step: "agents" | "projects" };
+    }
+  | {
       name: "thread_created";
       properties: {
         is_child_thread: boolean;

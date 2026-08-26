@@ -3,7 +3,10 @@ import type {
   AppSettings,
   Experiments,
 } from "@bb/domain";
-import type { ProviderUsageResponse } from "@bb/host-daemon-contract";
+import type {
+  DiscoverReposResult,
+  ProviderUsageResponse,
+} from "@bb/host-daemon-contract";
 import type {
   SystemAttentionResponse,
   SystemConfigReloadResponse,
@@ -15,6 +18,9 @@ import type {
   SystemInstallCliSkillsResponse,
   SystemProviderStatesResponse,
   SystemProvidersQuery,
+  OnboardingAgentOverview,
+  OnboardingTelemetryEvent,
+  SystemOnboardingReposQuery,
   SystemUsageLimitsQuery,
   SystemVersionQuery,
   SystemVersionResponse,
@@ -67,6 +73,14 @@ export type SystemUpdateExperimentsResult = Experiments;
 export type SystemUpdateGeneralSettingsResult = AppSettings;
 export type SystemUpdateKeyboardSettingsResult = AppKeybindingOverrides;
 export type SystemUsageLimitsResult = ProviderUsageResponse;
+export interface SystemOnboardingArgs extends SystemProvidersQuery {
+  signal?: AbortSignal;
+}
+export interface SystemOnboardingReposArgs extends SystemOnboardingReposQuery {
+  signal?: AbortSignal;
+}
+export type SystemOnboardingAgentsResult = OnboardingAgentOverview;
+export type SystemOnboardingReposResult = DiscoverReposResult;
 export interface SystemProviderStatesArgs extends SystemProvidersQuery {
   signal?: AbortSignal;
 }
@@ -102,6 +116,16 @@ export interface SystemArea {
   updateKeyboardSettings(
     args: AppKeybindingOverrides,
   ): Promise<SystemUpdateKeyboardSettingsResult>;
+  /** Report one onboarding funnel event to anonymous telemetry. */
+  onboardingEvent(args: OnboardingTelemetryEvent): Promise<{ ok: true }>;
+  /** Live agent state for onboarding: install, auth, and plan per provider. */
+  onboardingAgents(
+    args?: SystemOnboardingArgs,
+  ): Promise<SystemOnboardingAgentsResult>;
+  /** Candidate projects discovered on the host, ranked for onboarding. */
+  onboardingRepos(
+    args?: SystemOnboardingReposArgs,
+  ): Promise<SystemOnboardingReposResult>;
   /** Live host-local install and authentication state for every provider. */
   providerStates(
     args?: SystemProviderStatesArgs,
@@ -202,6 +226,32 @@ export function createSystemArea(args: CreateSdkAreaArgs): SystemArea {
     async updateKeyboardSettings(input) {
       return transport.readJson(
         transport.api.v1.settings.keyboard.$put({ json: input }),
+      );
+    },
+    async onboardingEvent(input) {
+      return transport.readJson(
+        transport.api.v1.system.onboarding.event.$post({ json: input }),
+      );
+    },
+    async onboardingAgents(input = {}) {
+      return transport.readJson(
+        transport.api.v1.system.onboarding.agents.$get(
+          {
+            query: {
+              environmentId: input.environmentId,
+              hostId: input.hostId,
+            },
+          },
+          ...signalRequestArgs(input.signal),
+        ),
+      );
+    },
+    async onboardingRepos(input = {}) {
+      return transport.readJson(
+        transport.api.v1.system.onboarding.repos.$get(
+          { query: { hostId: input.hostId } },
+          ...signalRequestArgs(input.signal),
+        ),
       );
     },
     async providerStates(input = {}) {

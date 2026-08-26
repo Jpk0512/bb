@@ -107,6 +107,8 @@ interface RunningToolCallExecution extends RunningExecutionBase {
   kind: "tool-call";
   toolName: string | null;
   toolArgs: JsonObject | null;
+  statusLabels?: { pending: string; completed: string };
+  parsedIntents?: EventProjectionToolParsedIntent[];
   approvalStatus: EventProjectionApprovalLifecycleStatus | null;
 }
 
@@ -848,10 +850,17 @@ function applyIncomingExecutionKind(
       next.kind = "tool-call";
       next.toolName = incoming.toolName ?? null;
       next.toolArgs = incoming.toolArgs ?? null;
-      if (incoming.statusLabels) {
+      if (
+        incoming.kind === "tool-call" &&
+        "statusLabels" in incoming &&
+        incoming.statusLabels
+      ) {
         next.statusLabels = incoming.statusLabels;
       }
-      next.parsedIntents = incoming.parsedIntents ?? [];
+      next.parsedIntents =
+        incoming.kind === "tool-call" && "parsedIntents" in incoming
+          ? (incoming.parsedIntents ?? [])
+          : [];
       next.approvalStatus = incoming.approvalStatus ?? null;
       break;
     case "delegation":

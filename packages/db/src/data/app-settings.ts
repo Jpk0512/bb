@@ -1,13 +1,17 @@
-import { eq, inArray } from "drizzle-orm";
 import {
   appKeybindingOverridesSchema,
   appSettingsSchema,
   defaultAppSettings,
+  disabledModelsSchema,
   type AppKeybindingOverrides,
   type AppSettings,
+  type DisabledModels,
 } from "@bb/domain";
 import type { DbConnection, DbQueryConnection } from "../connection.js";
-import { appSettingsValues } from "../schema.js";
+import { appSettings, appSettingsValues } from "../schema.js";
+import { eq, inArray } from "drizzle-orm";
+
+const APP_SETTINGS_ROW_ID = "current";
 
 const appSettingsKeySchema = appSettingsSchema.keyof();
 const appSettingsKeys = appSettingsKeySchema.options;
@@ -97,4 +101,38 @@ export function setAppKeybindingOverrides(
   overrides: AppKeybindingOverrides,
 ): void {
   writeValue(db, KEYBINDING_OVERRIDES_KEY, overrides, Date.now());
+}
+
+export function getDisabledModels(db: DbConnection): DisabledModels {
+  const row = db
+    .select({ disabledModels: appSettings.disabledModels })
+    .from(appSettings)
+    .where(eq(appSettings.id, APP_SETTINGS_ROW_ID))
+    .get();
+
+  if (row === undefined) {
+    return [];
+  }
+  return disabledModelsSchema.parse(JSON.parse(row.disabledModels));
+}
+
+export function setDisabledModels(
+  db: DbConnection,
+  disabledModels: DisabledModels,
+): void {
+  const updatedAt = Date.now();
+  db.insert(appSettings)
+    .values({
+      id: APP_SETTINGS_ROW_ID,
+      disabledModels: JSON.stringify(disabledModels),
+      updatedAt,
+    })
+    .onConflictDoUpdate({
+      target: appSettings.id,
+      set: {
+        disabledModels: JSON.stringify(disabledModels),
+        updatedAt,
+      },
+    })
+    .run();
 }

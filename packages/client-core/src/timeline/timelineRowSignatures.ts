@@ -120,7 +120,9 @@ function timelineWorkRowRenderSignature(row: TimelineViewWorkRow): string {
     row.inClosedStep,
     row.workKind === "approval" || row.workKind === "question"
       ? null
-      : presentationSignature(row.presentation),
+      : presentationSignature(
+          "presentation" in row ? row.presentation : undefined,
+        ),
   ];
 
   switch (row.workKind) {

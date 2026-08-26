@@ -1,8 +1,6 @@
-import { getThread, type DbTransaction } from "@bb/db";
 import {
   getLatestStoredEventRowByType,
   getThread,
-  type DbNotifier,
   type DbTransaction,
 } from "@bb/db";
 import {
@@ -15,6 +13,7 @@ import {
   type Thread,
   type ThreadTurnInitiator,
   type TurnRequestTarget,
+  type ProvisioningTranscriptEntry,
 } from "@bb/domain";
 import type { StartedOnBehalfOf } from "@bb/server-contract";
 import type { AppDeps } from "../../types.js";
@@ -37,10 +36,12 @@ import {
 import {
   ensureThreadProvisionEnvironmentReady,
   ensureWorkspaceReadyEvent,
+  ensureWorkspaceReadyEventInTransaction,
   failThreadProvisioning,
   loadActiveThreadProvisionContext,
   type ThreadProvisioningDeps,
 } from "./thread-provisioning-environment.js";
+import type { DbNotifier } from "@bb/db";
 import {
   forgetActiveThreadProvisionContext,
   getActiveThreadProvisionContext,
@@ -85,6 +86,17 @@ interface RequestThreadReprovisionArgs {
 interface AdvanceThreadProvisioningArgs {
   context?: ThreadProvisionContext;
   threadId: string;
+}
+
+interface RecordThreadProvisionWorkspaceReadyArgs {
+  entries: ProvisioningTranscriptEntry[];
+  environmentId: string;
+  threadId: string;
+}
+
+interface ThreadProvisionWorkspaceReadyTransactionDeps {
+  db: DbTransaction;
+  hub: DbNotifier;
 }
 
 interface CurrentProvisioningFailureThreadArgs {
@@ -230,7 +242,6 @@ async function startThreadIfEnvironmentReady(
     requestId: args.context.request.clientRequestId,
     execution: args.context.request.execution,
     permissionEscalation: resolvePermissionEscalation({
-      thread: args.thread,
       initiator: args.context.request.initiator,
     }),
     projectId: args.thread.projectId,

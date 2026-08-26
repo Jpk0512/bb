@@ -2,8 +2,15 @@ import type Database from "better-sqlite3";
 import type { Context } from "hono";
 import type * as z from "zod";
 import type {
+  ClientTurnRequestId,
+  PromptInput,
   ProviderNativeRootInput,
   ProviderNativeRootsInputLike,
+  ThreadEvent,
+  ThreadEventType,
+  ThreadTurnInitiator,
+  ThreadTurnRecord,
+  TurnRequestTarget,
 } from "@bb/domain";
 import type { ProviderFork } from "@bb/domain/provider-fork";
 import type { BbSdk } from "@bb/sdk";
@@ -219,14 +226,34 @@ export interface PluginRpc {
   ): void;
 }
 
+/** One channel `bb.realtime.declare` opens to other plugins' frontends. */
+export interface PluginRealtimeChannelDeclaration {
+  /** Channel name, matching /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/. */
+  channel: string;
+  /** Human label shown in the plugin detail "Includes" section. */
+  label: string;
+  /**
+   * True when publishes on this channel carry a `scope` id, so a subscriber
+   * can narrow to `{ ids: [...] }`. Declaring it is how a subscriber learns
+   * the ids are meaningful without reading your source.
+   */
+  scoped: boolean;
+}
+
 export interface PluginRealtime {
   /**
-   * Broadcast an ephemeral `plugin-signal` WS message
-   * `{ pluginId, channel, payload }` to every connected client (V1 has no
-   * per-channel subscriptions). `payload` must be JSON-serializable;
-   * `undefined` is normalized to `null`. Nothing is persisted.
+   * Publish an ephemeral `plugin-signal` WS message
+   * `{ pluginId, channel, scope, payload }`. The hub ROUTES it to the clients
+   * subscribed to this publisher + channel (+ scope) rather than broadcasting.
    */
-  publish(channel: string, payload: unknown): void;
+  publish(
+    channel: string,
+    payload: unknown,
+    options?: { scope?: string | null },
+  ): void;
+
+  /** Declare which of this plugin's channels other plugins' frontends may subscribe to. */
+  declare(channels: readonly PluginRealtimeChannelDeclaration[]): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -1062,6 +1089,129 @@ export interface PluginEvents {
 }
 
 // ---------------------------------------------------------------------------
+// Server runtime hooks (Phase 6 / BBF-8).
+// ---------------------------------------------------------------------------
+
+export type TurnPreflightTrigger =
+  | "user"
+  | "auto-dispatch"
+  | "queued-auto-send"
+  | "history-replacement";
+
+/** Server-owned context presented immediately before one provider turn. */
+export interface TurnPreflightContext {
+  threadId: string;
+  projectId: string;
+  environmentId: string;
+  requestId: ClientTurnRequestId;
+  initiator: ThreadTurnInitiator;
+  senderThreadId: string | null;
+  trigger: TurnPreflightTrigger;
+  target: TurnRequestTarget;
+  input: readonly PromptInput[];
+  inputGroups: readonly (readonly PromptInput[])[] | null;
+  binding: {
+    providerId: string;
+    model: string;
+  };
+}
+
+export type TurnPreflightDecision =
+  | { kind: "admit" }
+  | {
+      kind: "admit-with";
+      contextItems?: PromptInput[];
+      replaceInput?: PromptInput[];
+      binding?: { providerId?: string; model?: string };
+      tools?: string[];
+      skills?: string[];
+    }
+  | { kind: "reject"; code: string; message: string }
+  | {
+      kind: "require-approval";
+      rendererId: string;
+      title: string;
+      payload: JsonValue;
+      timeoutMs: number;
+    };
+
+export type TurnPreflightHandler = (
+  context: TurnPreflightContext,
+) => TurnPreflightDecision | Promise<TurnPreflightDecision>;
+
+/** One normalized provider event, delivered only after durable insertion. */
+export interface ProviderEventObservation {
+  threadId: string;
+  environmentId: string | null;
+  providerThreadId: string | null;
+  sequence: number;
+  turnId: string | null;
+  scope: ThreadEvent["scope"];
+  event: ThreadEvent;
+}
+
+export type ProviderEventHandler = (
+  observation: ProviderEventObservation,
+) => void | Promise<void>;
+
+export type TurnSettledOutcome =
+  | "completed"
+  | "failed"
+  | "interrupted"
+  | "delivery-unknown"
+  | "provider-session-lost";
+
+export interface TurnSettledSignal {
+  threadId: string;
+  turnId: string | null;
+  providerThreadId: string | null;
+  providerId: string;
+  requestId: ClientTurnRequestId | null;
+  outcome: TurnSettledOutcome;
+  error: string | null;
+  providerCheckpointId: string | null;
+  startedAt: number | null;
+  settledAt: number;
+  turn: ThreadTurnRecord | null;
+}
+
+export type TurnSettledHandler = (
+  signal: TurnSettledSignal,
+) => void | Promise<void>;
+
+export type BindingLifecyclePhase =
+  | "start"
+  | "resume"
+  | "model-changed"
+  | "session-replaced"
+  | "health-degraded"
+  | "archived"
+  | "crashed";
+
+export interface BindingLifecycleSignal {
+  threadId: string;
+  bindingId: string;
+  providerId: string;
+  providerThreadId: string;
+  phase: BindingLifecyclePhase;
+  detail: JsonValue | null;
+}
+
+export type BindingLifecycleHandler = (
+  signal: BindingLifecycleSignal,
+) => void | Promise<void>;
+
+export interface PluginRuntime {
+  onTurnPreflight(handler: TurnPreflightHandler): void;
+  onProviderEvent(
+    handler: ProviderEventHandler,
+    options?: { eventTypes?: readonly ThreadEventType[] },
+  ): void;
+  onTurnSettled(handler: TurnSettledHandler): void;
+  onBindingLifecycle(handler: BindingLifecycleHandler): void;
+}
+
+// ---------------------------------------------------------------------------
 // Server info.
 // ---------------------------------------------------------------------------
 
@@ -1213,6 +1363,8 @@ export interface BbPluginApi {
   readonly ui: PluginUi;
   /** Additive plugin lifecycle listeners (design §4.5). */
   readonly events: PluginEvents;
+  /** Server-owned provider runtime hooks (Phase 6 / BBF-8). */
+  readonly runtime: PluginRuntime;
   /** Plugin-reported status (needs-configuration). */
   readonly status: PluginStatusApi;
   /** Read-only facts about the running server (loopback base URL). */

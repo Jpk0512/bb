@@ -37,6 +37,7 @@ import {
   type ExistingThreadExecutionInputRequest,
 } from "./thread-execution-plan.js";
 import { clampPermissionModeToHost } from "../hosts/permission-ceiling.js";
+import type { TurnDispatchIntent } from "./turn-preflight.js";
 import type { ProviderRegistryService } from "../providers/provider-registry.js";
 import { resolveProviderPlanCommand } from "../providers/provider-plan-command.js";
 import { workspaceContextFromPath } from "../environments/workspace-command-target.js";
@@ -79,6 +80,8 @@ export interface ThreadStartCommandArgs {
   requestId: ClientTurnRequestId;
   syncGeneratedTitle: boolean;
   thread: Thread;
+  /** Required so every provider-bound call site explicitly opts in or out. */
+  turnDispatch?: TurnDispatchIntent | null;
 }
 
 interface PreparedTurnSubmitCommandBuildArgs {
@@ -107,6 +110,8 @@ interface PrepareTurnSubmitCommandPayloadArgs {
   providerThreadId?: string;
   target: TurnSubmitTarget;
   thread: Thread;
+  /** Required so non-turn command reuse cannot accidentally run preflight. */
+  turnDispatch?: TurnDispatchIntent | null;
 }
 
 interface FinalizeTurnSubmitCommandPayloadArgs {

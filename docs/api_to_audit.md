@@ -1479,6 +1479,26 @@ Implementation: the shared workflow is
    stabilizing, confirm unconditional project switching is right for embedded
    plugin workflows, rather than adding an explicit project-locking policy.
 
+## `app.slots.experimental_notificationBody` (`@get-bb/plugin-sdk/app`)
+
+**What it does.** Lets a plugin render structured, read-only detail inside its
+own native Inbox row. The host still owns notification title, thread target,
+Open, Dismiss, unread state, navigation, and crash containment. Register
+`{ id, component }`; `id` must equal the notification's `rendererId`.
+
+**Audit before stabilizing.**
+
+1. **Payload boundary.** Confirm the limited notification view (identity,
+   title/body, category, timestamps, and JSON payload) remains sufficient
+   without exposing the entire target thread or an SDK handle to the renderer.
+2. **Row budget.** A plugin body is embedded in a grouped inbox list. Decide
+   whether the host should impose height limits or progressive disclosure for
+   many large findings.
+3. **Ownership.** Confirm `pluginId` plus `rendererId` is enough to prevent
+   one plugin from claiming another plugin's notification body.
+4. **Failures.** Each body is isolated with `PluginSlotMount`; verify that the
+   fallback remains useful while Open and Dismiss continue to work.
+
 ## `app.slots.experimental_newThreadPanelAction` (`@get-bb/plugin-sdk/app`)
 
 **Kept experimental (2026-08-22).** zero consumers; item 5 (merging with `threadPanelAction`) is explicitly deferred until an external plugin adopts it.

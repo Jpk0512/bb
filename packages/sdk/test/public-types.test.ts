@@ -348,6 +348,9 @@ type ExpectedSystemKey =
   | "updateExperiments"
   | "updateGeneralSettings"
   | "updateKeyboardSettings"
+  | "onboardingAgents"
+  | "onboardingEvent"
+  | "onboardingRepos"
   | "providerStates"
   | "usageLimits"
   | "version";
@@ -380,7 +383,6 @@ type ExpectedThreadsKey =
   | "pin"
   | "promptHistory"
   | "queuedMessages"
-  | "rateLimitRecovery"
   | "reveal"
   | "reorderPinned"
   | "resolveMentions"

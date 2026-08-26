@@ -351,6 +351,16 @@ const ONLINE_RPC_RESPONSE_RESULT_FIXTURES: OnlineRpcResponseResultFixtures = {
     ],
     selectedOnlyModels: [],
   },
+  "known_acp_agents.status": {
+    agents: [
+      {
+        id: "acp-opencode",
+        executableName: "opencode",
+        installed: true,
+        executablePath: "/opt/homebrew/bin/opencode",
+      },
+    ],
+  },
   "provider.health": {
     supported: true,
     health: {
@@ -379,6 +389,40 @@ const ONLINE_RPC_RESPONSE_RESULT_FIXTURES: OnlineRpcResponseResultFixtures = {
         },
       ],
     },
+  },
+  "provider_cli.status": {
+    codex: {
+      displayName: "Codex",
+      executableName: "codex",
+      executablePath: null,
+      installed: false,
+      installSource: "notInstalled",
+      currentVersion: null,
+      latestVersion: "0.136.0",
+      minimumSupportedVersion: "0.136.0",
+      npmPackageName: "@openai/codex",
+      npmGlobalPackageVersion: null,
+      installAction: {
+        kind: "install",
+        label: "Install",
+        command: "npm install -g @openai/codex@latest",
+      },
+      needsUpdate: false,
+      versionUnsupported: false,
+    },
+  },
+  "workspace.discover_repos": {
+    repos: [
+      {
+        path: "/home/user/projects/bb",
+        name: "bb",
+        lastActivityAt: "2026-08-05T00:00:00.000Z",
+        originUrl: "https://github.com/example/bb",
+        agentSeen: true,
+        agentSeenAt: "2026-08-04T00:00:00.000Z",
+      },
+    ],
+    truncated: false,
   },
   "provider.installation.status": {
     executableName: "codex",
@@ -3335,41 +3379,40 @@ describe("host-daemon session schemas", () => {
       }),
     ).toThrow();
 
-    // A `statusLabels` key on an item is not part of the wire any more (the
-    // bridge's presentation is the only label source); a daemon that sends
-    // one has it dropped rather than persisted.
-    const parsed = hostDaemonEventBatchRequestSchema.parse({
-      sessionId: "session_123",
-      eventGroups: [
-        {
-          threadId: "thr_123",
-          events: [
-            {
-              type: "item/started",
-              threadId: "thr_123",
-              providerThreadId: "provider-1",
-              scope: turnScope("turn-1"),
-              item: {
-                type: "toolCall",
-                id: "tool-2",
-                tool: "Read",
-                status: "pending",
-                statusLabels: { pending: "Spoofed", completed: "Spoofed" },
+    // A `statusLabels` key on an item is not part of the wire (the bridge's
+    // presentation is the only label source); a daemon that sends one is
+    // rejected rather than persisted.
+    expect(() =>
+      hostDaemonEventBatchRequestSchema.parse({
+        sessionId: "session_123",
+        eventGroups: [
+          {
+            threadId: "thr_123",
+            events: [
+              {
+                eventId: "devt_spoof",
+                event: {
+                  type: "item/started",
+                  threadId: "thr_123",
+                  providerThreadId: "provider-1",
+                  scope: turnScope("turn-1"),
+                  item: {
+                    type: "toolCall",
+                    id: "tool-2",
+                    tool: "Read",
+                    status: "pending",
+                    statusLabels: {
+                      pending: "Spoofed",
+                      completed: "Spoofed",
+                    },
+                  },
+                },
               },
-            },
-          ],
-        },
-      ],
-    });
-    const [group] = parsed.eventGroups;
-    const started = group?.events.find(
-      (event) => event.event.type === "item/started",
-    );
-    expect(started).toBeDefined();
-    if (started?.event.type !== "item/started") {
-      throw new Error("Expected the spoofed event to parse as item/started");
-    }
-    expect(started.event.item).not.toHaveProperty("statusLabels");
+            ],
+          },
+        ],
+      }),
+    ).toThrow();
 
     expect(() =>
       hostDaemonEventBatchResponseSchema.parse({

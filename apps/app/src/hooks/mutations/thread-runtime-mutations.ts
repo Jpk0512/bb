@@ -10,6 +10,7 @@ import type {
 import type { AppCreateThreadRequest } from "@bb/client-core";
 import { BbHttpError, sdk } from "@/lib/sdk";
 import { wsManager } from "@/lib/ws";
+import type { RealtimeSubscriptionTarget } from "@bb/server-contract";
 import type { QueuedMessageReorderRequest } from "@/lib/queued-message-reorder";
 import type {
   EditMessageMutationRequest,
@@ -82,6 +83,12 @@ interface SetThreadQueuedMessageGroupBoundaryMutationRequest {
   expectedGroupedPrefixQueuedMessageIds: string[];
   groupBoundaryQueuedMessageId: string;
   id: string;
+}
+
+function threadDetailRealtimeTarget(
+  threadId: string,
+): RealtimeSubscriptionTarget {
+  return { kind: "thread-detail", threadId };
 }
 
 function getHttpErrorBodyMessage(error: BbHttpError): string | null {
@@ -198,7 +205,9 @@ export function useSendThreadMessage() {
         // as the send it used to be.
         delivery: data.delivery ?? "sent",
         queryClient,
-        realtimeConnected: wsManager.isRealtimeLive(),
+        realtimeConnected: wsManager.isRealtimeLive(
+          threadDetailRealtimeTarget(variables.id),
+        ),
         request: variables,
         transaction: context,
       });
@@ -217,7 +226,7 @@ export function useEditThreadMessage() {
     mutationFn: ({ id, ...request }: EditMessageMutationRequest) =>
       sdk.threads.editMessage({ threadId: id, ...request }),
     onSuccess: (_result, variables) => {
-      if (wsManager.isRealtimeLive()) {
+      if (wsManager.isRealtimeLive(threadDetailRealtimeTarget(variables.id))) {
         return;
       }
       invalidateThreadHistoryRewriteQueries({

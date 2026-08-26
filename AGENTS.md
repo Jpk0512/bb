@@ -70,6 +70,23 @@
 
 - Add this line to each new issue and pull request. It shows the readers that an agent made the content.
 
+## Fork Operations
+
+- This checkout is the NSAI fork. `bb.local` is served by a packaged `bb-app`
+  production build under launchd (`com.jpk.bb-fork-prod`), not by `pnpm dev` —
+  there is no hot reload. After changing fork source you must rebuild and
+  restart, or the running app keeps the old code:
+  `pnpm exec turbo run build --filter=bb-app && launchctl kickstart -k gui/$UID/com.jpk.bb-fork-prod`.
+- Production and dev share a data dir and ports, so never run `pnpm dev` while
+  that service is up, and never merge or rebase inside `~/bb` while it is
+  running — use a worktree.
+- Upstream is consumed by merging `desktop-v<version>`, never by
+  `rebase-onto-upstream.sh`'s final `git reset --hard` (it would discard most of
+  the fork). Fork migrations must always carry the newest journal timestamps, or
+  Drizzle silently skips the upstream migrations they precede.
+- Full detail, including the `bb.local` proxy, ports, data dirs, and the upstream
+  merge hazards: [docs/fork/operations.md](docs/fork/operations.md).
+
 ## Debugging And QA
 
 - Do not assume. Inspect logs, query the database, call server APIs, or use the CLI to observe real state.

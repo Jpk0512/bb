@@ -3,6 +3,12 @@ import type { EventProjectionToolParsedIntent } from "./event-projection-types.j
 // Shell wrappers are not provider tool names: a `bash -lc '<cmd>'` wrapper
 // is stripped from every provider's commands so the row shows what ran.
 const SHELL_WRAPPER_NAMES = new Set(["sh", "bash", "zsh"]);
+const DELEGATION_TOOL_NAMES = new Set([
+  "Agent",
+  "Task",
+  "spawnAgent",
+  "resumeAgent",
+]);
 
 const SHELL_SEGMENT_BREAK_TOKENS = new Set(["&&", "||", "|", ";", "\n"]);
 
@@ -64,6 +70,15 @@ export function extractShellCommandFromString(
   }
 
   return unwrapQuotedShellArg(commandArg.trim());
+}
+
+export function baseToolName(toolName: string): string {
+  const segments = toolName.split(":");
+  return segments[segments.length - 1] ?? toolName;
+}
+
+export function isDelegationToolName(toolName: string): boolean {
+  return DELEGATION_TOOL_NAMES.has(baseToolName(toolName));
 }
 
 // Characters that a backslash may escape inside double quotes, per POSIX shell

@@ -21,8 +21,10 @@ import {
   type PluginNavPanelRegistration,
   type PluginNewThreadPanelProps,
   type PluginPendingInteractionProps,
+  type PluginNotificationBodyProps,
   type PluginProviderIconRegistration,
   type PluginTimelineRendererProps,
+  type PluginTranscriptPreludeProps,
   type PluginSettingDescriptor,
   type PluginSettingsSectionProps,
   type PluginSidebarFooterActionProps,
@@ -74,6 +76,7 @@ const BB_PLUGIN_API_KEYS = [
   "server",
   "hosts",
   "experimental_aiServices",
+  "runtime",
   "sdk",
   "onDispose",
 ] as const satisfies readonly (keyof BbPluginApi)[];
@@ -165,6 +168,7 @@ type SlotPropsByName = {
   threadPanelAction: PluginThreadPanelProps;
   experimental_newThreadPanelAction: PluginNewThreadPanelProps;
   pendingInteraction: PluginPendingInteractionProps;
+  experimental_notificationBody: PluginNotificationBodyProps;
   sidebarFooterAction: PluginSidebarFooterActionProps;
   experimental_threadList: PluginThreadListProps;
   experimental_threadHeaderAction: PluginThreadHeaderActionProps;
@@ -178,6 +182,7 @@ type SlotPropsByName = {
   // registration type is the documented surface.
   experimental_providerIcon: PluginProviderIconRegistration;
   experimental_timelineRenderer: PluginTimelineRendererProps;
+  transcriptPrelude: PluginTranscriptPreludeProps;
 };
 
 type MissingSlot = Exclude<keyof PluginAppSlots, keyof SlotPropsByName>;
@@ -236,6 +241,7 @@ const FRONTEND_SLOT_PROP_FIELDS = {
   threadPanelAction: ["threadId", "params"],
   experimental_newThreadPanelAction: ["projectId", "params"],
   pendingInteraction: ["interaction", "submit", "cancel"],
+  experimental_notificationBody: ["notification"],
   sidebarFooterAction: [],
   experimental_threadList: [
     "activeThreadId",
@@ -281,6 +287,7 @@ const FRONTEND_SLOT_PROP_FIELDS = {
     "thread",
     "Original",
   ],
+  transcriptPrelude: ["threadId"],
 } as const satisfies {
   [S in keyof SlotPropsByName]: readonly (keyof SlotPropsByName[S])[];
 };

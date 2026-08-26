@@ -69,6 +69,13 @@ export {
 } from "@bb/client-core";
 export type { ThreadRoutePathArgs } from "@bb/client-core";
 
+/** Fork inbox route — not yet in @bb/client-core. */
+export const INBOX_ROUTE_PATH = "/inbox";
+
+export function isInboxRoutePath(pathname: string): boolean {
+  return pathname === INBOX_ROUTE_PATH;
+}
+
 /** The plugin whose panel `pathname` shows, or null off the panel route. */
 export function getPluginPanelRoutePluginId(pathname: string): string | null {
   return matchPath(PLUGIN_PANEL_ROUTE_PATH, pathname)?.params.pluginId ?? null;

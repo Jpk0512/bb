@@ -56,6 +56,19 @@ export type WebSocketConnectionState =
  */
 export const REALTIME_PING_INTERVAL_MS = 25_000;
 export const REALTIME_PONG_TIMEOUT_MS = 5_000;
+/** Silence window after which a still-open socket is not treated as live. */
+export const REALTIME_SILENCE_LIMIT_MS = 10_000;
+
+/**
+ * Close codes the server uses to reject something this client sent. Replaying
+ * the same subscription set into the next socket reproduces them.
+ */
+const SUBSCRIPTION_REJECTING_CLOSE_CODES = new Set([
+  1002, 1003, 1007, 1008, 1009,
+]);
+
+/** How long a socket must survive after a subscribe before it counts as accepted. */
+const SUBSCRIPTION_ACCEPTANCE_MS = 5_000;
 
 export interface WebSocketManagerBrowserEvents {
   /** Fires on visibilitychange, pageshow and window focus. */
@@ -108,6 +121,11 @@ export class WebSocketManager {
   private disconnectedAt: number | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private pongTimer: ReturnType<typeof setTimeout> | null = null;
+  private acceptedSubscriptionKeys = new Set<string>();
+  private rejectedSubscriptionKeys = new Set<string>();
+  private unacceptedSubscriptionKeysSent: string[] = [];
+  private acceptanceTimer: ReturnType<typeof setTimeout> | null = null;
+  private stagingSubscriptionReplay = false;
 
   constructor(browserEvents?: WebSocketManagerBrowserEvents) {
     this.browserEvents = browserEvents ?? createDefaultBrowserEvents();
@@ -140,10 +158,8 @@ export class WebSocketManager {
       this.hasConnected = true;
       this.setConnectionState("connected");
       this.startPingLoop();
-      // Re-subscribe to all active subscriptions
-      for (const subscription of this.subscriptions.values()) {
-        this.sendMessage({ type: "subscribe", target: subscription.target });
-      }
+      this.clearSubscriptionAcceptance();
+      this.replaySubscriptions();
       const event: WebSocketConnectedEvent = reconnected
         ? { reconnected, disconnectedAt: disconnectedAt ?? Date.now() }
         : { reconnected };
@@ -158,7 +174,12 @@ export class WebSocketManager {
       this.handleIncomingMessage(event.data);
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event: CloseEvent) => {
+      const suspects = this.unacceptedSubscriptionKeysSent;
+      this.clearSubscriptionAcceptance();
+      if (SUBSCRIPTION_REJECTING_CLOSE_CODES.has(event.code)) {
+        this.attributeSubscriptionRejection(event, suspects);
+      }
       if (this.pongTimer !== null) {
         // The close confirms what the unanswered probe suspected: the socket
         // was already dead when the ping went out (iOS resume typically
@@ -319,11 +340,112 @@ export class WebSocketManager {
     this.setConnectionState(this.hasConnected ? "reconnecting" : "connecting");
   }
 
+  private replaySubscriptions(): void {
+    let sentUnaccepted = false;
+    for (const [key, subscription] of this.subscriptions) {
+      if (this.rejectedSubscriptionKeys.has(key)) continue;
+      if (!this.acceptedSubscriptionKeys.has(key)) {
+        if (this.stagingSubscriptionReplay && sentUnaccepted) continue;
+        sentUnaccepted = true;
+      }
+      this.sendSubscription(key, subscription.target);
+    }
+    if (!sentUnaccepted) {
+      this.stagingSubscriptionReplay = false;
+    }
+  }
+
+  private sendSubscription(
+    key: string,
+    target: RealtimeSubscriptionTarget,
+  ): void {
+    this.sendMessage({ type: "subscribe", target });
+    if (this.acceptedSubscriptionKeys.has(key)) {
+      return;
+    }
+    this.unacceptedSubscriptionKeysSent.push(key);
+    this.clearAcceptanceTimer();
+    this.acceptanceTimer = setTimeout(() => {
+      this.acceptanceTimer = null;
+      this.acceptOutstandingSubscriptions();
+    }, SUBSCRIPTION_ACCEPTANCE_MS);
+  }
+
+  private acceptOutstandingSubscriptions(): void {
+    this.clearAcceptanceTimer();
+    for (const key of this.unacceptedSubscriptionKeysSent) {
+      this.acceptedSubscriptionKeys.add(key);
+    }
+    this.unacceptedSubscriptionKeysSent = [];
+    if (!this.stagingSubscriptionReplay) {
+      return;
+    }
+    for (const [key, subscription] of this.subscriptions) {
+      if (this.rejectedSubscriptionKeys.has(key)) continue;
+      if (this.acceptedSubscriptionKeys.has(key)) continue;
+      this.sendSubscription(key, subscription.target);
+      return;
+    }
+    this.stagingSubscriptionReplay = false;
+  }
+
+  private clearAcceptanceTimer(): void {
+    if (this.acceptanceTimer === null) {
+      return;
+    }
+    clearTimeout(this.acceptanceTimer);
+    this.acceptanceTimer = null;
+  }
+
+  private clearSubscriptionAcceptance(): void {
+    this.clearAcceptanceTimer();
+    this.unacceptedSubscriptionKeysSent = [];
+  }
+
+  private attributeSubscriptionRejection(
+    event: CloseEvent,
+    suspects: readonly string[],
+  ): void {
+    const [onlySuspect] = suspects;
+    if (suspects.length === 1 && onlySuspect !== undefined) {
+      this.rejectedSubscriptionKeys.add(onlySuspect);
+      this.stagingSubscriptionReplay = false;
+      console.error(
+        `Server rejected realtime subscription ${onlySuspect} (close ${event.code} ${event.reason}). It will not be replayed; reload after upgrading the server.`,
+      );
+      return;
+    }
+    if (suspects.length === 0) {
+      if (this.acceptedSubscriptionKeys.size === 0) {
+        return;
+      }
+      this.acceptedSubscriptionKeys.clear();
+      this.stagingSubscriptionReplay = true;
+      console.error(
+        `Server closed the realtime socket (close ${event.code} ${event.reason}) with no subscribe outstanding, so a previously accepted target is no longer accepted. Re-establishing the set one at a time to identify it.`,
+      );
+      return;
+    }
+    this.stagingSubscriptionReplay = true;
+    console.error(
+      `Server closed the realtime socket (close ${event.code} ${event.reason}) while establishing ${suspects.length} subscriptions. Re-establishing them one at a time to identify the rejected target.`,
+    );
+  }
+
+  private subscriptionRefcountKey(target: RealtimeSubscriptionTarget): string {
+    const key = realtimeSubscriptionTargetKey(target);
+    if (target.kind !== "plugin-channel") return key;
+    return `${key}|as=${target.as ?? target.pluginId}`;
+  }
+
   /**
    * Parse and dispatch one raw server message. Public only so tests can
    * exercise the routing without a live socket.
    */
   handleIncomingMessage(data: string): void {
+    this.noteServerActivity();
+    this.acceptOutstandingSubscriptions();
+
     let parsed: unknown;
     try {
       parsed = JSON.parse(data);
@@ -399,11 +521,12 @@ export class WebSocketManager {
       this.socket.close();
       this.socket = null;
     }
+    this.clearSubscriptionAcceptance();
     this.setConnectionState("connecting");
   }
 
   subscribe(target: RealtimeSubscriptionTarget): void {
-    const key = realtimeSubscriptionTargetKey(target);
+    const key = this.subscriptionRefcountKey(target);
     const existing = this.subscriptions.get(key);
     if (existing) {
       existing.count += 1;
@@ -411,13 +534,16 @@ export class WebSocketManager {
     }
 
     this.subscriptions.set(key, { count: 1, target });
+    if (this.rejectedSubscriptionKeys.has(key)) {
+      return;
+    }
     if (this.socket?.readyState === WebSocket.OPEN) {
-      this.sendMessage({ type: "subscribe", target });
+      this.sendSubscription(key, target);
     }
   }
 
   unsubscribe(target: RealtimeSubscriptionTarget): void {
-    const key = realtimeSubscriptionTargetKey(target);
+    const key = this.subscriptionRefcountKey(target);
     const existing = this.subscriptions.get(key);
     if (!existing) {
       return;
@@ -428,6 +554,9 @@ export class WebSocketManager {
     }
 
     this.subscriptions.delete(key);
+    if (this.rejectedSubscriptionKeys.has(key)) {
+      return;
+    }
     if (this.socket?.readyState === WebSocket.OPEN) {
       this.sendMessage({ type: "unsubscribe", target });
     }
@@ -491,6 +620,26 @@ export class WebSocketManager {
 
   getConnectionState(): WebSocketConnectionState {
     return this.connectionState;
+  }
+
+  /**
+   * Whether realtime delivery is currently proven, not merely assumed.
+   * Callers that skip HTTP because "realtime will deliver it" must ask this.
+   */
+  isRealtimeLive(target?: RealtimeSubscriptionTarget): boolean {
+    if (this.connectionState !== "connected") {
+      return false;
+    }
+    if (this.stagingSubscriptionReplay) {
+      return false;
+    }
+    if (target !== undefined) {
+      const key = this.subscriptionRefcountKey(target);
+      if (this.rejectedSubscriptionKeys.has(key)) {
+        return false;
+      }
+    }
+    return Date.now() - this.lastServerActivityAt <= REALTIME_SILENCE_LIMIT_MS;
   }
 
   private sendMessage(msg: ClientMessage): void {

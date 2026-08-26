@@ -829,6 +829,50 @@ always in the timeline yet. To react to a thread's content, listen on
 in a handler — including `bb.sdk.threads.update({ threadId, title })` —
 cannot delay or interrupt the thread's turn.
 
+### bb.runtime — provider runtime hooks
+
+`bb.runtime` is the server-side runtime surface. These hooks run in the BB
+server, not in a provider bridge or agent-runtime process, so they also work
+when the daemon runs on another enrolled machine.
+
+```ts
+bb.runtime.onTurnPreflight(async (context) => {
+  // Return { kind: "admit" }, { kind: "reject", code, message },
+  // { kind: "admit-with", contextItems? }, or { kind: "require-approval", ... }.
+  return { kind: "admit" };
+});
+
+bb.runtime.onProviderEvent((observation) => {
+  // Delivered after the normalized provider event is durably stored.
+});
+
+bb.runtime.onTurnSettled((signal) => {
+  // completed | failed | interrupted | delivery-unknown | provider-session-lost
+});
+
+bb.runtime.onBindingLifecycle((signal) => {
+  // start | resume | model-changed | session-replaced | health-degraded |
+  // archived | crashed
+});
+```
+
+Preflight handlers run in plugin-id order with a shared two-second budget.
+The first explicit rejection wins; a throwing or slow handler admits the turn
+and is logged. `contextItems` are appended in handler order. `replaceInput`
+is single-claim and is refused for user-triggered turns. Preflight cannot
+change tool or skill selection: any attempted change is ignored and logged;
+the thread's spawn-pinned configuration remains authoritative. A requested
+approval uses the existing pending-interaction UI and a denial rejects the
+turn.
+
+The three observer hooks are fire-and-forget and failure-isolated. Provider
+events are delivered exactly once per durable insert and may be filtered with
+`onProviderEvent(handler, { eventTypes: [...] })`. A turn settlement's `turn`
+field is currently `null`; it is reserved for the structured record supplied
+by later telemetry support. Binding ids are opaque strings derived from the
+thread, provider, and provider-session id. All registrations and SDK
+subscriptions made through a plugin are disposed automatically on reload.
+
 ### bb.http — HTTP routes
 
 `bb.http.route(method, path, handler, { auth? })` mounts an exact-match
@@ -1566,6 +1610,10 @@ export default definePluginApp((app) => {
     id: "credentials",
     component: CredentialForm,
   });
+  app.slots.experimental_notificationBody({
+    id: "review-findings",
+    component: ReviewFindings,
+  });
   app.slots.sidebarFooterAction({
     id: "remote",
     title: "Remote access",
@@ -1936,6 +1984,15 @@ target? })`. Inside the fixed-tab component,
   `submit(value)` returns the JSON value to the waiting backend invocation,
   while `cancel()` settles it without a value. Keep sensitive field values in
   component state only.
+- `experimental_notificationBody` → `{ notification }` — renders structured,
+  plugin-owned detail inside a native Inbox row. Registration:
+  `{ id, component }`; `id` must equal the notification `rendererId` and the
+  host matches it under the notification's `pluginId`, so a plugin cannot claim
+  another plugin's content. `notification` includes identity, target ids,
+  category, title/body, timestamps, and JSON `payload`; Open and Dismiss stay
+  host-owned. Treat this as read-only display and keep the component compact:
+  every mount is crash-contained and a failure leaves the native row usable.
+  Experimental: see `docs/api_to_audit.md`.
 - `sidebarFooterAction` → host-rendered icon button in the app sidebar footer
   (next to Settings / bug report). No plugin component — the host paints
   the chrome so icons stay consistent. Registration:
@@ -2097,6 +2154,13 @@ providerId }`) and `Original`, the host's declarative base for the body —
   One registration per provider id per plugin; if two plugins claim one
   provider id the host keeps the first by plugin id and warns. See the
   `app.tsx` example under "The icon" above.
+- `transcriptPrelude` → plugin rows rendered above the native chat transcript,
+  for context that precedes the thread's own first message — the usual case is
+  a prior provider session this thread continues. Registration:
+  `{ id, component }`; the component receives `{ threadId: string }` and is
+  never mounted on the compose screen, so `threadId` is always present. Every
+  registered prelude mounts above the first native message, so a component with
+  nothing to show must return `null` rather than render an empty shell.
 
 Host components:
 

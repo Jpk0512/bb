@@ -188,7 +188,6 @@ describe("workflows CLI argument validation", () => {
         title: null,
         parentThreadId: null,
         sourceThreadId: null,
-        childKind: null,
       },
       project: {
         id: "project-test",

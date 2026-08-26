@@ -89,7 +89,7 @@ export function activityIntentTitleGlyph(
 export function workRowPresentation(
   row: TimelineViewWorkRow,
 ): TimelineRowPresentation | undefined {
-  if (row.workKind === "approval" || row.workKind === "question") {
+  if (row.workKind === "approval" || row.workKind === "question" || row.workKind === "child-session") {
     return undefined;
   }
   return row.presentation;
@@ -150,6 +150,8 @@ function fallbackGlyphForWorkRow(
       return "Lock";
     case "question":
       return "CircleQuestion";
+    case "child-session":
+      return "UserRoundPlus";
     default:
       return assertNever(row);
   }

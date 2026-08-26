@@ -6,6 +6,7 @@ import {
 import type {
   TimelineActivityIntent,
   TimelineApprovalStatus,
+  TimelineChildSessionWorkRow,
   TimelineCommandWorkRow,
   TimelineExtensionWorkRow,
   TimelineFileChange,
@@ -952,6 +953,26 @@ function delegationVerbForStatus(status: TimelineRowStatus): {
   }
 }
 
+function mapChildSessionTitle(row: TimelineChildSessionWorkRow): TimelineTitle {
+  const verb =
+    row.status === "pending"
+      ? "Running child session:"
+      : row.status === "completed"
+        ? "Completed child session:"
+        : row.status === "error"
+          ? "Child session failed:"
+          : "Child session interrupted:";
+  return makeTitle({
+    segments: [
+      segment(verb, { shimmer: row.status === "pending" }),
+      segment(row.title, { em: true, truncate: true }),
+    ],
+    decorations: filterNull([
+      durationDecoration(row.startedAt, row.completedAt),
+    ]),
+  });
+}
+
 function mapDelegationTitle(row: TimelineViewDelegationWorkRow): TimelineTitle {
   const description = row.description ?? (row.output.trim() || row.toolName);
   if (row.presentation) {
@@ -1455,6 +1476,8 @@ function mapWorkTitle(
         return mapImageViewTitle(row);
       case "delegation":
         return mapDelegationTitle(row);
+      case "child-session":
+        return mapChildSessionTitle(row);
       case "workflow":
         return mapWorkflowTitle(row);
       case "approval":

@@ -417,9 +417,6 @@ export function createProviderRegistryService(
       if (registration) {
         return registration.info.capabilities.supportsThreadRename;
       }
-      if (isAcpProviderId(providerId)) {
-        return ACP_TIER_CAPABILITIES.supportsThreadRename;
-      }
       return true;
     },
 
