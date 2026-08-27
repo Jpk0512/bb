@@ -24,7 +24,16 @@ export interface PiOAuthEntry {
 }
 
 export type ClaudeOAuthHydrateResult = "copied" | "skipped" | "unchanged";
-export type ClaudeOAuthEnsureResult = "live" | "refreshed" | "unauthenticated";
+/**
+ * `healed` means one store held a newer token than another, so the newest was
+ * written across all of them. Distinct from `live` so a caller can log that a
+ * split was repaired rather than silently fixing the same one every start.
+ */
+export type ClaudeOAuthEnsureResult =
+  | "live"
+  | "healed"
+  | "refreshed"
+  | "unauthenticated";
 
 /** Public Claude Code OAuth client. Token endpoint is the current CLI target. */
 export const CLAUDE_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
@@ -325,11 +334,27 @@ export async function refreshClaudeOAuthTokens(
   };
 }
 
+/**
+ * Read the keychain and the credentials file as *separate* candidates.
+ *
+ * `readClaudeOAuthTokens` collapses them keychain-before-file, which is right
+ * for "give me a token" and wrong for "are these stores in agreement". A
+ * hollow keychain shadowing a good file is invisible through the collapsed
+ * read, and that divergence is exactly what this module exists to repair —
+ * Claude Code reads the keychain first, so a stale entry there makes a valid
+ * file irrelevant.
+ */
 async function defaultReadCandidates(): Promise<ClaudeOAuthCandidate[]> {
   const candidates: ClaudeOAuthCandidate[] = [];
-  const claude = await readClaudeOAuthTokens();
-  if (claude) {
-    candidates.push({ source: "claude", tokens: claude });
+  const keychainRaw = await readClaudeKeychainCredentials();
+  const keychain = keychainRaw ? parseClaudeTokens(keychainRaw) : null;
+  if (keychain) {
+    candidates.push({ source: "claude", tokens: keychain });
+  }
+  const fileRaw = await readClaudeFileCredentials();
+  const file = fileRaw ? parseClaudeTokens(fileRaw) : null;
+  if (file) {
+    candidates.push({ source: "claude", tokens: file });
   }
   return candidates;
 }
@@ -371,43 +396,22 @@ async function writeClaudeCredentialsFile(
   await defaultWriteAuthFile(path, `${JSON.stringify(existing, null, 2)}\n`);
 }
 
-async function writeClaudeKeychain(tokens: ClaudeOAuthTokens): Promise<void> {
-  if (process.platform !== "darwin") {
-    return;
-  }
-  const payload = JSON.stringify({
-    claudeAiOauth: {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      expiresAt: tokens.expiresAt,
-    },
-  });
-  try {
-    await execFileAsync(
-      "security",
-      [
-        "add-generic-password",
-        "-U",
-        "-s",
-        CLAUDE_KEYCHAIN_SERVICE,
-        "-a",
-        userInfo().username,
-        "-w",
-        payload,
-      ],
-      { timeout: 10_000 },
-    );
-  } catch {
-    // File write is enough for the next CLI read; keychain is best-effort.
-  }
-}
 
+/**
+ * Write the stores bb may own. The keychain is deliberately not one of them.
+ *
+ * A keychain item created by this process carries an ACL that trusts this
+ * process, and the Claude CLI then cannot use it: measured twice, writing a
+ * valid token to `Claude Code-credentials` from here left the CLI reporting
+ * "Not logged in · Please run /login" until the item was deleted and it fell
+ * through to the credentials file. The keychain stays read-only to us — we
+ * consult it to find the newest token and let the CLI own writing it.
+ */
 async function defaultWriteStores(
   agentDir: string,
   tokens: ClaudeOAuthTokens,
 ): Promise<void> {
   await writeClaudeCredentialsFile(tokens);
-  await writeClaudeKeychain(tokens);
   await hydratePiAnthropicFromClaude({
     agentDir,
     readClaudeTokens: async () => tokens,
@@ -426,8 +430,9 @@ function compareCandidatesNewestFirst(
  *
  * The previous hydrate-only path refused to touch an expired access token
  * because each consumer refreshed independently and rotated the other off.
- * Refresh here, then write the new pair to the credentials file, the
- * canonical keychain item, and Pi's auth.json so rotation cannot split them.
+ * Refresh here, then write the new pair to the credentials file and Pi's
+ * auth.json so rotation cannot split them. The keychain is read-only to us
+ * (see defaultWriteStores): the CLI owns writing it.
  */
 export async function ensureClaudeOAuthFresh(
   options: EnsureClaudeOAuthFreshOptions,
@@ -438,16 +443,35 @@ export async function ensureClaudeOAuthFresh(
   const fromPi = await readPiAnthropicCandidate(options.agentDir);
   const candidates = [...fromClaude, ...(fromPi ? [fromPi] : [])];
 
-  const live = candidates.find((candidate) =>
-    isLiveAccess(candidate.tokens.expiresAt, now),
-  );
+  // Newest wins. Candidates are read keychain-before-file, so taking the first
+  // live one lets a stale keychain overwrite a freshly written credentials
+  // file — the same "rotated the other off" split this function exists to
+  // prevent, caused by the repair itself.
+  const liveCandidates = candidates
+    .filter((candidate) => isLiveAccess(candidate.tokens.expiresAt, now))
+    .sort(compareCandidatesNewestFirst);
+  const live = liveCandidates[0];
   if (live) {
     await hydrate({
       agentDir: options.agentDir,
       now,
       readClaudeTokens: async () => live.tokens,
     });
-    return "live";
+    // Only write when a store actually disagrees: an agreeing set must be
+    // left alone so every start is not a write, and so "healed" keeps meaning
+    // a split was actually repaired.
+    const divergent = candidates.some(
+      (candidate) => candidate.tokens.accessToken !== live.tokens.accessToken,
+    );
+    if (!divergent) {
+      return "live";
+    }
+    if (options.writeStores) {
+      await options.writeStores(live.tokens);
+    } else {
+      await defaultWriteStores(options.agentDir, live.tokens);
+    }
+    return "healed";
   }
 
   const refreshable = [...candidates]

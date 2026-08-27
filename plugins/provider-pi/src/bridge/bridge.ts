@@ -14,7 +14,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import {
@@ -58,6 +58,7 @@ import {
   type PiSessionParams,
 } from "../session-params.js";
 import { BB_PI_EXTENSION_SOURCE } from "./bb-pi-extension.js";
+import { ensureClaudeOAuthFresh } from "./claude-oauth-hydrate.js";
 import {
   getPiInstallGate,
   getPiProviderInstallationRun,
@@ -734,11 +735,42 @@ async function buildSessionOptions(args: {
  * the thread; a start that fails takes the registration back out, so the
  * caller decides what serves the thread next.
  */
+/**
+ * Keep the Anthropic session usable before a child that needs it starts.
+ *
+ * Pi, the Claude CLI, and the credentials file are three stores of one
+ * session, and each refreshes independently — so whichever refreshes last
+ * rotates the others dead. Reconciling here is cheap (it writes nothing when
+ * the stores already agree) and runs at the only moment that matters: just
+ * before constructing a session on a model that needs the token.
+ *
+ * Never fatal, and deliberately silent. A provider that cannot authenticate
+ * should fail with its own error, not with a reconciliation warning.
+ */
+async function reconcileAnthropicSession(model: string | undefined): Promise<void> {
+  if (model === undefined || !/(^|\/)anthropic\//i.test(model)) return;
+  try {
+    await ensureClaudeOAuthFresh({
+      agentDir: resolveClaudeReconcileAgentDir(),
+    });
+  } catch {
+    // A failed reconcile leaves the stores exactly as they were.
+  }
+}
+
+function resolveClaudeReconcileAgentDir(): string {
+  const configured = process.env.PI_CODING_AGENT_DIR?.trim();
+  return configured && configured.length > 0
+    ? configured
+    : join(homedir(), ".pi", "agent");
+}
+
 async function constructPiThreadSession(
   threadId: string,
   providerThreadId: string,
   params: PiSessionParams,
 ): Promise<ThreadSession> {
+  await reconcileAnthropicSession(params.model);
   const sessionSerial = nextSessionSerial();
   const sessionOptions = await buildSessionOptions({
     params,

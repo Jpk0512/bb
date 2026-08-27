@@ -158,6 +158,102 @@ describe("ensureClaudeOAuthFresh", () => {
     ]);
   });
 
+  it("writes the NEWEST live token, never an older live one", async () => {
+    // Regression: candidates are read keychain-before-file, so taking the
+    // first live one let a stale keychain overwrite a freshly written
+    // credentials file, destroying a just-completed login with a token the
+    // server had already rotated dead.
+    const written: ClaudeOAuthTokens[] = [];
+    const result = await ensureClaudeOAuthFresh({
+      agentDir: "/tmp/pi-agent-ensure",
+      now: NOW,
+      hydrate: async () => "unchanged" as const,
+      readCandidates: async () => [
+        {
+          source: "claude",
+          tokens: liveClaude({
+            accessToken: "stale-but-live",
+            refreshToken: "stale-refresh",
+            expiresAt: NOW + 60 * 60 * 1000,
+          }),
+        },
+        {
+          source: "claude",
+          tokens: liveClaude({
+            accessToken: "freshly-logged-in",
+            refreshToken: "fresh-refresh",
+            expiresAt: NOW + 8 * 60 * 60 * 1000,
+          }),
+        },
+      ],
+      refreshTokens: async () => {
+        throw new Error("must not refresh when a live token exists");
+      },
+      writeStores: async (tokens) => {
+        written.push(tokens);
+      },
+    });
+
+    expect(result).toBe("healed");
+    expect(written).toHaveLength(1);
+    expect(written[0]?.accessToken).toBe("freshly-logged-in");
+  });
+
+  it("does not write when every store already holds the same token", async () => {
+    // A keychain rewritten by this process can lose the ACL the Claude CLI
+    // needs to update it, so an agreeing set must be left alone.
+    const written: ClaudeOAuthTokens[] = [];
+    const shared = liveClaude({ accessToken: "same", refreshToken: "r" });
+    const result = await ensureClaudeOAuthFresh({
+      agentDir: "/tmp/pi-agent-ensure",
+      now: NOW,
+      hydrate: async () => "unchanged" as const,
+      readCandidates: async () => [
+        { source: "claude", tokens: shared },
+        { source: "claude", tokens: shared },
+      ],
+      refreshTokens: async () => {
+        throw new Error("must not refresh");
+      },
+      writeStores: async (tokens) => {
+        written.push(tokens);
+      },
+    });
+    expect(result).toBe("live");
+    expect(written).toEqual([]);
+  });
+
+  it("heals a hollow store from a live one", async () => {
+    const written: ClaudeOAuthTokens[] = [];
+    const result = await ensureClaudeOAuthFresh({
+      agentDir: "/tmp/pi-agent-ensure",
+      now: NOW,
+      hydrate: async () => "unchanged" as const,
+      readCandidates: async () => [
+        {
+          source: "claude",
+          tokens: liveClaude({
+            accessToken: "dead",
+            refreshToken: "",
+            expiresAt: NOW - 60_000,
+          }),
+        },
+        {
+          source: "claude",
+          tokens: liveClaude({ accessToken: "good", refreshToken: "r" }),
+        },
+      ],
+      refreshTokens: async () => {
+        throw new Error("must not refresh when a live token exists");
+      },
+      writeStores: async (tokens) => {
+        written.push(tokens);
+      },
+    });
+    expect(result).toBe("healed");
+    expect(written[0]?.accessToken).toBe("good");
+  });
+
   it("does not call refresh when a live access token already exists", async () => {
     let refreshed = false;
     const result = await ensureClaudeOAuthFresh({
