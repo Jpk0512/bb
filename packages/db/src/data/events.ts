@@ -3904,10 +3904,6 @@ export interface GetRootStoredTurnStartedSequenceArgs {
   turnId: string;
 }
 
-export interface ListLatestGoalEventRowsByThreadIdsArgs {
-  threadIds: readonly string[];
-}
-
 export interface ListStoredEventRowsByThreadIdsAndTypesArgs {
   threadIds: readonly string[];
   types: readonly ThreadEventType[];
@@ -3927,6 +3923,11 @@ export interface ListStoredEventRowsInRangeArgs {
 }
 
 export interface ListTurnConversationItemRowsArgs {
+  threadId: string;
+  turnId: string;
+}
+
+export interface GetTurnClientRequestRowArgs {
   threadId: string;
   turnId: string;
 }
@@ -4085,52 +4086,6 @@ export function getStoredProviderThreadIdAtOrBeforeSequence(
   return row?.providerThreadId ?? null;
 }
 
-export function listLatestGoalEventRowsByThreadIds(
-  db: DbQueryConnection,
-  args: ListLatestGoalEventRowsByThreadIdsArgs,
-): StoredEventRow[] {
-  return queryInSqliteVariableBatches({
-    dedupeKey: (threadId) => threadId,
-    fixedVariableCount: 0,
-    queryBatch: (threadIds) => {
-      // This runs over every listed thread on each sidebar bootstrap, so it
-      // must stay proportional to goal events, not all events. Literal goal
-      // types imply the partial-index predicate at prepare time; INDEXED BY
-      // prevents a stats-less planner from walking the full thread index; and
-      // no ORDER BY is needed because sequence is unique per thread (#1131).
-      const goalTypes = [
-        "thread/goal/updated",
-        "thread/goal/cleared",
-      ] as const satisfies readonly ThreadEventType[];
-      const goalTypesPredicate = sql.raw(
-        `IN (${goalTypes.map((type) => `'${type}'`).join(", ")})`,
-      );
-      const threadIdList = sql.join(
-        threadIds.map((threadId) => sql`${threadId}`),
-        sql`, `,
-      );
-      return db
-        .select(storedEventRowFields)
-        .from(events)
-        .where(sql`${events}.rowid IN (
-        SELECT latest_goal.rowid
-        FROM ${events} AS latest_goal INDEXED BY events_goal_thread_sequence_idx
-        WHERE latest_goal.thread_id IN (${threadIdList})
-          AND latest_goal.type ${goalTypesPredicate}
-          AND latest_goal.sequence = (
-            SELECT MAX(candidate.sequence)
-            FROM ${events} AS candidate INDEXED BY events_goal_thread_sequence_idx
-            WHERE candidate.thread_id = latest_goal.thread_id
-              AND candidate.type ${goalTypesPredicate}
-          )
-      )`)
-        .all();
-    },
-    values: args.threadIds,
-    variableCountPerValue: 1,
-  });
-}
-
 export function listStoredEventRowsByThreadIdsAndTypes(
   db: DbConnection,
   args: ListStoredEventRowsByThreadIdsAndTypesArgs,
@@ -4242,4 +4197,42 @@ export function listTurnConversationItemRows(
     )
     .orderBy(events.sequence)
     .all();
+}
+
+/**
+ * The `client/turn/requested` row that opened a turn, or null.
+ *
+ * A turn's own conversation items carry assistant text only: no provider in
+ * this fork emits a `userMessage` item, so reading the turn's rows never
+ * yields what the user actually asked. That text lives on
+ * `client/turn/requested`, which is thread-scoped and stores no `turn_id`.
+ * `turn/input/accepted` is the row that ties a client request id to the turn,
+ * so the join goes through it. Both sides are served by the
+ * (thread_id, type, sequence) index rather than a thread-wide scan.
+ */
+export function getTurnClientRequestRow(
+  db: DbQueryConnection,
+  args: GetTurnClientRequestRowArgs,
+): StoredEventRow | null {
+  return (
+    db
+      .select(storedEventRowFields)
+      .from(events)
+      .where(
+        sql`${events.threadId} = ${args.threadId}
+          AND ${events.type} = 'client/turn/requested'
+          AND json_extract(${events.data}, '$.requestId') = (
+            SELECT json_extract(accepted.data, '$.clientRequestId')
+            FROM ${events} AS accepted
+            WHERE accepted.thread_id = ${args.threadId}
+              AND accepted.turn_id = ${args.turnId}
+              AND accepted.type = 'turn/input/accepted'
+            ORDER BY accepted.sequence
+            LIMIT 1
+          )`,
+      )
+      .orderBy(events.sequence)
+      .limit(1)
+      .get() ?? null
+  );
 }

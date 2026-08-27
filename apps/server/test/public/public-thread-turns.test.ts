@@ -1,5 +1,9 @@
 import { deleteProject, upsertThreadTurnRecord } from "@bb/db";
-import { turnScope } from "@bb/domain";
+import {
+  encodeClientTurnRequestIdNumber,
+  threadScope,
+  turnScope,
+} from "@bb/domain";
 import type { ThreadTurnRecord, ThreadTurnSpan } from "@bb/domain";
 import {
   apiErrorSchema,
@@ -203,6 +207,87 @@ describe("public thread turns route", () => {
       expect(messages).toHaveLength(1);
       expect(messages?.[0]?.text).toHaveLength(longText.length);
       expect(messages?.[0]?.text).toBe(longText);
+    });
+  });
+
+  it("recovers the user prompt from client/turn/requested when a turn has no userMessage item", async () => {
+    await withTestHarness(async (harness) => {
+      const { thread, project, environment } = await seedTelemetryThread(harness);
+      const turnId = "turn-prompt";
+      const requestId = encodeClientTurnRequestIdNumber({ value: 1 });
+
+      seedEvent(harness.deps, {
+        threadId: thread.id,
+        environmentId: environment.id,
+        sequence: 1,
+        type: "client/turn/requested",
+        scope: threadScope(),
+        data: {
+          direction: "outbound",
+          requestId,
+          input: [
+            { type: "text", text: "why is the build red?" },
+            {
+              type: "text",
+              text: "injected context the user never typed",
+              visibility: "agent-only",
+            },
+          ],
+          target: { kind: "new-turn" },
+          execution: {
+            model: "gpt-5",
+            serviceTier: "default",
+            reasoningLevel: "medium",
+            permissionMode: "full",
+            source: "client/turn/requested",
+          },
+          initiator: "user",
+          senderThreadId: null,
+          request: { method: "turn/start", params: {} },
+          source: "tell",
+        },
+      });
+      seedEvent(harness.deps, {
+        threadId: thread.id,
+        environmentId: environment.id,
+        providerThreadId: "provider-1",
+        sequence: 2,
+        type: "turn/input/accepted",
+        scope: turnScope(turnId),
+        data: { providerThreadId: "provider-1", clientRequestId: requestId },
+      });
+      seedEvent(harness.deps, {
+        threadId: thread.id,
+        environmentId: environment.id,
+        sequence: 3,
+        type: "item/completed",
+        scope: turnScope(turnId),
+        data: {
+          providerThreadId: "provider-1",
+          item: { id: "agent-1", type: "agentMessage", text: "the linker step" },
+        },
+      });
+      upsertThreadTurnRecord(
+        harness.db,
+        turnRecordFixture({
+          threadId: thread.id,
+          turnId,
+          projectId: project.id,
+          completedAt: 1_000,
+        }),
+      );
+
+      const response = await harness.app.request(
+        `/api/v1/threads/${thread.id}/turns?include=messages`,
+      );
+      expect(response.status).toBe(200);
+      const body = threadTurnsResponseSchema.parse(await readJson(response));
+      const messages = body.turns[0]?.messages;
+      expect(messages?.map((message) => message.role)).toEqual([
+        "user",
+        "assistant",
+      ]);
+      expect(messages?.[0]?.text).toBe("why is the build red?");
     });
   });
 

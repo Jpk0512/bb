@@ -4,6 +4,7 @@ import {
   getLatestThreadSequence,
   getLatestStoredConversationOutlineSequence,
   getThreadTurnRecord,
+  getTurnClientRequestRow,
   listThreadTurnRecords,
   listTurnConversationItemRows,
   listQueuedThreadMessages,
@@ -200,11 +201,54 @@ function parseThreadTimelinePage(
   };
 }
 
+/**
+ * The user's prompt for a turn, recovered from `client/turn/requested`.
+ *
+ * No provider in this fork emits a `userMessage` item, so a turn's own
+ * conversation rows are assistant-only. Without this, every consumer of
+ * `threads.turns({ include: "messages" })` — session memory, handoff packets,
+ * history search — loses what the user actually asked for. Agent-only parts
+ * are excluded: injected context is not something the user said.
+ */
+function threadTurnRequestedMessage(
+  deps: Pick<AppDeps, "db">,
+  args: { threadId: string; turnId: string },
+): ThreadTurnMessage | null {
+  const row = getTurnClientRequestRow(deps.db, args);
+  if (row === null) return null;
+  const event = parseStoredThreadEvent({
+    data: JSON.parse(row.data),
+    providerThreadId: row.providerThreadId,
+    scope:
+      row.scopeKind === "turn" && row.turnId !== null
+        ? turnScope(row.turnId)
+        : threadScope(),
+    threadId: row.threadId,
+    type: row.type,
+  });
+  if (event.type !== "client/turn/requested") return null;
+  const text = event.input
+    .flatMap((part) =>
+      part.type === "text" && part.visibility !== "agent-only"
+        ? [part.text]
+        : [],
+    )
+    .join("\n")
+    .trim();
+  if (text.length === 0) return null;
+  return {
+    itemId: `client-request:${event.requestId}`,
+    role: "user" as const,
+    text,
+    createdAt: row.createdAt,
+  };
+}
+
 function threadTurnMessages(
   deps: Pick<AppDeps, "db">,
   args: { threadId: string; turnId: string },
 ): ThreadTurnMessage[] {
-  return listTurnConversationItemRows(deps.db, args).flatMap(
+  const itemMessages = listTurnConversationItemRows(deps.db, args).flatMap(
     (row): ThreadTurnMessage[] => {
     const event = parseStoredThreadEvent({
       data: JSON.parse(row.data),
@@ -234,6 +278,13 @@ function threadTurnMessages(
       return [];
     },
   );
+  // A provider that does emit userMessage items already carries the prompt;
+  // only fill the gap when it is actually missing.
+  if (itemMessages.some((message) => message.role === "user")) {
+    return itemMessages;
+  }
+  const requested = threadTurnRequestedMessage(deps, args);
+  return requested === null ? itemMessages : [requested, ...itemMessages];
 }
 
 async function requireThreadStorageTarget(

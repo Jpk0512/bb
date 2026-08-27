@@ -11,6 +11,7 @@ import type {
   ProviderComposerCommand,
   Thread,
 } from "@bb/domain";
+import { LEGACY_CODEX_GOAL_EXTENSION_KIND } from "@bb/domain";
 import type {
   ThreadConversationOutlineItem,
   ThreadConversationOutlineResponse,
@@ -39,7 +40,7 @@ import {
   listStoredBufferedTextDeltaRowsByItems,
   listStoredItemLifecycleRowsByItems,
   listLatestBackgroundTaskStateRowsByItemIds,
-  listLatestGoalEventRowsByThreadIds,
+  listLatestThreadStateEventRowsByThreadIds,
   listLatestOpenBackgroundTaskStateRowsForThread,
   listStoredTimelineWindowEventRows,
   listTodoSnapshotEventRowsForThread,
@@ -1013,7 +1014,10 @@ function ensureLatestTimelineHeadStateRows(
   args: TimelineWindowRowsArgs,
 ): StoredEventRow[] {
   const headStateRows = [
-    ...listLatestGoalEventRowsByThreadIds(db, { threadIds: [args.threadId] }),
+    ...listLatestThreadStateEventRowsByThreadIds(db, {
+      threadIds: [args.threadId],
+      kind: LEGACY_CODEX_GOAL_EXTENSION_KIND,
+    }),
     ...listTodoSnapshotEventRowsForThread(db, { threadId: args.threadId }),
   ];
   if (headStateRows.length === 0) {

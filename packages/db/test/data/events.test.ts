@@ -38,6 +38,7 @@ import {
   listOpenTurnInputAcceptedRowsByThreadIds,
   listStoredClientTurnRequestIdsInRange,
   listStoredClientTurnRequestRowsByKeys,
+  getTurnClientRequestRow,
   listStoredEventRows,
   listStoredThreadProvisioningRowsByProvisioningId,
   findUnfinishedTurnCoveringSequence,
@@ -5397,5 +5398,101 @@ describe("hasParentedEventCrossingSequence", () => {
         threadId: thread.id,
       }),
     ).toBe(false);
+  });
+});
+
+describe("getTurnClientRequestRow", () => {
+  // No provider emits a userMessage item, so a turn's own rows are
+  // assistant-only. The prompt has to come back through the accepted row's
+  // clientRequestId or the whole session-memory plane loses user intent.
+  it("joins a turn to the client request that opened it", () => {
+    const { db, thread } = setup();
+    const requestId = "creq_23456789ab";
+    insertEvents(db, noopNotifier, [
+      {
+        threadId: thread.id,
+        sequence: 1,
+        type: "client/turn/requested",
+        ...threadEventFields,
+        data: clientTurnRequestData(requestId, "why is the build red?"),
+      },
+      {
+        threadId: thread.id,
+        sequence: 2,
+        type: "turn/input/accepted",
+        ...emptyItemFields,
+        scope: turnScope("turn-1"),
+        data: JSON.stringify({
+          providerThreadId: "provider-thread-1",
+          clientRequestId: requestId,
+        }),
+      },
+    ]);
+
+    const row = getTurnClientRequestRow(db, {
+      threadId: thread.id,
+      turnId: "turn-1",
+    });
+
+    expect(row).toEqual(
+      expect.objectContaining({ sequence: 1, type: "client/turn/requested" }),
+    );
+    expect(JSON.parse(row!.data).input[0].text).toBe("why is the build red?");
+  });
+
+  it("does not return another turn's request", () => {
+    const { db, thread } = setup();
+    insertEvents(db, noopNotifier, [
+      {
+        threadId: thread.id,
+        sequence: 1,
+        type: "client/turn/requested",
+        ...threadEventFields,
+        data: clientTurnRequestData("creq_1111111111", "first"),
+      },
+      {
+        threadId: thread.id,
+        sequence: 2,
+        type: "turn/input/accepted",
+        ...emptyItemFields,
+        scope: turnScope("turn-1"),
+        data: JSON.stringify({
+          providerThreadId: "provider-thread-1",
+          clientRequestId: "creq_1111111111",
+        }),
+      },
+      {
+        threadId: thread.id,
+        sequence: 3,
+        type: "client/turn/requested",
+        ...threadEventFields,
+        data: clientTurnRequestData("creq_2222222222", "second"),
+      },
+      {
+        threadId: thread.id,
+        sequence: 4,
+        type: "turn/input/accepted",
+        ...emptyItemFields,
+        scope: turnScope("turn-2"),
+        data: JSON.stringify({
+          providerThreadId: "provider-thread-1",
+          clientRequestId: "creq_2222222222",
+        }),
+      },
+    ]);
+
+    const row = getTurnClientRequestRow(db, {
+      threadId: thread.id,
+      turnId: "turn-2",
+    });
+
+    expect(JSON.parse(row!.data).input[0].text).toBe("second");
+  });
+
+  it("returns null for a turn that never accepted client input", () => {
+    const { db, thread } = setup();
+    expect(
+      getTurnClientRequestRow(db, { threadId: thread.id, turnId: "turn-x" }),
+    ).toBeNull();
   });
 });
