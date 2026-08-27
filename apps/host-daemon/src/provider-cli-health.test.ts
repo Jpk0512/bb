@@ -456,7 +456,6 @@ describe("provider CLI health", () => {
       installAction: {
         kind: "install",
         label: "Install",
-        commandKind: "exec",
         command: "npm install -g @openai/codex@latest",
       },
       needsUpdate: false,
@@ -479,7 +478,6 @@ describe("provider CLI health", () => {
     expect(status.installAction).toEqual({
       kind: "install",
       label: "Install",
-      commandKind: "shell",
       command: CLAUDE_INSTALL_COMMAND,
     });
   });
@@ -508,7 +506,6 @@ describe("provider CLI health", () => {
       installAction: {
         kind: "install",
         label: "Install",
-        commandKind: "shell",
         command: CURSOR_INSTALL_COMMAND,
       },
       needsUpdate: false,
@@ -538,7 +535,6 @@ describe("provider CLI health", () => {
     expect(status.installAction).toEqual({
       kind: "update",
       label: "Update",
-      commandKind: "exec",
       command: "codex update",
     });
   });
@@ -560,7 +556,6 @@ describe("provider CLI health", () => {
     expect(status.installAction).toEqual({
       kind: "update",
       label: "Update",
-      commandKind: "exec",
       command: "codex update",
     });
   });
@@ -597,7 +592,6 @@ describe("provider CLI health", () => {
     expect(status.installAction).toEqual({
       kind: "update",
       label: "Update",
-      commandKind: "exec",
       command: "claude update",
     });
   });
@@ -637,7 +631,6 @@ describe("provider CLI health", () => {
     expect(status.installAction).toEqual({
       kind: "update",
       label: "Update",
-      commandKind: "exec",
       command: "claude update",
     });
   });
