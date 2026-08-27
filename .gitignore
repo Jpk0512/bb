@@ -92,3 +92,6 @@ provider-recordings/raw/
 **/provider-corpus/**
 !apps/server/test/provider-corpus/**
 !scripts/provider-corpus/**
+
+# rtk local cache
+.rtk/
